@@ -24,8 +24,8 @@ export function encodeProcedureOk(values: ValueList): usize {
   return encodeProcedureOkUni(values.toUniDataValues());
 }
 
-// Ok arm over raw wire datums: the shape record-typed results take (a
-// `ValueList` carries only the scalar DX value kinds, so a record result is
+// Ok arm over raw wire datums: the shape struct-typed results take (a
+// `ValueList` carries only the scalar DX value kinds, so a struct result is
 // wrapped by `recordFromFieldValues` and passed here directly).
 export function encodeProcedureOkUni(values: Array<UniDataValue>): usize {
   const result = new UniProcedureResult();

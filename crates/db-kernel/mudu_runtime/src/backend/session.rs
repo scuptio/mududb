@@ -4,8 +4,11 @@ use std::cell::RefCell;
 
 use async_trait::async_trait;
 use futures::{Sink, Stream, stream};
-use pgwire::api::auth::md5pass::hash_md5_password;
-use pgwire::api::auth::{AuthSource, LoginInfo, Password};
+use pgwire::api::auth::md5pass::{Md5PasswordAuthStartupHandler, hash_md5_password};
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
+use pgwire::api::copy::CopyHandler;
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -14,7 +17,9 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::PortalStore;
-use pgwire::api::{ClientInfo, ClientPortalStore, Type};
+use pgwire::api::{
+    ClientInfo, ClientPortalStore, ErrorHandler, NoopHandler, PgWireServerHandlers, Type,
+};
 
 use mudu::common::id::OID;
 use mudu::error::ErrorCode;
@@ -109,7 +114,7 @@ impl SimpleQueryHandler for Session {
             .prepare(query)
             .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        if query.to_uppercase().starts_with("SELECT") {
+        if statement_returns_rows(query) {
             let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
             let rows = stmt
                 .query(())
@@ -215,7 +220,7 @@ impl ExtendedQueryHandler for Session {
             .await
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let params = get_params(portal)?;
-        if query.to_uppercase().starts_with("SELECT") {
+        if statement_returns_rows(query) {
             let header = Arc::new(row_desc_from_stmt(&stmt, &portal.result_column_format)?);
             let rows = stmt
                 .query(Params::Positional(params))
@@ -236,6 +241,19 @@ impl ExtendedQueryHandler for Session {
 unsafe impl Send for Session {}
 
 unsafe impl Sync for Session {}
+
+/// Whether the statement produces a result set: `SELECT` queries and queue
+/// `RECEIVE` statements (envelope rows) both do; everything else goes through
+/// the execution (affected-rows) path.
+fn statement_returns_rows(query: &str) -> bool {
+    let leading = query.trim_start();
+    leading
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("SELECT"))
+        || leading
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("RECEIVE"))
+}
 
 pub(super) fn get_params(portal: &Portal<String>) -> PgWireResult<Vec<Value>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
@@ -385,4 +403,29 @@ pub(super) fn encode_row_data(
 
         Some((Ok(encoder.take_row()), (rows, schema)))
     })
+}
+
+impl PgWireServerHandlers for SessionCtx {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
+        Arc::new(Session::new(self.clone()))
+    }
+
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
+        Arc::new(Session::new(self.clone()))
+    }
+
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
+        Arc::new(Md5PasswordAuthStartupHandler::new(
+            Arc::new(DummyAuthSource::new(self.clone())),
+            Arc::new(DefaultServerParameterProvider::default()),
+        ))
+    }
+
+    fn copy_handler(&self) -> Arc<impl CopyHandler> {
+        Arc::new(NoopHandler)
+    }
+
+    fn error_handler(&self) -> Arc<impl ErrorHandler> {
+        Arc::new(NoopHandler)
+    }
 }

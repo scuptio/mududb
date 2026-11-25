@@ -4,7 +4,7 @@ use crate::_arb_limit;
 use arbitrary::{Arbitrary, Unstructured};
 
 /// Generates an arbitrary ASCII name of bounded length.
-pub fn _arbitrary_name(u: &mut Unstructured) -> arbitrary::Result<String> {
+pub(crate) fn _arbitrary_name(u: &mut Unstructured) -> arbitrary::Result<String> {
     let arb_u32 = u32::arbitrary(u)?;
     let name_len = (arb_u32 as usize) % _arb_limit::_ARB_MAX_NAME_LEN + 1;
     let mut name = String::new();

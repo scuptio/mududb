@@ -28,6 +28,7 @@ hyper-util = { workspace = true, optional = true }
 lazy_static = { workspace = true, optional = true }
 mudu = { workspace = true }
 mudu_sys = { workspace = true }
+async-trait = { workspace = true }
 scc = { workspace = true }
 async-backtrace = { workspace = true }
 tracing = { workspace = true }
@@ -42,3 +43,4 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
+rmp-serde = { workspace = true }

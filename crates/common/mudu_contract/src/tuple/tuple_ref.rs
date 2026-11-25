@@ -1,6 +1,6 @@
 //! Borrowed accessor over a binary tuple.
 
-use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
+use crate::tuple::field_desc::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::slot::Slot;
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::result::RS;

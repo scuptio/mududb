@@ -1,7 +1,7 @@
 //! Rust conversion-expression generation for the MSSP wire runtime.
 //!
 //! The generated record/variant/func codecs are thin: every typed value is
-//! converted to or from the dynamic [`Value`] model of the hand-written
+//! converted to or from the dynamic [`mudu_binding::universal::mp_wire::Value`] model of the hand-written
 //! `mp_wire` runtime (`crate::universal::mp_wire`). This module renders the
 //! per-type conversion expressions the Rust templates splice in.
 //!
@@ -106,7 +106,7 @@ pub fn rust_to_value(ty: &UniDataType, expr: &str, func_bin: bool) -> RS<String>
         }
         UniDataType::Box(inner) => rust_to_value(inner, expr, func_bin)?,
         UniDataType::Identifier(_) => format!("({expr}).to_value()"),
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("wire conversion for {ty:?} is not implemented")
@@ -195,7 +195,7 @@ pub fn rust_from_value(ty: &UniDataType, expr: &str) -> RS<String> {
             let name = uni_data_type_to_name(ty, &LangKind::Rust)?;
             format!("{name}::from_value({expr})")
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("wire conversion for {ty:?} is not implemented")

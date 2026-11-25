@@ -1,7 +1,7 @@
 //! Command-line binary for the `mpm_build` crate.
 //!
 //! This binary implements the `mpm-build` tool, which can create Mudu APP package
-//! archives and merge procedure-description files.
+//! archives (flat `.mpk` + `.mpk.zip`) and merge procedure-description files.
 
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used)]
@@ -18,7 +18,7 @@ use mudu::common::app_info::AppInfo;
 use mudu::compat::SYSCALL_PAYLOAD_CURRENT_VERSION;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu::utils::json::to_json_str;
+use mudu_caf::profile::PackageSpec;
 use mudu_contract::procedure::mod_proc_desc::ModProcDesc;
 use mudu_sys::fs::sync::{SFile, sync_create_dir_all, sync_path_exists};
 use mudu_utils::json::read_json;
@@ -27,10 +27,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 #[cfg(test)]
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipWriter};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum MpmBuildCommand {
@@ -52,6 +50,10 @@ struct MpmBuildPackage {
     initdb_sql: String,
     wasm_files: Vec<String>,
     output_path: String,
+    /// Optional ed25519 signing seed (64 hex chars). Defaults to the
+    /// `MUDUDB_MPK_SIGN_SEED` environment variable when unset.
+    #[serde(default)]
+    sign_seed: Option<String>,
 }
 
 impl MpmBuildPackage {
@@ -185,6 +187,13 @@ fn build_command() -> Command {
                         .value_name("FILE")
                         .help("Output package archive file path")
                         .required(false),
+                )
+                .arg(
+                    Arg::new("sign-seed")
+                        .long("sign-seed")
+                        .value_name("HEX")
+                        .help("ed25519 signing seed (64 hex chars); falls back to MUDUDB_MPK_SIGN_SEED")
+                        .required(false),
                 ),
         )
         .subcommand(
@@ -250,6 +259,7 @@ fn parse_from_matches(matches: &clap::ArgMatches) -> Result<MpmBuildCommand> {
                     .get_one::<String>("output")
                     .cloned()
                     .unwrap_or(Default::default()),
+                sign_seed: sub_matches.get_one::<String>("sign-seed").cloned(),
             };
             MpmBuildCommand::Package(cmd)
         }
@@ -284,6 +294,9 @@ fn parse_from_matches(matches: &clap::ArgMatches) -> Result<MpmBuildCommand> {
             let default_output = format!("{}.mpk", app_cfg.name);
             pkg.output_path = default_output;
         }
+        if pkg.sign_seed.is_none() {
+            pkg.sign_seed = mudu_sys::env_var::var("MUDUDB_MPK_SIGN_SEED");
+        }
         pkg.validate()?;
     }
 
@@ -305,91 +318,77 @@ where
     parse_from_matches(&matches)
 }
 
-fn add_file_to_zip<P: AsRef<Path>>(
-    zip_writer: &mut ZipWriter<SFile>,
-    file_path: P,
-    zip_path: &str,
-) -> Result<()> {
-    let mut file = SFile::open(file_path.as_ref())?;
-    zip_writer.start_file(
-        zip_path,
-        SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
-    )?;
-    io::copy(&mut file, zip_writer)?;
-    Ok(())
+fn read_text_file<P: AsRef<Path>>(path: P) -> Result<String> {
+    let mut file = SFile::open(path.as_ref())?;
+    let mut text = String::new();
+    file.read_to_string(&mut text).map_err(io_error)?;
+    Ok(text)
 }
 
-fn add_bytes_to_zip(zip_writer: &mut ZipWriter<SFile>, bytes: &[u8], zip_path: &str) -> Result<()> {
-    zip_writer.start_file(
-        zip_path,
-        SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
-    )?;
-    zip_writer.write_all(bytes)?;
-    Ok(())
+fn read_bytes_file<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    let mut file = SFile::open(path.as_ref())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(io_error)?;
+    Ok(bytes)
 }
 
-#[derive(Debug, Serialize)]
-struct PackageManifest {
-    format_version: u16,
-    syscall_abi_version: u32,
-    files: Vec<String>,
-}
-
-fn write_package_archive(config: &MpmBuildPackage) -> Result<()> {
-    // Create output directory if it doesn't exist
-    if let Some(parent) = PathBuf::from(&config.output_path).parent() {
+fn write_bytes_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = PathBuf::from(path.as_ref()).parent() {
         sync_create_dir_all(parent)?;
     }
+    let mut file = SFile::create(path.as_ref())?;
+    file.write_all(bytes).map_err(io_error)?;
+    Ok(())
+}
 
-    // Create zip file
-    let file = SFile::create(&config.output_path)?;
-    let mut zip = ZipWriter::new(file);
+fn io_error(e: std::io::Error) -> anyhow::Error {
+    anyhow::Error::new(mudu_error!(ErrorCode::Io, "file io error", e))
+}
 
-    // Build and embed a manifest for forward/backward-compatible extensions.
-    let mut file_list = vec![
-        "package.cfg.json".to_string(),
-        "package.desc.json".to_string(),
-        "ddl.sql".to_string(),
-        "initdb.sql".to_string(),
-    ];
+/// Builds the flat `.mpk` archive plus its `.mpk.zip` export from the package
+/// inputs, signed when a seed is configured.
+fn write_package_archive(config: &MpmBuildPackage) -> Result<()> {
+    let app_cfg: AppInfo = read_json(&config.package_cfg)?;
+    let cfg_text = read_text_file(&config.package_cfg)?;
+    let desc_text = read_text_file(&config.package_desc)?;
+    let ddl_sql = read_text_file(&config.ddl_sql)?;
+    let initdb_sql = read_text_file(&config.initdb_sql)?;
+
+    let mut modules = Vec::with_capacity(config.wasm_files.len());
     for wasm_path in &config.wasm_files {
-        let wasm_path = PathBuf::from(wasm_path);
-        let file_name = wasm_path
-            .file_name()
-            .and_then(|v| v.to_str())
-            .ok_or_else(|| anyhow!("Invalid WASM file path: {}", wasm_path.display()))?;
-        file_list.push(file_name.to_string());
+        let name = PathBuf::from(wasm_path)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("Invalid WASM file name: {}", wasm_path))?;
+        let bytes = read_bytes_file(wasm_path)?;
+        modules.push((name, bytes));
     }
-    file_list.push("package.manifest.json".to_string());
-    let manifest = PackageManifest {
-        format_version: 1,
-        syscall_abi_version: SYSCALL_PAYLOAD_CURRENT_VERSION,
-        files: file_list,
+
+    let sign_seed = match &config.sign_seed {
+        Some(hex) => Some(mudu_caf::sign::decode_seed(hex)?),
+        None => None,
     };
-    let manifest_text =
-        to_json_str(&manifest).map_err(|e| anyhow!("encode package manifest error: {e}"))?;
 
-    // Add required files with their specific names
-    add_file_to_zip(&mut zip, &config.package_cfg, "package.cfg.json")?;
-    add_file_to_zip(&mut zip, &config.package_desc, "package.desc.json")?;
-    add_file_to_zip(&mut zip, &config.ddl_sql, "ddl.sql")?;
-    add_file_to_zip(&mut zip, &config.initdb_sql, "initdb.sql")?;
-    add_bytes_to_zip(&mut zip, manifest_text.as_bytes(), "package.manifest.json")?;
+    let spec = PackageSpec {
+        name: app_cfg.name.clone(),
+        version: app_cfg.version.clone(),
+        cfg_text,
+        desc_text,
+        ddl_sql,
+        initdb_sql,
+        syscall_abi_version: SYSCALL_PAYLOAD_CURRENT_VERSION,
+        modules,
+        sign_seed,
+    };
 
-    // Add WASM files with their original names
-    for wasm_path in &config.wasm_files {
-        if let Some(file_name) = PathBuf::from(wasm_path).file_name() {
-            if let Some(file_name_str) = file_name.to_str() {
-                add_file_to_zip(&mut zip, wasm_path, file_name_str)?;
-            } else {
-                return Err(anyhow!("Invalid WASM file name: {}", wasm_path));
-            }
-        } else {
-            return Err(anyhow!("Invalid WASM file path: {}", wasm_path));
-        }
-    }
+    let flat = mudu_caf::profile::build(&spec)?;
+    let zip = mudu_caf::export::export(&flat)?;
 
-    zip.finish()?;
+    write_bytes_file(&config.output_path, &flat)?;
+    let zip_path = format!("{}.zip", config.output_path);
+    write_bytes_file(&zip_path, &zip)?;
+
     Ok(())
 }
 
@@ -420,20 +419,11 @@ fn build_package(config: MpmBuildPackage) -> Result<()> {
     write_package_archive(&config)?;
 
     println!("Package created successfully: {}", config.output_path);
-
-    // Print package contents
-    println!("\nPackage contents:");
-    let package_file = SFile::open(&config.output_path)?;
-    let zip_archive = zip::ZipArchive::new(package_file)?;
-    for file_name in zip_archive.file_names() {
-        println!(
-            "  - {}",
-            file_name.map_err(|e| mudu_error!(ErrorCode::Io, "zip walk error", e))?
-        );
-    }
+    println!("ZIP export:             {}.zip", config.output_path);
 
     Ok(())
 }
+
 #[cfg(test)]
 mod main_test;
 

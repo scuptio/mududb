@@ -29,3 +29,15 @@ pub fn utc_now() -> DateTime<Utc> {
 pub fn thread_cpu_time_now() -> Option<Duration> {
     crate::imp::time::thread_cpu_time_now()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    #[test]
+    fn time_facades_return_values() {
+        let _instant = super::instant_now();
+        let _system = super::system_time_now();
+        let _utc = super::utc_now();
+        let _cpu = super::thread_cpu_time_now();
+    }
+}

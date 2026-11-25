@@ -19,7 +19,7 @@ impl WorkerRingLoop {
                 self.accept_submitted = false;
                 if result >= 0 {
                     let conn_fd = result as RawFd;
-                    let remote_addr = server_iouring::sockaddr_to_socket_addr(op.addr())?;
+                    let remote_addr = sockaddr_to_socket_addr(op.addr())?;
                     mudu_sys::io::net::set_tcp_nodelay(conn_fd)?;
                     let conn_id = self.conn_id_alloc.fetch_add(1, Ordering::Relaxed);
                     self.register_connection(conn_id, conn_fd, remote_addr)?;
@@ -71,7 +71,7 @@ impl WorkerRingLoop {
                     correlation_id = ?envelope.correlation_id(),
                     "worker_ring_loop received bus mailbox message"
                 );
-                self.message_bus.handle_incoming(envelope)?;
+                self.worker_channel.handle_incoming(envelope)?;
                 debug!(
                     worker_id = self.worker.worker_id(),
                     "worker_ring_loop handled bus mailbox message"

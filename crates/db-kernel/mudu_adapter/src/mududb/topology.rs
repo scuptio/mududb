@@ -60,7 +60,7 @@ fn worker_addr_from_topology(
         .worker_addr_by_id(listen_ip, worker_id)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("server topology has no tcp listener for worker id {worker_id}")
             )
         })
@@ -91,4 +91,113 @@ pub(super) async fn resolve_worker_addr_async(worker_id: OID) -> RS<String> {
     }
     let topology = topology_for_async(&mudud_http_addr()?).await?;
     worker_addr_from_topology(&topology, &base_addr, worker_id)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// Serve a fixed JSON body over HTTP/1.1 on a random port; returns the
+    /// "host:port" address.
+    fn start_topology_server() -> String {
+        let body = serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "data": {
+                "worker_count": 2,
+                "tcp_multi_port": true,
+                "tcp_base_listen_port": 9500,
+                "workers": [
+                    {"worker_index": 0, "tcp_listen_port": 9500, "worker_id": {"h": 0, "l": 0}, "partitions": []},
+                    {"worker_index": 1, "tcp_listen_port": 9501, "worker_id": {"h": 0, "l": 1}, "partitions": []}
+                ]
+            }
+        }))
+        .unwrap();
+        let listener = mudu_sys::net::sync::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        mudu_sys::task::sync::spawn_thread_named("mock-topology", move || loop {
+            let (mut socket, _) = match listener.accept() {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
+            // Read the request head; no body is expected for GET.
+            let mut header_buf = Vec::new();
+            let mut byte = [0u8; 1];
+            loop {
+                if socket.read_exact(&mut byte).is_err() {
+                    break;
+                }
+                header_buf.push(byte[0]);
+                if header_buf.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes());
+        })
+        .unwrap();
+        addr
+    }
+
+    /// Runs `test` with MUDU_CONNECTION pointed at a mock mudud server; the
+    /// env var is process-global, so serialize with the config test lock.
+    fn with_mudud_config(http_addr: &str, test: impl FnOnce()) {
+        let _guard = config::test_guard();
+        // A leftover db-path override would force the sqlite driver.
+        config::reset_db_path_override_for_test();
+        let saved = mudu_sys::env_var::var("MUDU_CONNECTION");
+        mudu_sys::env_var::set_var(
+            "MUDU_CONNECTION",
+            &format!("mudud://127.0.0.1:9500/app?http_addr={http_addr}"),
+        );
+        test();
+        match saved {
+            Some(value) => mudu_sys::env_var::set_var("MUDU_CONNECTION", &value),
+            None => mudu_sys::env_var::remove_var("MUDU_CONNECTION"),
+        }
+        config::reset_db_path_override_for_test();
+    }
+
+    #[test]
+    fn resolve_worker_addr_zero_and_missing_config() {
+        with_mudud_config("127.0.0.1:1", || {
+            // Worker 0 keeps the configured base address.
+            assert_eq!(resolve_worker_addr(0).unwrap(), "127.0.0.1:9500");
+
+            // Without a Mudud connection the resolution errors out.
+            let saved = mudu_sys::env_var::var("MUDU_CONNECTION");
+            mudu_sys::env_var::remove_var("MUDU_CONNECTION");
+            assert!(resolve_worker_addr(0).is_err());
+            mudu_sys::env_var::set_var("MUDU_CONNECTION", &saved.unwrap());
+        });
+    }
+
+    #[test]
+    fn resolve_worker_addr_through_topology_and_cache() {
+        let http_addr = start_topology_server();
+        with_mudud_config(&http_addr, || {
+            // First call fetches the topology over HTTP, second hits the cache.
+            assert_eq!(resolve_worker_addr(1).unwrap(), "127.0.0.1:9501");
+            assert_eq!(resolve_worker_addr(1).unwrap(), "127.0.0.1:9501");
+
+            // Unknown worker ids fail with ObjectNotFound.
+            assert_eq!(
+                resolve_worker_addr(99).unwrap_err().ec(),
+                ErrorCode::ObjectNotFound
+            );
+
+            // The async variant shares the cache.
+            let addr = build_current_thread_runtime()
+                .unwrap()
+                .block_on(resolve_worker_addr_async(1))
+                .unwrap();
+            assert_eq!(addr, "127.0.0.1:9501");
+        });
+    }
 }

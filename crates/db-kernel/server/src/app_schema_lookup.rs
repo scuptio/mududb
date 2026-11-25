@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_sys::sync::SRwLock;
 use mudu_type::data_value::DataValue;
 use sql_parser::check::param_type::{
@@ -22,7 +22,7 @@ use std::sync::Arc;
 pub trait AppSchemaLookup: Send + Sync {
     /// Return the table definitions known for the application, or `None`
     /// when the application has no registered schema.
-    fn schema(&self, app_name: &str) -> Option<Vec<TableDef>>;
+    fn schema(&self, app_name: &str) -> Option<Vec<ClassDef>>;
 }
 
 lazy_static! {
@@ -38,7 +38,7 @@ pub fn register_app_schema_lookup(lookup: Arc<dyn AppSchemaLookup>) -> RS<()> {
 
 /// Return the schema of `app_name` when a provider is registered and the
 /// application is known to it.
-pub(crate) fn app_schema(app_name: &str) -> Option<Vec<TableDef>> {
+pub(crate) fn app_schema(app_name: &str) -> Option<Vec<ClassDef>> {
     let guard = LOOKUP.read().ok()?;
     guard.as_ref().and_then(|lookup| lookup.schema(app_name))
 }
@@ -104,11 +104,11 @@ mod tests {
     struct TestLookup;
 
     impl AppSchemaLookup for TestLookup {
-        fn schema(&self, app_name: &str) -> Option<Vec<TableDef>> {
+        fn schema(&self, app_name: &str) -> Option<Vec<ClassDef>> {
             if app_name != "demo" {
                 return None;
             }
-            Some(vec![TableDef::new(
+            Some(vec![ClassDef::new(
                 "wallets".to_string(),
                 vec![
                     ColumnDef::new(

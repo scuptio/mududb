@@ -121,16 +121,16 @@ fn f(xid: u64) {
 }
 
 #[test]
-fn records_turbofish_entity() {
+fn records_turbofish_object() {
     let source = r#"
 fn f(xid: u64) {
     let _ = mudu_query::<Wallets>(xid, sql_stmt!(&"SELECT * FROM wallets WHERE user_id = ?"), sql_params!(&(user_id,)));
-    let _ = query_one_entity::<Customer>(xid, "SELECT c_id FROM customer WHERE c_id = ?", sql_params!(&(a,)));
+    let _ = query_one_object::<Customer>(xid, "SELECT c_id FROM customer WHERE c_id = ?", sql_params!(&(a,)));
     let _ = mudu_query::<i64>(xid, sql_stmt!(&"SELECT COUNT(*) FROM wallets"), sql_params!(&()));
 }
 "#;
     let items = extract_rust_sql(source).unwrap();
-    let entities: Vec<Option<String>> = items.iter().map(|item| item.entity.clone()).collect();
+    let entities: Vec<Option<String>> = items.iter().map(|item| item.object.clone()).collect();
     assert_eq!(
         entities,
         vec![
@@ -158,7 +158,7 @@ fn f(xid: u64) {
         "SELECT h_counter FROM tpcc_hotspot WHERE h_w_id = ?"
     );
     assert_eq!(items[0].param_arity, Some(2));
-    assert_eq!(items[0].entity, None);
+    assert_eq!(items[0].object, None);
 }
 
 #[test]
@@ -195,4 +195,19 @@ fn f(xid: u64) {
         .map(|item| item.param_literal_tags.clone())
         .collect();
     assert_eq!(tags, expected, "got {items:?}");
+}
+
+#[test]
+fn queue_literals_are_extracted_without_matching_prose() {
+    for sql in [
+        "RECEIVE 10 FROM q WAIT FOREVER",
+        "ACK q FOR cg TO 1",
+        "CREATE QUEUE q (body TEXT)",
+        "DROP CONSUMER cg ON q",
+    ] {
+        assert!(is_sql_candidate(sql), "{sql}");
+    }
+    assert!(!is_sql_candidate("receive the message"));
+    assert!(!is_sql_candidate("ack received"));
+    assert!(!is_sql_candidate("create a queue"));
 }

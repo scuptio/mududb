@@ -4,6 +4,8 @@ use super::{
     block_on, datum, datum_string, key_row, make_contract_with_table, meta_table, test_schema,
     value_row, wallet_users_schema,
 };
+use crate::contract::WorkerXContract;
+use crate::types::DataBin;
 use crate::utils::build_value_tuple;
 use crate::*;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;

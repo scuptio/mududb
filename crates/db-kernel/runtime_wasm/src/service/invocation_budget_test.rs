@@ -127,3 +127,156 @@ fn invalid_configuration_is_rejected() {
     };
     assert!(limits.validate().is_err());
 }
+
+#[cfg(test)]
+mod resource_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::super::invocation_limits::InvocationContext;
+    use crate::interface::kernel_test::{fs_worker_local, task_context};
+    use mudu_binding::codec::syscall_payload::{
+        decode_open_result, encode_close_request, encode_fs_close_request, encode_fs_open_request,
+        encode_fs_read_request, encode_open_request,
+    };
+    use mudu_binding::universal::uni_fs_open_argv::UniFsOpenArgv;
+    use mudu_binding::universal::uni_oid::UniOid;
+
+    #[test]
+    fn prepare_host_enforces_resource_and_read_budgets() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+
+        // fs_read over the output budget is rejected; within budget passes.
+        let over = encode_fs_read_request(3, (control.limits.max_output_bytes + 1) as u32);
+        let err = control.prepare_host("fs_read", &over).unwrap_err();
+        assert!(err.to_string().contains("output budget"));
+        let ok = encode_fs_read_request(3, 16);
+        control.prepare_host("fs_read", &ok).unwrap();
+
+        // open beyond the handle limit is rejected: with one slot, a
+        // recorded session fills it and the next open is refused.
+        let limited = InvocationContext::new(crate::service::invocation_limits::InvocationLimits {
+            max_resources: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let wl = fs_worker_local();
+        let open_in = encode_open_request(UniOid::from_oid(0));
+        let open_out = crate::interface::kernel_sync::open_internal_with_worker_local(
+            &open_in,
+            Some(wl.clone()),
+        );
+        assert!(decode_open_result(&open_out).is_ok(), "open must succeed");
+        limited
+            .record_host("open", &open_in, &open_out, Some(wl.clone()))
+            .unwrap();
+        let err = limited.prepare_host("open", &open_in).unwrap_err();
+        assert!(err.to_string().contains("handle limit"));
+    }
+
+    #[test]
+    fn record_host_tracks_sessions_and_files_until_close() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+        let wl = fs_worker_local();
+
+        // No worker-local: recording is a no-op.
+        control.record_host("open", &[], &[], None).unwrap();
+
+        // A successful open records the session; a failed open does not.
+        let open_in = encode_open_request(UniOid::from_oid(0));
+        let open_out = {
+            let sid = UniOid::from_oid(9);
+            let frame = crate::interface::kernel_sync::open_internal_with_worker_local(
+                &encode_open_request(UniOid::from_oid(0)),
+                Some(wl.clone()),
+            );
+            let _ = sid;
+            frame
+        };
+        let session = decode_open_result(&open_out).unwrap_or_else(|e| panic!("open failed: {e}"));
+        control
+            .record_host("open", &open_in, &open_out, Some(wl.clone()))
+            .unwrap();
+
+        // fs_open records the fd under the worker's current session; the
+        // open syscall itself resolves the connection through the task
+        // context registered under the worker-local's session id.
+        task_context(777_001, wl.clone());
+        let fs_open_in = encode_fs_open_request(&UniFsOpenArgv {
+            session: UniOid::from_oid(777_001),
+            oid: UniOid::from_oid(2),
+            path: "data.bin".to_string(),
+            flags: 0,
+        });
+        let fs_open_out = crate::interface::kernel_sync::fs_open_internal_with_worker_local(
+            &fs_open_in,
+            Some(wl.clone()),
+        );
+        control
+            .record_host("fs_open", &fs_open_in, &fs_open_out, Some(wl.clone()))
+            .unwrap();
+        {
+            let resources = control.resources.lock().unwrap();
+            assert_eq!(resources.sessions.len(), 1);
+            assert_eq!(resources.files.len(), 1);
+        }
+
+        // fs_close drops the tracked fd; close drops the session.
+        let fs_close_in = encode_fs_close_request(3);
+        let fs_close_out = crate::interface::kernel_sync::fs_close_internal_with_worker_local(
+            &fs_close_in,
+            Some(wl.clone()),
+        );
+        control
+            .record_host("fs_close", &fs_close_in, &fs_close_out, Some(wl.clone()))
+            .unwrap();
+        let close_in = encode_close_request(UniOid::from_oid(session));
+        let close_out = crate::interface::kernel_sync::close_internal_with_worker_local(
+            &close_in,
+            Some(wl.clone()),
+        );
+        control
+            .record_host("close", &close_in, &close_out, Some(wl.clone()))
+            .unwrap();
+        let resources = control.resources.lock().unwrap();
+        assert!(resources.sessions.is_empty());
+        assert!(resources.files.is_empty());
+        mudu_contract::database::sql::Context::remove(777_001);
+    }
+
+    #[test]
+    fn cleanup_resources_closes_tracked_handles() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+        let wl = fs_worker_local();
+
+        let open_out = crate::interface::kernel_sync::open_internal_with_worker_local(
+            &encode_open_request(UniOid::from_oid(0)),
+            Some(wl.clone()),
+        );
+        control
+            .record_host("open", &[], &open_out, Some(wl.clone()))
+            .unwrap();
+        task_context(777_002, wl.clone());
+        let fs_open_out = crate::interface::kernel_sync::fs_open_internal_with_worker_local(
+            &encode_fs_open_request(&UniFsOpenArgv {
+                session: UniOid::from_oid(777_002),
+                oid: UniOid::from_oid(2),
+                path: "data.bin".to_string(),
+                flags: 0,
+            }),
+            Some(wl.clone()),
+        );
+        control
+            .record_host("fs_open", &[], &fs_open_out, Some(wl.clone()))
+            .unwrap();
+
+        let control2 = control.clone();
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            control2.cleanup_resources().await
+        })
+        .unwrap()
+        .unwrap();
+        let resources = control.resources.lock().unwrap();
+        assert!(resources.sessions.is_empty());
+        assert!(resources.files.is_empty());
+        mudu_contract::database::sql::Context::remove(777_002);
+    }
+}

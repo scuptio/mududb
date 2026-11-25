@@ -149,7 +149,7 @@ mgen message \
 ## `check-sql`
 
 Statically check SQL string literals in guest source files against the DDL
-schema. See `doc/dev/sql_subset.md` for the supported SQL subset, the
+schema. See `doc/en/sql_subset.md` for the supported SQL subset, the
 diagnostic severity model, and the extraction rules.
 
 ```bash

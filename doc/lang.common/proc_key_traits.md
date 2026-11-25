@@ -4,11 +4,11 @@
 
 <!--
 quote_begin
-content="[Entity](../../crates/common/mudu_contract/src/database/entity.rs#L23-L44)"
+content="[Object](../../crates/common/mudu_contract/src/database/object.rs#L23-L44)"
 lang="rust"
 -->
 ```rust
-pub trait Entity: Datum {
+pub trait Object: Datum {
     fn tuple_desc() -> &'static TupleFieldDesc;
 
     fn table_name() -> &'static str;
@@ -74,7 +74,7 @@ pub trait DatumDyn: fmt::Debug + Send + Sync + Any {
 ### FieldChange
 
 `FieldChange<T>` is the per-column change type of the partial-update
-changesets (`<Table>Change`) that `mgen entity` generates for each table.
+changesets (`<Table>Change`) that `mgen object` generates for each table.
 `Unchanged` leaves the column out of the generated `UPDATE ... SET` clause,
 `Set(v)` updates it. Nullable columns use `FieldChange<Option<T>>`, so
 `Set(None)` writes a SQL `NULL` while `Unchanged` leaves the column

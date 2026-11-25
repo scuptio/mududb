@@ -1,19 +1,21 @@
 use crate::fs::{FsDirEntry, FsStat};
 use crate::host::{
-    invoke_host_batch, invoke_host_close, invoke_host_command, invoke_host_fs_close,
-    invoke_host_fs_fstat, invoke_host_fs_fsync, invoke_host_fs_lseek, invoke_host_fs_open,
-    invoke_host_fs_pread, invoke_host_fs_pwrite, invoke_host_fs_read, invoke_host_fs_readdir,
-    invoke_host_fs_stat, invoke_host_fs_write, invoke_host_open, invoke_host_query,
-    invoke_host_relation_get, invoke_host_relation_insert, invoke_host_relation_update,
-    invoke_host_session_get, invoke_host_session_put, invoke_host_session_range,
+    invoke_host_batch, invoke_host_cache_delete, invoke_host_cache_get, invoke_host_cache_open,
+    invoke_host_cache_put, invoke_host_cache_ttl, invoke_host_close, invoke_host_command,
+    invoke_host_fs_close, invoke_host_fs_fstat, invoke_host_fs_fsync, invoke_host_fs_lseek,
+    invoke_host_fs_open, invoke_host_fs_pread, invoke_host_fs_pwrite, invoke_host_fs_read,
+    invoke_host_fs_readdir, invoke_host_fs_stat, invoke_host_fs_write, invoke_host_open,
+    invoke_host_query, invoke_host_relation_get, invoke_host_relation_insert,
+    invoke_host_relation_update, invoke_host_session_get, invoke_host_session_put,
+    invoke_host_session_range,
 };
 use crate::inner_component::mududb::api::system;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
@@ -23,11 +25,11 @@ wit_bindgen::generate!({
 });
 
 /// Forward a `query` call to the component-model host interface.
-pub fn inner_query<R: Entity>(
+pub fn inner_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     invoke_host_query(oid, sql, params, |param| Ok(system::query(&param)))
 }
 
@@ -195,4 +197,31 @@ pub fn inner_fs_readdir(session_id: OID, oid: OID, path: &str) -> RS<Vec<FsDirEn
     invoke_host_fs_readdir(session_id, oid, path, |param| {
         Ok(system::fs_readdir(&param))
     })
+}
+
+/// Forward a `cache open` call to the component-model host interface.
+pub fn inner_cache_open(name: &str) -> RS<OID> {
+    invoke_host_cache_open(name, |param| Ok(system::cache_open(&param)))
+}
+
+/// Forward a `cache get` call to the component-model host interface.
+pub fn inner_cache_get(cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+    invoke_host_cache_get(cache, key, |param| Ok(system::cache_get(&param)))
+}
+
+/// Forward a `cache put` call to the component-model host interface.
+pub fn inner_cache_put(cache: OID, key: &[u8], value: &[u8], ttl_secs: Option<u64>) -> RS<()> {
+    invoke_host_cache_put(cache, key, value, ttl_secs, |param| {
+        Ok(system::cache_put(&param))
+    })
+}
+
+/// Forward a `cache delete` call to the component-model host interface.
+pub fn inner_cache_delete(cache: OID, key: &[u8]) -> RS<()> {
+    invoke_host_cache_delete(cache, key, |param| Ok(system::cache_delete(&param)))
+}
+
+/// Forward a `cache ttl` call to the component-model host interface.
+pub fn inner_cache_ttl(cache: OID, key: &[u8]) -> RS<Option<u64>> {
+    invoke_host_cache_ttl(cache, key, |param| Ok(system::cache_ttl(&param)))
 }

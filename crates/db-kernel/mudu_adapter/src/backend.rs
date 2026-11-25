@@ -8,8 +8,8 @@ use mudu_binding::universal::uni_fs_dirent::UniFsDirent;
 use mudu_binding::universal::uni_fs_stat::UniFsStat;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::database::sql_stmt_text::SQLStmtText;
@@ -139,11 +139,11 @@ pub async fn mudu_range_async(
 }
 
 /// Executes a query and returns a typed record set.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let (sql, params) = param_binder::resolve_named_sql(&sql_stmt.to_sql_string(), params)?;
     let sql_stmt = SQLStmtText::new(sql);
     match config::driver() {
@@ -155,11 +155,11 @@ pub fn mudu_query<R: Entity>(
 }
 
 /// Asynchronous version of [`mudu_query`].
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let _trace = mudu_utils::task_trace!();
     let (sql, params) = param_binder::resolve_named_sql(&sql_stmt.to_sql_string(), params)?;
     let sql_stmt = SQLStmtText::new(sql);

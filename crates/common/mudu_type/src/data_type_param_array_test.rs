@@ -16,7 +16,7 @@ mod tests {
 
     #[test]
     fn array_default_uses_i32() {
-        let array = DataTypeParamArray::default();
+        let array = DataTypeParamArray::<DataType>::default();
         assert_eq!(array.data_type().type_family(), TypeFamily::I32);
     }
 
@@ -32,7 +32,7 @@ mod tests {
     fn array_json_roundtrip() {
         let array = DataTypeParamArray::new(DataType::new_no_param(TypeFamily::I64));
         let json = array.se_to_json().unwrap();
-        let mut restored = DataTypeParamArray::default();
+        let mut restored = DataTypeParamArray::<DataType>::default();
         restored.de_from_json(&json).unwrap();
         assert_eq!(restored.data_type().type_family(), TypeFamily::I64);
     }

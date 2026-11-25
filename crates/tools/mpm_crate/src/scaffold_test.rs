@@ -181,8 +181,8 @@ fn scaffold_csharp_renames_csproj() -> Result<()> {
     assert!(procedures.contains("UpdateItemInfo"));
 
     let mudu_sys = read(&report.project_dir, "src/MuduSys.cs")?;
-    assert!(mudu_sys.contains("RecordFieldValues"));
-    assert!(mudu_sys.contains("EncodeProcedureOkRecord"));
+    assert!(mudu_sys.contains("StructFieldValues"));
+    assert!(mudu_sys.contains("EncodeProcedureOkStruct"));
 
     let csproj_content = read(&report.project_dir, "MyApp.csproj")?;
     assert!(csproj_content.contains("MessagePack"));
@@ -385,8 +385,8 @@ fn scaffold_c_renders_freestanding_project() -> Result<()> {
         "src/mududb/codec/mpack.c",
         "src/mududb/codec/mpack.h",
         "src/mududb/codec/mpack_alloc.c",
-        "src/mududb/codec/record_bridge.c",
-        "src/mududb/codec/record_bridge.h",
+        "src/mududb/codec/struct_bridge.c",
+        "src/mududb/codec/struct_bridge.h",
         "src/mududb/types/UniDataValue.h",
         "src/mududb/types/UniScalarValue.h",
         "src/mududb/types/UniSyscall.h",

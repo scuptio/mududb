@@ -83,7 +83,7 @@ def check(root=ROOT):
                         (root / 'crates/common/mudu_binding/src/codec/syscall_payload/syscall_schema.desc.json').read_bytes()) and clean
     if not clean:
         raise ValueError('Generated binding files are stale. Regenerate with mgen and commit the results '
-                         '(doc/dev/binding_api_surface.md, Regeneration).')
+                         '(doc/en/binding_api_surface.md, Regeneration).')
     print('regen check: all generated binding files are up to date')
 
 

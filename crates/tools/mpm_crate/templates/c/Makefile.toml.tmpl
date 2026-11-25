@@ -27,22 +27,22 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}",
 ]
 
-# Generate typed entity headers from the DDL schema into generated/entity
+# Generate typed object headers from the DDL schema into generated/object
 # (one <table>.h per table: row struct, row/datum codecs and typed SQL
-# helpers over src/mudu_sys.h; mgen entity).
+# helpers over src/mudu_sys.h; mgen object).
 [tasks.generate]
 dependencies = ["prepare"]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
-    "--output-source-folder", "${GENERATED_DIR}/entity",
+    "--output-source-folder", "${GENERATED_DIR}/object",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
     "--lang", "c",
 ]
 
 # Statically check every SQL string literal in src/procedures.c against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md).
 [tasks.check-sql]
 dependencies = ["generate"]
 command = "mgen"
@@ -53,7 +53,7 @@ args = [
     "--input", "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
 ]
 
-# Generate the C message types of the project WIT records (item-info) with
+# Generate the C message types of the project WIT structs (item-info) with
 # mgen: gentypes/Types.h carries the structs plus their xxx_encode/xxx_decode
 # codecs (a self-contained header, the same shape the binding's
 # mududb/types/Uni*.h carry). src/procedures.c includes it as
@@ -72,7 +72,7 @@ args = [
 # Transpile the `// mudu-proc` annotated functions of src/procedures.c into
 # the export-wrapper translation unit, the world WIT and the procedure
 # description — the artifacts that used to be maintained by hand.
-# --type-wit registers the project record types (wit/types.wit) so procedure
+# --type-wit registers the project struct types (wit/types.wit) so procedure
 # annotations may use them; --type-import points the generated adapter at
 # the mgen-generated types header (the adapter includes it).
 [tasks.transpile]
@@ -103,13 +103,13 @@ args = [
 # the `mududb:api/system` syscalls declared in the mtp-generated
 # `wit/world.wit`. The mtp-generated `procedures_gen.c` carries the `mp2-*`
 # export wrappers and their arity/kind check preambles. The vendored C
-# binding under src/mududb (mpack.c + mpack_alloc.c + record_bridge.c) is
+# binding under src/mududb (mpack.c + mpack_alloc.c + struct_bridge.c) is
 # compiled from source; its `mp_realloc` allocation hook (mpack_alloc.c)
 # lands on the freestanding `realloc`/`free` shims in src/mudu_sys.c.
 # Headers (stdbool.h/stddef.h/stdint.h/stdlib.h/string.h) come from the
 # wasi-sdk sysroot include directory — only headers are used, the link
 # stays `-nostdlib`. `src` is on the include path so "mududb/..." resolves,
-# and the project root so "gentypes/Types.h" (the mgen-generated record
+# and the project root so "gentypes/Types.h" (the mgen-generated struct
 # types) resolves.
 [tasks.cc-build]
 dependencies = ["stage-wit"]
@@ -125,12 +125,12 @@ args = [
     "-isystem", "${WASI_SDK}/share/wasi-sysroot/include/wasm32-wasip1",
     "-I${CARGO_MAKE_WORKING_DIRECTORY}",
     "-I${CARGO_MAKE_WORKING_DIRECTORY}/src",
-    "-I${GENERATED_DIR}/entity",
+    "-I${GENERATED_DIR}/object",
     "-Wl,--no-entry",
     "-Wl,--export-memory",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/mududb/codec/mpack.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/mududb/codec/mpack_alloc.c",
-    "${CARGO_MAKE_WORKING_DIRECTORY}/src/mududb/codec/record_bridge.c",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/mududb/codec/struct_bridge.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/mudu_sys.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
     "${GENERATED_DIR}/procedures_gen.c",

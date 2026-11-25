@@ -3,7 +3,7 @@
 use crate::lang_impl::lang::lang_kind::LangKind;
 use crate::lang_impl::lang::variant_info::VariantInfo;
 use crate::lang_impl::python::py_codec::py_comments;
-use crate::lang_impl::python::template_record_py::indent_comments;
+use crate::lang_impl::python::template_struct_py::indent_comments;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu::common::result::RS;

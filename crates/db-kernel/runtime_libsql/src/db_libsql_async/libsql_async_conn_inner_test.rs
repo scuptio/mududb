@@ -106,9 +106,9 @@ fn prepared_statement_lifecycle_and_lease_release() {
         let params: Box<dyn mudu_contract::database::sql_params::SQLParams> = Box::new(());
         let rs = prepared.query(params).await.unwrap();
         let err = prepared.desc().await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
         let err = prepared.reset().await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 
         // dropping the result set triggers the lease release path.
         drop(rs);

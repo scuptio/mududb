@@ -25,7 +25,7 @@ fn query_frames_roundtrip() {
     );
     let result = decode_query_result(&ok_frame).unwrap();
     assert!(result.result_set.eof);
-    assert_eq!(result.tuple_desc.record_fields.len(), 1);
+    assert_eq!(result.tuple_desc.struct_fields.len(), 1);
 }
 
 #[test]

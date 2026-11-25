@@ -5,10 +5,11 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_type::data_binary::DataBinary;
 use mudu_type::data_textual::DataTextual;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
+use mudu_type::type_family_ext::TypeFamilyExt;
 use std::fmt::{Debug, Formatter};
 
 /// A binary-encoded datum tagged with its type family.

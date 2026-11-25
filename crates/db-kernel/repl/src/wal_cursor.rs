@@ -111,7 +111,7 @@ impl LogFrameCursor {
                 let index = chunks.iter().position(|candidate| candidate == path);
                 if index.is_none() {
                     return Err(mudu_error!(
-                        ErrorCode::EntityNotFound,
+                        ErrorCode::ObjectNotFound,
                         format!("worker log chunk {} disappeared", path.display())
                     ));
                 }

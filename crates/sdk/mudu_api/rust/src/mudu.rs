@@ -5,7 +5,7 @@ use crate::mudu_sys::relation::{RelationColumn, RelationRow};
 use crate::types::{UniCommandResult, UniCommandReturn, UniQueryReturn, UniReturn};
 use crate::{
     UniCommandArgv, UniError, UniFsDirent, UniFsOpenArgv, UniFsStat, UniOid, UniQueryArgv,
-    UniQueryResult, UniRecordType, UniRelationDelta, UniResultSet,
+    UniQueryResult, UniStructType, UniRelationDelta, UniResultSet,
 };
 
 /// Typed guest-facing entry point for every MSSP syscall family.
@@ -355,7 +355,7 @@ impl QueryResponse {
     }
 
     /// Returns the row type descriptor, or `None` on error.
-    pub fn tuple_desc(&self) -> Option<&UniRecordType> {
+    pub fn tuple_desc(&self) -> Option<&UniStructType> {
         self.result().map(|result| &result.tuple_desc)
     }
 

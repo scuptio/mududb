@@ -54,6 +54,12 @@ pub enum MessageType {
     ReplSnapshotResp = 31,
     /// Replication subscription acceptance.
     ReplSubscribeAccept = 32,
+    /// External log stream push (leader → member frame ship with durable ack).
+    ReplStreamPush = 33,
+    /// External log stream frame fetch (member → member recovery pull).
+    ReplStreamFetch = 34,
+    /// External log stream progress query (promotion gate).
+    ReplStreamProgress = 35,
     /// Raft pre-vote request.
     RaftPreVoteReq = 19,
     /// Raft pre-vote response.
@@ -109,6 +115,9 @@ impl TryFrom<u32> for MessageType {
             30 => Ok(MessageType::ReplSnapshotFetch),
             31 => Ok(MessageType::ReplSnapshotResp),
             32 => Ok(MessageType::ReplSubscribeAccept),
+            33 => Ok(MessageType::ReplStreamPush),
+            34 => Ok(MessageType::ReplStreamFetch),
+            35 => Ok(MessageType::ReplStreamProgress),
             19 => Ok(MessageType::RaftPreVoteReq),
             20 => Ok(MessageType::RaftPreVoteResp),
             21 => Ok(MessageType::RaftVoteReq),

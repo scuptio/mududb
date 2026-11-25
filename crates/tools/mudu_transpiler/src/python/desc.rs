@@ -1,7 +1,7 @@
 //! Generate procedure descriptors from parsed Python procedures.
 
 use crate::common::desc::{ProcDescField, ProcDescModel};
-use crate::python::procedure::PyProcedure;
+use crate::python::types::PyProcedure;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 
 /// Build a [`ProcDesc`] for every procedure in `procedures`.

@@ -4,9 +4,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-pub static INIT: Once = Once::new();
+pub(crate) static INIT: Once = Once::new();
 
-pub fn setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
+pub(crate) fn setup_with_console(level: &str, parse: &str, enable_console_layer: bool) {
     _setup_with_console(level, parse, enable_console_layer);
 }
 

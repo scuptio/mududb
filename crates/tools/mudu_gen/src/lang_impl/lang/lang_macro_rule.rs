@@ -1,6 +1,6 @@
 //! Macros that generate language-specific scalar/non-scalar name functions.
 
-/// Implement `scalar_name_<lang>` mapping [`UniScalar`] variants to type names.
+/// Implement `scalar_name_<lang>` mapping [`mudu_binding::universal::uni_scalar::UniScalar`] variants to type names.
 #[macro_export]
 macro_rules! impl_scalar {
     (
@@ -29,7 +29,7 @@ macro_rules! impl_scalar {
     };
 }
 
-/// Implement `non_scalar_name_<lang>` mapping [`NonScalarType`] variants to type names.
+/// Implement `non_scalar_name_<lang>` mapping [`crate::lang_impl::lang::non_scalar::NonScalarType`] variants to type names.
 #[macro_export]
 macro_rules! impl_non_scalar {
     (

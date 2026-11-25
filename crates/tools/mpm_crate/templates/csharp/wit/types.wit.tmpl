@@ -5,11 +5,11 @@
 //     --namespace {{pascal_name}}Types` generates the C# structs plus their
 //     XxxFormatter MessagePack codecs — see the Makefile `gentypes` task;
 //   - `mtp ... --type-wit wit/types.wit` registers these names so procedure
-//     signatures in src/Procedures.cs may use them (record
+//     signatures in src/Procedures.cs may use them (struct
 //     parameters/returns) — see the Makefile `transpile` task.
 //
-// On the procedure byte pipe a record travels as the positional
-// `uni-data-value` record case (declaration order, names dropped by the
+// On the procedure byte pipe a struct travels as the positional
+// `uni-data-value` struct case (declaration order, names dropped by the
 // host); the desc JSON keys are the WIT field names verbatim.
 //
 // The `package` clause matches the mtp-generated world WIT: one WIT
@@ -20,7 +20,7 @@ package mududb:{{kebab_name}};
 interface types {
     // The item fact sheet: scalar fields (u32 and bool both cross the host
     // as i32 — bool as 0/1) and a list field.
-    record item-info {
+    struct item-info {
         name: string,
         price: u32,
         in-stock: bool,

@@ -5,14 +5,14 @@
 //! `DELETE`) against the table definitions extracted from DDL by
 //! [`crate::parser::ddl_parser::DDLParser`]:
 //!
-//! - syntax and construct classification ([`SqlSeverity::Error`] for invalid
-//!   SQL, [`SqlSeverity::Uncovered`] for valid SQL beyond the supported
+//! - syntax and construct classification ([`crate::check::diagnostic::SqlSeverity::Error`] for invalid
+//!   SQL, [`crate::check::diagnostic::SqlSeverity::Uncovered`] for valid SQL beyond the supported
 //!   subset such as `JOIN`),
 //! - table and column existence (ASCII case-insensitive identifiers),
-//! - `?` parameter placeholder counting ([`checker::count_params`]),
-//! - `SELECT` result shape extraction ([`checker::select_result_shape`]).
+//! - `?` parameter placeholder counting ([`crate::check::checker::count_params`]),
+//! - `SELECT` result shape extraction ([`crate::check::checker::select_result_shape`]).
 //!
-//! The main entry point is [`checker::check_sql`], which collects all
+//! The main entry point is [`crate::check::checker::check_sql`], which collects all
 //! diagnostics for one SQL text instead of failing fast.
 
 /// The checker implementation and public entry points.

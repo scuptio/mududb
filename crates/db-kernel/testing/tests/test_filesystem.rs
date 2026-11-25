@@ -22,7 +22,7 @@
 //!    by the in-process kernel test `fs_e2e_test` instead.)
 //! 4. `DROP TYPE` is refused (`InvalidState`) while a table column still
 //!    references the fs type; after `DROP TABLE` it succeeds.
-//! 5. An unknown fs type name in `CREATE TABLE` fails with `EntityNotFound`.
+//! 5. An unknown fs type name in `CREATE TABLE` fails with `ObjectNotFound`.
 //! 6. Sessionless (non-admin) requests cannot run fs type DDL
 //!    (`PermissionDenied`).
 //!
@@ -51,7 +51,6 @@ use testing::support::*;
 use testing::wait_until_port_ready;
 use tracing::info;
 
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const APP_NAME: &str = "fs_e2e";
 
 #[cfg_attr(miri, ignore)]
@@ -172,7 +171,7 @@ fn create_fs_types_and_product_table(
     );
     assert_eq!(
         err.ec(),
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "unknown fs type: {err}"
     );
     Ok(())
@@ -259,7 +258,7 @@ fn check_batch_rollback(
         session,
         "INSERT INTO product (id) VALUES (10); INSERT INTO missing_table (id) VALUES (1);",
     );
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound, "batch abort: {err}");
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound, "batch abort: {err}");
     assert_eq!(
         query_rows(
             runtime,
@@ -332,7 +331,7 @@ fn check_drop_type_rules(
     let err = exec_err(runtime, client, session, "DROP TYPE photo_fs");
     assert_eq!(
         err.ec(),
-        ErrorCode::EntityNotFound,
+        ErrorCode::ObjectNotFound,
         "missing fs type: {err}"
     );
     Ok(())
@@ -500,7 +499,7 @@ impl TestContext {
         #[cfg(feature = "ds")]
         let _ = self.http_port;
         wait_until_worker_port_ready(self.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         Ok(RunningServer {
             stop,
             handle: Some(handle),

@@ -1,5 +1,5 @@
 use super::discover_procedures;
-use crate::csharp::procedure::{CsValueType, normalize_type_name};
+use crate::csharp::types::{CsValueType, normalize_type_name};
 use mudu::error::ErrorCode;
 use std::error::Error;
 
@@ -286,7 +286,7 @@ fn resolves_record_and_enum_parameter_types() -> Result<(), Box<dyn Error>> {
     let procs = discover_procedures(&code, Some(&registry))?;
     assert_eq!(procs.len(), 1);
     let profile = match &procs[0].params[1].value_type {
-        CsValueType::Record(custom) => custom,
+        CsValueType::Struct(custom) => custom,
         other => return Err(format!("expected a record type, got {other:?}").into()),
     };
     assert_eq!(profile.name, "Profile");
@@ -311,7 +311,7 @@ fn resolves_record_and_enum_return_types() -> Result<(), Box<dyn Error>> {
     );
     let procs = discover_procedures(&code, Some(&registry))?;
     assert_eq!(procs.len(), 2);
-    assert!(matches!(procs[0].return_value_type, CsValueType::Record(_)));
+    assert!(matches!(procs[0].return_value_type, CsValueType::Struct(_)));
     assert!(matches!(procs[1].return_value_type, CsValueType::Enum(_)));
     Ok(())
 }
@@ -351,7 +351,7 @@ fn rejects_variant_parameter_type() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn rejects_binary_record_fields() -> Result<(), Box<dyn Error>> {
+fn rejects_binary_struct_fields() -> Result<(), Box<dyn Error>> {
     // WIT `list<u8>` fields parse as the binary type; the generated C# codec
     // reads them as a MessagePack array of u8 while a blob field reads as
     // bin — the schema-less bridge cannot serve both, so the C# front-end

@@ -13,3 +13,15 @@ pub mod record_slot;
 pub mod record_slot_ref;
 
 pub use ::mudu::common::page_id::PageId;
+
+mod layout_math;
+mod record_slot_core;
+
+// The verified arithmetic models the current disk slot width and record alignment.
+// A format change must update the pure functions and their proofs together.
+const _: () = assert!(record_slot::RECORD_SLOT_SIZE == 32 && page_block_ref::RECORD_ALIGN == 8);
+
+pub(crate) mod sequence_edit;
+
+#[cfg(test)]
+mod sequence_edit_tests;

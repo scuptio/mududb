@@ -5,9 +5,8 @@
 mod tests {
     use crate::tuple::build_tuple::build_tuple;
     use crate::tuple::field_desc::FieldDesc;
-    use crate::tuple::read_datum::{
-        read_binary_data, read_fixed_len_value, read_slot, read_var_len_value,
-    };
+    use crate::tuple::field_desc::{read_fixed_len_value, read_var_len_value};
+    use crate::tuple::read_datum::{read_binary_data, read_slot};
     use crate::tuple::slot::Slot;
     use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
     use mudu::error::ErrorCode;

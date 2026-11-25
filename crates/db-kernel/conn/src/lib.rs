@@ -15,6 +15,7 @@ pub mod mudu_prepared_stmt;
 pub mod mudu_result_set_async;
 /// Catalog-versioned cache of bound parameter templates ("plan cache").
 pub mod plan_cache;
+mod query_exec;
 /// Process-wide cache for parsed SQL statements.
 pub mod stmt_parse_cache;
 /// Worker-local session state.

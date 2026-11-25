@@ -25,13 +25,13 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/build",
 ]
 
-# Generate typed entity bindings from the DDL schema into the project root
-# (one module per table; import each as `from <table> import <Record>`).
+# Generate typed object bindings from the DDL schema into the project root
+# (one module per table; import each as `from <table> import <Struct>`).
 [tasks.generate]
 dependencies = ["prepare"]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
@@ -39,7 +39,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in the procedure sources
-# (procedures.py and the generated entity modules live in the project root)
+# (procedures.py and the generated object modules live in the project root)
 # against the DDL schema.
 [tasks.check-sql]
 dependencies = ["prepare", "generate"]
@@ -51,7 +51,7 @@ args = [
     "--input", "${CARGO_MAKE_WORKING_DIRECTORY}",
 ]
 
-# Generate the Python message types of the project WIT records (item-info)
+# Generate the Python message types of the project WIT structs (item-info)
 # with mgen: a single self-contained `gentypes.py` module carrying the
 # dataclasses plus their xxx_to_value/xxx_from_value codecs — the module
 # the mtp adapter wiring references through --type-import (see the
@@ -67,7 +67,7 @@ args = [
 ]
 
 # Transpile the procedures into the componentize-py adapter, the world WIT
-# and the procedure description. --type-wit registers the project record
+# and the procedure description. --type-wit registers the project struct
 # types (wit/types.wit) so procedure signatures may use them; --type-import
 # points the generated adapter at the mgen-generated types module.
 [tasks.transpile]

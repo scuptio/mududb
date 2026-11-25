@@ -54,7 +54,7 @@ impl _DeleteKeyValue {
     async fn prepare(&self) -> RS<()> {
         let _ = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if self.param.key.data().is_empty() {
-            return Err(mudu_error!(ER::EntityNotFound, "delete key is empty"));
+            return Err(mudu_error!(ER::ObjectNotFound, "delete key is empty"));
         }
         Ok(())
     }

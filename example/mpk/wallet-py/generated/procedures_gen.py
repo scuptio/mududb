@@ -26,7 +26,7 @@ multiple results, or `None` for no result.
 User-defined types (declared in the project `.wit` files and registered with
 `mtp --type-wit`): a record argument travels as the positional
 `uni-data-value` record-case envelope (declaration order, names dropped by
-the host) and decodes through `mududb.codec.bridge.record_field_values`
+the host) and decodes through `mududb.codec.bridge.struct_field_values`
 composed with the mgen-generated `xxx_from_value` codec of the module given
 by `--type-import`; a record return value encodes symmetrically through
 `xxx_to_value` and `record_from_field_values`. An enum argument decodes
@@ -71,7 +71,7 @@ from mududb.generated.uni_scalar_value import (
 )
 import gentypes
 from mududb.codec.bridge import (
-    record_field_values as _record_fields,
+    struct_field_values as _struct_fields,
     record_from_field_values as _record_from_fields,
 )
 
@@ -250,7 +250,7 @@ class WitWorld(wit_world.WitWorld):
             # with the mgen-generated codec, enums through the generated
             # ordinal codec, everything else with `_from_uni`.
             user_id = _from_uni(proc_param.param_list[0])
-            profile = gentypes.profile_from_value(_record_fields(proc_param.param_list[1]))
+            profile = gentypes.profile_from_value(_struct_fields(proc_param.param_list[1]))
             result = procedures.update_profile(proc_param.session, user_id, profile)
             # The record return value wraps back into the record-case
             # envelope through the generated codec and the record bridge.

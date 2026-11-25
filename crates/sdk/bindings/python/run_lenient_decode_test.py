@@ -2,8 +2,8 @@
 # codec in `mududb/generated/`: drives the hand-built NON-canonical frames in
 # crates/db-kernel/testing/fixtures/golden/v1/lenient_decode_v1.bin
 # (8 vectors: integer width widening, unsigned markers for signed values,
-# wide negative ints, record map key reordering, unknown/skipped map keys,
-# missing request parameters, missing record fields/variant cases).
+# wide negative ints, struct map key reordering, unknown/skipped map keys,
+# missing request parameters, missing struct fields/variant cases).
 # The vectors are not re-encodable by the canonical encoder, so no encode or
 # re-encode comparison is done; for every vector the runner checks, through
 # the generated Python codec:

@@ -106,7 +106,7 @@ class PreflightTests(unittest.TestCase):
         scripts = self.root / "script/ci"
         scripts.mkdir(parents=True)
         original = Path(__file__).parent
-        for name in ("act.sh", "act_preflight.py"):
+        for name in ("act.sh", "act_preflight.py", "act_summary.py"):
             (scripts / name).write_text((original / name).read_text())
         binary = self.root / "bin"
         binary.mkdir()
@@ -122,12 +122,14 @@ class PreflightTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Bind mode is disabled", result.stderr)
         self.assertFalse(marker.exists())
-        self.assertFalse((self.root / "logs").exists())
+        reports = list((self.root / "logs/act").glob("*/summary.txt"))
+        self.assertEqual(len(reports), 1)
+        self.assertIn("result: FAILURE", reports[0].read_text())
 
     def test_wrapper_success_and_failure_with_isolation(self):
         scripts = self.root / "script/ci"
         scripts.mkdir(parents=True)
-        for name in ("act.sh", "act_preflight.py"):
+        for name in ("act.sh", "act_preflight.py", "act_summary.py"):
             (scripts / name).write_text((Path(__file__).parent / name).read_text())
         binary = self.root / "bin"
         binary.mkdir()
@@ -147,7 +149,66 @@ class PreflightTests(unittest.TestCase):
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0 if status == 0 else 1, result.stderr)
-            self.assertEqual(args_file.read_text().splitlines()[-1], "--bind=false")
+            # The default workflow is pinned so act does not match the same
+            # job name in unrelated workflows (e.g. SDK Publish's "build").
+            lines = args_file.read_text().splitlines()
+            self.assertEqual(lines[-1], "--bind=false")
+            self.assertIn("-W", lines)
+            self.assertIn(".github/workflows/build.yaml", lines)
+
+    def commit(self, message):
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", message],
+                       cwd=self.root, check=True)
+
+    def test_stale_deleted_paths(self):
+        self.track("keep.rs")
+        self.track("old/generated_test.rs")
+        body = "fixture\n" * 50
+        (self.root / "renamed.rs").write_text(body)
+        subprocess.run(["git", "add", "--", "renamed.rs"], cwd=self.root, check=True)
+        self.commit("add")
+        (self.root / "old/generated_test.rs").unlink()
+        subprocess.run(["git", "rm", "-q", "--", "old/generated_test.rs"], cwd=self.root, check=True)
+        # A file split into a directory module is a rename to git, but the
+        # vanished flat file must still be listed for the sweep.
+        (self.root / "renamed").mkdir()
+        (self.root / "renamed/mod.rs").write_text(body)
+        subprocess.run(["git", "rm", "-q", "--", "renamed.rs"], cwd=self.root, check=True)
+        subprocess.run(["git", "add", "--", "renamed/mod.rs"], cwd=self.root, check=True)
+        self.commit("delete and split")
+        self.assertEqual(
+            act_preflight.stale_deleted_paths(self.root),
+            ["old/generated_test.rs", "renamed.rs"],
+        )
+        # A path recreated locally as untracked is not swept.
+        (self.root / "old").mkdir()
+        (self.root / "old/generated_test.rs").write_text("local")
+        self.assertEqual(act_preflight.stale_deleted_paths(self.root), ["renamed.rs"])
+
+    def test_sweep_removes_in_running_containers_only(self):
+        calls = []
+
+        def fake_run(arguments, **kwargs):
+            calls.append((arguments, kwargs))
+            if arguments[1] == "ps":
+                return subprocess.CompletedProcess([], 0, "act-one\nact-two\n", "")
+            if arguments[1] == "inspect":
+                return subprocess.CompletedProcess(
+                    [], 0, f"/act-one {self.root}\n/act-two /elsewhere\n", "")
+            return subprocess.CompletedProcess([], 0, "removed 'gone.rs'\n", "")
+
+        with patch.object(act_preflight, "stale_deleted_paths", return_value=["gone.rs"]):
+            with patch.object(act_preflight.subprocess, "run", side_effect=fake_run):
+                with patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()) as out:
+                    act_preflight.sweep_stale_files(self.root)
+        self.assertEqual(calls[0][0][:2], ["docker", "ps"])
+        self.assertEqual(calls[1][0][1], "inspect")
+        execs = [call for call in calls if call[0][1] == "exec"]
+        # Only the container whose WorkingDir is this checkout is swept.
+        self.assertEqual(len(execs), 1)
+        self.assertEqual(execs[0][0][3], "act-one")
+        self.assertIn("gone.rs", execs[0][1]["input"])
+        self.assertIn("swept 1 stale file(s) from container act-one", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -149,6 +149,13 @@ mod tests {
     }
 
     #[test]
+    fn page_tailer_short_buffers_are_rejected() {
+        assert!(PageTailer::decode(&[0u8; 4]).is_err());
+        assert!(PageTailer::default().encode(&mut [0u8; 4]).is_err());
+        assert!(PageTailer::checksum_for_page(&[0u8; 4]).is_err());
+    }
+
+    #[test]
     fn page_tailer_checksum_covers_page_except_tailer() {
         let mut page = [0u8; 36];
         page[..28].copy_from_slice(&[1u8; 28]);
@@ -157,5 +164,17 @@ mod tests {
         let checksum = PageTailer::checksum_for_page(&page).unwrap();
         page[28..].copy_from_slice(&[7u8; 8]);
         assert_eq!(checksum, PageTailer::checksum_for_page(&page).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod tailer_short_buffer_tests {
+    use super::*;
+
+    #[test]
+    fn page_tailer_short_buffers_are_rejected() {
+        assert!(PageTailer::decode(&[0u8; 4]).is_err());
+        assert!(PageTailer::default().encode(&mut [0u8; 4]).is_err());
+        assert!(PageTailer::checksum_for_page(&[0u8; 4]).is_err());
     }
 }

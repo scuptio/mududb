@@ -5,11 +5,12 @@ use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
+use ::mudu_type::data_type_codec::TypeCodec;
 use ::wal::xl_batch::XLBatch;
-use ::xengine::api::XContract;
+use ::xengine::api::{XContract, XContractQueue};
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PCreateFsType;
 use async_trait::async_trait;
@@ -32,14 +33,12 @@ where
 
 struct MockMetaMgr {
     fs_types: SMutex<HashMap<String, FsTypeDesc>>,
-    next_fs_id: SMutex<u64>,
 }
 
 impl MockMetaMgr {
     fn new() -> Self {
         Self {
             fs_types: SMutex::new(HashMap::new()),
-            next_fs_id: SMutex::new(1),
         }
     }
 
@@ -56,7 +55,7 @@ impl MetaMgr for MockMetaMgr {
 
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         Err(mudu::mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such table {}", oid)
         ))
     }
@@ -65,7 +64,7 @@ impl MetaMgr for MockMetaMgr {
         Ok(None)
     }
 
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
 
@@ -74,9 +73,7 @@ impl MetaMgr for MockMetaMgr {
     }
 
     async fn create_fs_type(&self, name: &str, kind: FsTypeKind) -> RS<u64> {
-        let mut next_fs_id = self.next_fs_id.lock().unwrap();
-        let fs_id = *next_fs_id;
-        *next_fs_id += 1;
+        let fs_id = catalog::contract::derive_oid::derive_fs_id(name);
         self.fs_types.lock().unwrap().insert(
             name.to_string(),
             FsTypeDesc::new(name.to_string(), fs_id, kind),
@@ -156,7 +153,7 @@ struct MockXContract;
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -233,6 +230,8 @@ impl XContract for MockXContract {
     }
 }
 
+impl XContractQueue for MockXContract {}
+
 fn make_create_fs_type(name: &str, kind: FsTypeKind, meta: Arc<MockMetaMgr>) -> CreateFsType {
     CreateFsType::new(
         PCreateFsType {
@@ -240,6 +239,7 @@ fn make_create_fs_type(name: &str, kind: FsTypeKind, meta: Arc<MockMetaMgr>) -> 
             kind,
         },
         meta,
+        None,
     )
 }
 
@@ -252,7 +252,10 @@ fn create_fs_type_registers_file_and_directory() {
     block_on(cmd.run()).unwrap();
     let desc = meta.get_fs_type("wal_log").unwrap();
     assert_eq!(desc.kind(), FsTypeKind::File);
-    assert_eq!(desc.fs_id(), 1);
+    assert_eq!(
+        desc.fs_id(),
+        catalog::contract::derive_oid::derive_fs_id("wal_log")
+    );
     assert_eq!(block_on(cmd.affected_rows()).unwrap(), 0);
 
     let cmd = make_create_fs_type("backup_dir", FsTypeKind::Directory, meta.clone());
@@ -260,7 +263,10 @@ fn create_fs_type_registers_file_and_directory() {
     block_on(cmd.run()).unwrap();
     let desc = meta.get_fs_type("backup_dir").unwrap();
     assert_eq!(desc.kind(), FsTypeKind::Directory);
-    assert_eq!(desc.fs_id(), 2);
+    assert_eq!(
+        desc.fs_id(),
+        catalog::contract::derive_oid::derive_fs_id("backup_dir")
+    );
 }
 
 #[test]
@@ -335,4 +341,54 @@ fn admin_gate_allows_admin_session() {
     ))
     .unwrap();
     assert!(meta.get_fs_type("wal_log").is_none());
+}
+
+// Fixture self-tests: drive every mock method so the shared test fixture is
+// verified end to end (and unused fixture paths cannot rot silently).
+#[test]
+fn mock_tx_mgr_fixture_covers_its_trait_surface() {
+    let tx = MockTxMgr;
+    let _ = tx.xid();
+    let _ = tx.snapshot();
+    tx.put(b"k".to_vec(), b"v".to_vec());
+    tx.delete(b"k".to_vec());
+    let _ = tx.get(b"k");
+    let relation = || PhysicalRelationId {
+        table_id: 1,
+        partition_id: 2,
+    };
+    tx.put_relation(relation(), b"k".to_vec(), b"v".to_vec());
+    tx.delete_relation(relation(), b"k".to_vec());
+    let _ = tx.get_relation(relation(), b"k");
+    let _ = tx.staged_relation_items_in_range(relation(), b"a", b"z");
+    let _ = tx.staged_relation_ops();
+    let _ = tx.staged_items_in_range(b"a", b"z");
+    let _ = tx.staged_put_items();
+    let _ = tx.is_empty();
+    let _ = tx.write_ops();
+    tx.build_write_ops();
+    let _ = tx.xl_batch();
+}
+
+#[test]
+fn mock_meta_mgr_fixture_covers_its_trait_surface() {
+    let meta = MockMetaMgr::new();
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
+        "fixture_t".to_string(),
+        vec![::catalog::contract::schema_column::SchemaColumn::new(
+            "k".to_string(),
+            mudu_type::type_family::TypeFamily::I64,
+            mudu_type::data_type::DataType::new_no_param(mudu_type::type_family::TypeFamily::I64)
+                .to_info(),
+        )],
+        vec![0],
+        vec![],
+    );
+    block_on(async {
+        meta.initialize().await.unwrap();
+        let _ = meta.get_table_by_id(1).await;
+        let _ = meta.get_table_by_name("fixture_s", "fixture_t").await;
+        meta.create_table(&schema).await.unwrap();
+        meta.drop_table(1).await.unwrap();
+    });
 }

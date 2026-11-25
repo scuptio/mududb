@@ -14,6 +14,7 @@ clap = { workspace = true, features = ["derive"] }
 tempfile = { workspace = true }
 anyhow = { workspace = true }
 mudu = { workspace = true }
+mudu_caf = { workspace = true }
 serde = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_sys = { workspace = true }

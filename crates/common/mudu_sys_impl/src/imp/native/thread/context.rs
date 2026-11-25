@@ -19,9 +19,18 @@ pub(super) struct ThreadTaskContextGuard {
 }
 
 impl ThreadTaskContextGuard {
-    pub(super) fn enter(name: String) -> Self {
-        let id = new_task_id();
-        let ctx = TaskContext::new_thread_context(id, name);
+    pub(super) fn enter(name: String, parent: Option<TaskID>) -> Self {
+        Self::enter_with_id(name, new_task_id(), parent)
+    }
+
+    /// Enters with a caller-prescribed task id instead of a random one,
+    /// aligning the thread's tracing identity with an identity allocated
+    /// elsewhere (e.g. a worker id doubling as its channel endpoint id).
+    /// The caller owns the id's uniqueness in the task context registry.
+    /// `parent` is the spawning thread's task id, captured on the spawning
+    /// side (a fresh thread's TLS is empty).
+    pub(super) fn enter_with_id(name: String, id: TaskID, parent: Option<TaskID>) -> Self {
+        let ctx = TaskContext::new_thread_context_with_parent(id, name, parent);
         ctx.watch("state", "running");
         ctx.enter_thread(Backtrace::force_capture().to_string());
         THREAD_TASK_ID.with(|slot| slot.set(Some(id)));

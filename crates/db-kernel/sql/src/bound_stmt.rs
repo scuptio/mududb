@@ -1,12 +1,13 @@
 use ::catalog::contract::fs_type::FsTypeKind;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::xengine::api::DeltaOp;
 use mudu::common::id::{AttrIndex, OID};
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use sql_parser::ast::expr_operator::ValueCompare;
+use sql_parser::ast::stmt_receive::ReceiveWait;
 use std::ops::Bound;
 
 /// A fully bound SQL statement: names resolved to OIDs and literals encoded
@@ -24,6 +25,8 @@ pub enum BoundStmt {
 pub enum BoundQuery {
     /// A bound SELECT statement.
     Select(BoundSelect),
+    /// A bound queue RECEIVE statement.
+    Receive(BoundReceive),
 }
 
 /// A bound DDL or DML command.
@@ -41,6 +44,18 @@ pub enum BoundCommand {
     CreateFsType(BoundCreateFsType),
     /// A bound DROP TYPE statement.
     DropType(BoundDropType),
+    /// A bound CREATE QUEUE statement.
+    CreateQueue(BoundCreateQueue),
+    /// A bound DROP QUEUE statement.
+    DropQueue(BoundDropQueue),
+    /// A bound CREATE CACHE statement.
+    CreateCache(BoundCreateCache),
+    /// A bound CREATE CONSUMER statement.
+    CreateConsumer(BoundCreateConsumer),
+    /// A bound DROP CONSUMER statement.
+    DropConsumer(BoundDropConsumer),
+    /// A bound queue ACK statement.
+    Ack(BoundAck),
     /// A bound INSERT statement.
     Insert(BoundInsert),
     /// A bound UPDATE statement.
@@ -149,7 +164,7 @@ pub struct BoundCreatePartitionPlacement {
 #[derive(Clone, Debug)]
 pub struct BoundCreateTable {
     /// Schema of the table to create.
-    pub schema: SchemaTable,
+    pub schema: SchemaClass,
     /// Partition binding of the table, when the table is partitioned.
     pub partition_binding: Option<TablePartitionBinding>,
 }
@@ -176,6 +191,90 @@ pub struct BoundCreateFsType {
 pub struct BoundDropType {
     /// Name of the filesystem type to drop.
     pub name: String,
+}
+
+/// A bound CREATE QUEUE statement.
+#[derive(Clone, Debug)]
+pub struct BoundCreateQueue {
+    /// Schema of the queue to create. Carries `SchemaClassKind::Queue` and
+    /// the queue system columns (key `__seq`; value headers `__lsn`,
+    /// `status`, `receive_count`, `__state_hi`, `__state_lo`) ahead of the
+    /// payload columns.
+    pub schema: SchemaClass,
+    /// Sharding binding of the queue, when it carries a
+    /// `PARTITION BY GLOBAL RULE ... REFERENCES (...)` clause.
+    pub partition_binding: Option<TablePartitionBinding>,
+}
+
+/// A bound DROP QUEUE statement.
+#[derive(Clone, Debug)]
+pub struct BoundDropQueue {
+    /// OID of the queue to drop.
+    pub oid: OID,
+}
+
+/// A bound CREATE CACHE statement (`CREATE CACHE <name> LIKE <table>
+/// [TTL n]`): a volatile, non-replicated cache mirroring the `LIKE` table's
+/// shape.
+#[derive(Clone, Debug)]
+pub struct BoundCreateCache {
+    /// Schema of the cache to create. Carries `SchemaClassKind::Cache` and
+    /// mirrors the `LIKE` table's columns (key and value alike).
+    pub schema: SchemaClass,
+    /// Optional TTL in seconds; `None` means no automatic eviction.
+    pub ttl_secs: Option<u64>,
+}
+
+/// A bound CREATE CONSUMER statement (`CREATE CONSUMER <consumer> ON
+/// <queue>`): registers a named consumer cursor on the queue, switching it to
+/// fan-out mode.
+#[derive(Clone, Debug)]
+pub struct BoundCreateConsumer {
+    /// OID of the queue the consumer cursor is registered on.
+    pub table_id: OID,
+    /// Name of the consumer cursor to register.
+    pub consumer: String,
+}
+
+/// A bound DROP CONSUMER statement (`DROP CONSUMER <consumer> ON <queue>`).
+#[derive(Clone, Debug)]
+pub struct BoundDropConsumer {
+    /// OID of the queue the consumer cursor is registered on.
+    pub table_id: OID,
+    /// Name of the consumer cursor to remove.
+    pub consumer: String,
+}
+
+/// A bound queue RECEIVE statement.
+#[derive(Clone, Debug)]
+pub struct BoundReceive {
+    /// OID of the queue to receive from.
+    pub table_id: OID,
+    /// Maximum number of messages to claim (at least 1).
+    pub count: u64,
+    /// The WAIT clause of the statement. The current slice ignores it and
+    /// returns immediately with whatever messages are available; the suspend
+    /// slice turns it into a park on the queue wait registry.
+    pub wait: Option<ReceiveWait>,
+    /// The named consumer cursor (`FOR <consumer>`) this receive reads from;
+    /// `None` means the default competing cursor.
+    pub consumer: Option<String>,
+    /// Descriptor of the returned envelope rows (`__seq`, `__lsn`, then the
+    /// payload columns).
+    pub tuple_desc: TupleFieldDesc,
+}
+
+/// A bound queue ACK statement.
+#[derive(Clone, Debug)]
+pub struct BoundAck {
+    /// OID of the queue to acknowledge.
+    pub table_id: OID,
+    /// Acknowledged sequence number: claimed messages with `__seq <= seq`
+    /// are deleted (or moved to the dead-letter queue when poison).
+    pub seq: u64,
+    /// The named consumer cursor (`FOR <consumer>`) this ack advances;
+    /// `None` means the default competing cursor.
+    pub consumer: Option<String>,
 }
 
 /// A bound INSERT statement.

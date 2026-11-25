@@ -1,6 +1,6 @@
 //! Generate procedure descriptors from parsed C procedures.
 
-use crate::c::procedure::CProcedure;
+use crate::c::types::CProcedure;
 use crate::common::desc::{ProcDescField, ProcDescModel};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 
@@ -16,7 +16,7 @@ fn proc_desc_model(procedure: &CProcedure) -> ProcDescModel {
         // The annotated parameters are exactly the wire parameters: the
         // session OID is implicit in `mudu_proc_param.session` and never
         // appears in the marker annotation. A record parameter carries its
-        // registry-resolved DataTypeParamRecord; an `option<T>` parameter
+        // registry-resolved DataTypeParamStruct; an `option<T>` parameter
         // carries the inner data type plus the nullable flag
         // (`DatumDesc::new_nullable`).
         argv_fields: procedure

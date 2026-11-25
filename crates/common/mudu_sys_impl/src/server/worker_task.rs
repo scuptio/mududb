@@ -14,7 +14,8 @@ pub type WorkerTaskFuture = Pin<Box<dyn Future<Output = RS<()>> + 'static>>;
 /// Each task carries the connection it belongs to (if any), a tracing task
 /// id, and the future to poll. The `queued` and `completed` flags are shared
 /// with the registry, and `waiting_on` records the in-flight IO operation
-/// the task is currently blocked on.
+/// the task is currently blocked on. Background tasks (perpetual listeners
+/// such as page-buffer mailbox drivers) do not block the shutdown drain.
 pub struct WorkerTask {
     conn_id: Option<u64>,
     trace_task_id: TaskID,
@@ -22,12 +23,28 @@ pub struct WorkerTask {
     queued: Arc<AtomicBool>,
     completed: Arc<AtomicBool>,
     waiting_on: Option<u64>,
+    background: bool,
 }
 
 impl WorkerTask {
     /// Creates a worker task wrapping `future` for connection `conn_id`,
     /// labeled with `trace_task_id` for tracing.
     pub fn new(conn_id: Option<u64>, trace_task_id: TaskID, future: WorkerTaskFuture) -> Self {
+        Self::new_with_kind(conn_id, trace_task_id, future, false)
+    }
+
+    /// Creates a background task: it never blocks the shutdown drain and is
+    /// dropped with the registry when the worker loop exits.
+    pub fn new_background(trace_task_id: TaskID, future: WorkerTaskFuture) -> Self {
+        Self::new_with_kind(None, trace_task_id, future, true)
+    }
+
+    fn new_with_kind(
+        conn_id: Option<u64>,
+        trace_task_id: TaskID,
+        future: WorkerTaskFuture,
+        background: bool,
+    ) -> Self {
         Self {
             conn_id,
             trace_task_id,
@@ -35,7 +52,13 @@ impl WorkerTask {
             queued: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicBool::new(false)),
             waiting_on: None,
+            background,
         }
+    }
+
+    /// Whether this task must finish before the worker loop may exit.
+    pub fn is_blocking(&self) -> bool {
+        !self.background
     }
 
     /// Returns the id of the connection this task belongs to, if any.
@@ -75,7 +98,7 @@ impl WorkerTask {
         self.waiting_on.take()
     }
 
-    /// Records the id of the IO operation the task is blocked on.
+    /// Structs the id of the IO operation the task is blocked on.
     pub fn set_waiting_on(&mut self, op_id: u64) {
         self.waiting_on = Some(op_id);
     }

@@ -31,6 +31,7 @@ pub async fn async_serve(
         // Legacy mode connects in-process (LibSQL file I/O), so initdb runs
         // immediately during startup; no deferral is needed.
         defer_initdb: false,
+        trusted_key_fingerprints: cfg.trusted_key_fingerprints.clone(),
     };
     let service = create_runtime_service(
         &cfg.mpk_path,

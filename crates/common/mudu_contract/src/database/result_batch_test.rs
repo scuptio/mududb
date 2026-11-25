@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use crate::database::entity::Entity;
+    use crate::database::object::Object;
     use crate::database::result_batch::ResultBatch;
     use crate::database::result_set::{ResultSet, ResultSetAsync};
     use crate::tuple::tuple_field_desc::TupleFieldDesc;

@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -159,17 +159,17 @@ def _expect_seq(v, n):
     return v
 
 
-# Records shared by the funcs below; note that the tree-sitter-wit
+# Structs shared by the funcs below; note that the tree-sitter-wit
 @dataclass
 class MuOid:
     h: int = 0
     l: int = 0
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def mu_oid_to_value(x: MuOid) -> dict:
     return {
@@ -182,7 +182,7 @@ def mu_oid_from_value(v) -> MuOid:
     x = MuOid()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.h = _u64_checked(_val)
@@ -197,10 +197,10 @@ class MuError:
     err_details: bytes = b""
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def mu_error_to_value(x: MuError) -> dict:
     return {
@@ -214,7 +214,7 @@ def mu_error_from_value(v) -> MuError:
     x = MuError()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.err_code = _u32_checked(_val)
@@ -230,10 +230,10 @@ class MuEntry:
     value: bytes = b""
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def mu_entry_to_value(x: MuEntry) -> dict:
     return {
@@ -246,7 +246,7 @@ def mu_entry_from_value(v) -> MuEntry:
     x = MuEntry()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.key = _blob_from_value(_val)

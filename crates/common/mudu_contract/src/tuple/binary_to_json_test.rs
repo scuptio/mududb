@@ -12,6 +12,7 @@ mod tests {
     use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
     use mudu_type::data_value::DataValue;
     use mudu_type::type_family::TypeFamily;
+    use mudu_type::type_family_ext::TypeFamilyExt;
 
     fn encode_i32(value: i32) -> Vec<u8> {
         let data_type = DataType::new_no_param(TypeFamily::I32);

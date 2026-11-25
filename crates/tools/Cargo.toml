@@ -5,9 +5,11 @@ members = [
     "mpm_build",
     "mpm_crate",
     "mpm_install",
+    "mpm_tool",
     "mudu_cli",
     "mudu_gen",
     "mudu_transpiler",
+    "dev/mudu_arch",
     "dev/mudu_metrics",
 ]
 
@@ -36,6 +38,7 @@ debug = 1
 mpm_build = { path = "mpm_build" }
 mpm_crate = { path = "mpm_crate" }
 mpm_install = { path = "mpm_install" }
+mpm_tool = { path = "mpm_tool" }
 mudu_cli = { path = "mudu_cli" }
 mudu_gen = { path = "mudu_gen" }
 mudu_metrics = { path = "dev/mudu_metrics" }
@@ -45,10 +48,12 @@ mudu_transpiler = { path = "mudu_transpiler" }
 mudu = { path = "../common/mudu" }
 mudu_binding = { path = "../common/mudu_binding" }
 mudu_build_common = { path = "../common/mudu_build_common" }
+mudu_caf = { path = "../common/mudu_caf" }
 mudu_client = { path = "../common/mudu_client" }
 mudu_contract = { path = "../common/mudu_contract" }
 mudu_sys = { path = "../common/mudu_sys" }
 mudu_sys_impl = { path = "../common/mudu_sys_impl" }
+mudu_tui = { path = "../common/mudu_tui" }
 mudu_type = { path = "../common/mudu_type" }
 mudu_utils = { path = "../common/mudu_utils" }
 sql_parser = { path = "../common/sql_parser" }
@@ -63,9 +68,7 @@ askama = { version = "0.16.0" }
 async-trait = { version = "0.1.89" }
 cargo_metadata = { version = "0.23.1" }
 clap = { version = "4.5.50" }
-crossterm = { version = "0.29.0" }
 paste = { version = "1.0.15" }
-ratatui = { version = "0.30.2" }
 rustyline = { version = "18.0.0" }
 serde = { version = "1.0.228", features = ["default", "derive", "serde_derive"] }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
@@ -75,6 +78,5 @@ tree-sitter = { version = "0.26.2" }
 tree-sitter-c-sharp = { version = "0.23.5" }
 tree-sitter-rust = { version = "0.24.0" }
 tree-sitter-typescript = { version = "0.23.2" }
-unicode-width = { version = "0.2.0" }
 wit-parser = { version = "0.252.0" }
 zip = { version = "9.0.1" }

@@ -47,21 +47,21 @@ pub struct CustomerCols {
 
 impl __sdk::__query_builder::HasCols for Customer {
     type Cols = CustomerCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         CustomerCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            c_id: __sdk::__query_builder::Col::new(table_name, "c_id"),
-            c_d_id: __sdk::__query_builder::Col::new(table_name, "c_d_id"),
-            c_w_id: __sdk::__query_builder::Col::new(table_name, "c_w_id"),
-            c_first: __sdk::__query_builder::Col::new(table_name, "c_first"),
-            c_last: __sdk::__query_builder::Col::new(table_name, "c_last"),
-            c_discount: __sdk::__query_builder::Col::new(table_name, "c_discount"),
-            c_credit: __sdk::__query_builder::Col::new(table_name, "c_credit"),
-            c_balance: __sdk::__query_builder::Col::new(table_name, "c_balance"),
-            c_ytd_payment: __sdk::__query_builder::Col::new(table_name, "c_ytd_payment"),
-            c_payment_cnt: __sdk::__query_builder::Col::new(table_name, "c_payment_cnt"),
-            c_delivery_cnt: __sdk::__query_builder::Col::new(table_name, "c_delivery_cnt"),
-            c_last_order_id: __sdk::__query_builder::Col::new(table_name, "c_last_order_id"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            c_id: __sdk::__query_builder::Col::new(class_name, "c_id"),
+            c_d_id: __sdk::__query_builder::Col::new(class_name, "c_d_id"),
+            c_w_id: __sdk::__query_builder::Col::new(class_name, "c_w_id"),
+            c_first: __sdk::__query_builder::Col::new(class_name, "c_first"),
+            c_last: __sdk::__query_builder::Col::new(class_name, "c_last"),
+            c_discount: __sdk::__query_builder::Col::new(class_name, "c_discount"),
+            c_credit: __sdk::__query_builder::Col::new(class_name, "c_credit"),
+            c_balance: __sdk::__query_builder::Col::new(class_name, "c_balance"),
+            c_ytd_payment: __sdk::__query_builder::Col::new(class_name, "c_ytd_payment"),
+            c_payment_cnt: __sdk::__query_builder::Col::new(class_name, "c_payment_cnt"),
+            c_delivery_cnt: __sdk::__query_builder::Col::new(class_name, "c_delivery_cnt"),
+            c_last_order_id: __sdk::__query_builder::Col::new(class_name, "c_last_order_id"),
         }
     }
 }
@@ -75,9 +75,9 @@ pub struct CustomerIxCols {
 
 impl __sdk::__query_builder::HasIxCols for Customer {
     type IxCols = CustomerIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         CustomerIxCols {
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
         }
     }
 }

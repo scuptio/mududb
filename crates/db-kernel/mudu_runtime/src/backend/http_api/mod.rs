@@ -37,6 +37,8 @@ pub use serve::{serve_http_api, serve_http_api_on_listener, serve_http_api_on_li
 // Each test below returns early when running under Miri.
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_handler_routes;
 
 use async_trait::async_trait;
 use mudu::common::result::RS;
@@ -83,6 +85,40 @@ pub trait HttpApi: Send + Sync {
         ))
     }
 
+    /// Moves one partition to another node group (phase 3: online copy,
+    /// epoch-barrier cutover, placement flip, source cleanup).
+    async fn move_partition(&self, _request: PartitionMoveRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition move is not supported"
+        ))
+    }
+
+    /// Splits one partition at a split point (phase 3 §9.3).
+    async fn split_partition(&self, _request: PartitionSplitRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition split is not supported"
+        ))
+    }
+
+    /// Merges two adjacent partitions of one rule (phase 3 §9.3).
+    async fn merge_partitions(&self, _request: PartitionMergeRequest) -> RS<PartitionMoveResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition merge is not supported"
+        ))
+    }
+
+    /// Aborts an in-flight partition move: the fence lifts and the source
+    /// keeps the partition.
+    async fn abort_partition_move(&self, _request: PartitionMoveAbortRequest) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "partition move abort is not supported"
+        ))
+    }
+
     /// Returns the worker/replication topology view of this server.
     async fn server_topology(&self) -> RS<ServerTopology> {
         Err(mudu_error!(
@@ -96,6 +132,59 @@ pub trait HttpApi: Send + Sync {
         Err(mudu_error!(
             ErrorCode::NotImplemented,
             "server replication status is not supported"
+        ))
+    }
+
+    /// Returns the per-queue runtime status of this server.
+    async fn server_queues(&self) -> RS<ServerQueuesResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "server queues status is not supported"
+        ))
+    }
+
+    /// Registers (or replaces) a queue activation: the procedure is invoked
+    /// post-commit while the queue is non-empty. Volatile (in-memory; lost on
+    /// restart).
+    async fn queue_activation_register(&self, _request: QueueActivationRequest) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation registration is not supported"
+        ))
+    }
+
+    /// Removes the activation of the queue `queue`.
+    async fn queue_activation_unregister(&self, _queue: String) -> RS<()> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation removal is not supported"
+        ))
+    }
+
+    /// Lists the queue activations registered on this server.
+    async fn server_queue_activations(&self) -> RS<ServerQueueActivationsResponse> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue activation status is not supported"
+        ))
+    }
+
+    /// Receives rows from a queue shard, optionally blocking for a message.
+    ///
+    /// This is the native `RECEIVE ... FOR <consumer> [WAIT FOREVER]` long-poll
+    /// that the WebSocket gateway loops on to fan events out to clients. The
+    /// returned values are the payload rows encoded as JSON objects (the queue
+    /// system columns `__seq`/`__lsn` are stripped by the caller). Wiring the
+    /// kernel receive path behind this method is the P1 follow-up.
+    async fn receive_queue(
+        &self,
+        _queue: &str,
+        _consumer: Option<&str>,
+        _wait_forever: bool,
+    ) -> RS<Vec<Value>> {
+        Err(mudu_error!(
+            ErrorCode::NotImplemented,
+            "queue receive is not yet wired to the kernel"
         ))
     }
 

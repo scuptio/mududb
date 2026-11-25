@@ -13,7 +13,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_snake_case;
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use sql_parser::ast::parser::SQLParser;
 use sql_parser::ast::stmt_type::StmtType;
 use sql_parser::check::checker::{check_sql, count_params, find_table, select_result_shape};
@@ -131,7 +131,7 @@ pub fn run_check_sql(lang: &str, ddl_paths: &[String], input: &str) -> RS<CheckO
     Ok(outcome)
 }
 
-fn load_schema(ddl_paths: &[String]) -> RS<Vec<TableDef>> {
+fn load_schema(ddl_paths: &[String]) -> RS<Vec<ClassDef>> {
     let parser = DDLParser::new()?;
     let mut schema = Vec::new();
     for path in ddl_paths {
@@ -147,10 +147,10 @@ fn load_schema(ddl_paths: &[String]) -> RS<Vec<TableDef>> {
 /// same table with different column sets (e.g. a partitioned variant adds
 /// the partition key): union the columns so SQL written for either variant
 /// checks cleanly. Columns keep first-occurrence order.
-fn merge_table(schema: &mut Vec<TableDef>, table: TableDef) {
+fn merge_table(schema: &mut Vec<ClassDef>, table: ClassDef) {
     let opt_existing = schema
         .iter_mut()
-        .find(|def| def.table_name().eq_ignore_ascii_case(table.table_name()));
+        .find(|def| def.class_name().eq_ignore_ascii_case(table.class_name()));
     match opt_existing {
         Some(existing) => {
             let mut columns = existing.table_columns().clone();
@@ -162,7 +162,7 @@ fn merge_table(schema: &mut Vec<TableDef>, table: TableDef) {
                     columns.push(column.clone());
                 }
             }
-            *existing = TableDef::new(existing.table_name().clone(), columns);
+            *existing = ClassDef::new(existing.class_name().clone(), columns);
         }
         None => schema.push(table),
     }
@@ -189,7 +189,7 @@ fn collect_files_recursive(path: &Path, extension: &str, files: &mut Vec<PathBuf
 
 fn check_one_literal(
     item: &ExtractedSql,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql_parser: &SQLParser,
     file: &Path,
     outcome: &mut CheckOutcome,
@@ -247,12 +247,12 @@ fn check_one_literal(
 fn enhance_call_site(
     item: &ExtractedSql,
     sql: &str,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql_parser: &SQLParser,
     file_name: &str,
     outcome: &mut CheckOutcome,
 ) {
-    if item.param_arity.is_none() && item.entity.is_none() && item.param_literal_tags.is_empty() {
+    if item.param_arity.is_none() && item.object.is_none() && item.param_literal_tags.is_empty() {
         return;
     }
     let stmt_list = match sql_parser.parse(sql) {
@@ -276,8 +276,8 @@ fn enhance_call_site(
     if !item.param_literal_tags.is_empty() {
         check_literal_param_types(item, sql, schema, file_name, outcome);
     }
-    if let Some(entity) = &item.entity {
-        check_result_shape(item, entity, schema, &stmt_list, file_name, outcome);
+    if let Some(object) = &item.object {
+        check_result_shape(item, object, schema, &stmt_list, file_name, outcome);
     }
 }
 
@@ -288,7 +288,7 @@ fn enhance_call_site(
 fn check_literal_param_types(
     item: &ExtractedSql,
     sql: &str,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     file_name: &str,
     outcome: &mut CheckOutcome,
 ) {
@@ -325,19 +325,19 @@ fn check_literal_param_types(
 }
 
 /// Compare a literal `SELECT`'s result shape with the column order of the
-/// turbofish entity's table (`Wallets` → `wallets`). The check only runs
-/// when the entity name maps to a known table; scalar turbofish types
+/// turbofish object's table (`Wallets` → `wallets`). The check only runs
+/// when the object name maps to a known table; scalar turbofish types
 /// (`mudu_query::<i64>`) are skipped.
 fn check_result_shape(
     item: &ExtractedSql,
-    entity: &str,
-    schema: &[TableDef],
+    object: &str,
+    schema: &[ClassDef],
     stmt_list: &sql_parser::ast::stmt_list::StmtList,
     file_name: &str,
     outcome: &mut CheckOutcome,
 ) {
-    let table_name = to_snake_case(entity);
-    let Some(table_def) = find_table(schema, &table_name) else {
+    let class_name = to_snake_case(object);
+    let Some(class_def) = find_table(schema, &class_name) else {
         return;
     };
     let stmts = stmt_list.stmts();
@@ -348,7 +348,7 @@ fn check_result_shape(
         return;
     }
     let shape = select_result_shape(select, schema);
-    let columns: Vec<&String> = table_def
+    let columns: Vec<&String> = class_def
         .table_columns()
         .iter()
         .map(|column| column.column_name())
@@ -364,7 +364,7 @@ fn check_result_shape(
             SqlSeverity::Error,
             format!(
                 "{}:{}:{}: error: the SELECT result shape [{}] does not match \
-                 the columns [{}] of entity table '{table_name}' ({entity})",
+                 the columns [{}] of object table '{class_name}' ({object})",
                 file_name,
                 item.line,
                 item.column,

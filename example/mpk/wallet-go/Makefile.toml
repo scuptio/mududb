@@ -26,7 +26,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in procedures.go against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md). Only procedures.go
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md). Only procedures.go
 # is scanned — binding/ and third_party/ contain no application SQL.
 [tasks.check-sql]
 command = "mgen"

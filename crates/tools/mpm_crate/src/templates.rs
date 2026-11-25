@@ -5,7 +5,7 @@
 //! toolchains do not mistake them for real project files; the output path
 //! itself may contain `{{placeholders}}` (e.g. the C# project file).
 
-use crate::scaffold::Lang;
+use crate::lang::Lang;
 
 /// One template file: source content plus its path relative to the language
 /// template root.
@@ -98,8 +98,8 @@ const C_TEMPLATES: &[TemplateFile] = &[
     template!("c", "src/mududb/codec/mpack.c.tmpl"),
     template!("c", "src/mududb/codec/mpack.h.tmpl"),
     template!("c", "src/mududb/codec/mpack_alloc.c.tmpl"),
-    template!("c", "src/mududb/codec/record_bridge.c.tmpl"),
-    template!("c", "src/mududb/codec/record_bridge.h.tmpl"),
+    template!("c", "src/mududb/codec/struct_bridge.c.tmpl"),
+    template!("c", "src/mududb/codec/struct_bridge.h.tmpl"),
     template!("c", "src/mududb/types/UniCommandArgv.h.tmpl"),
     template!("c", "src/mududb/types/UniCommandResult.h.tmpl"),
     template!("c", "src/mududb/types/UniDataType.h.tmpl"),
@@ -114,7 +114,7 @@ const C_TEMPLATES: &[TemplateFile] = &[
     template!("c", "src/mududb/types/UniProcedureResult.h.tmpl"),
     template!("c", "src/mududb/types/UniQueryArgv.h.tmpl"),
     template!("c", "src/mududb/types/UniQueryResult.h.tmpl"),
-    template!("c", "src/mududb/types/UniRecordType.h.tmpl"),
+    template!("c", "src/mududb/types/UniStructType.h.tmpl"),
     template!("c", "src/mududb/types/UniResultSet.h.tmpl"),
     template!("c", "src/mududb/types/UniResultType.h.tmpl"),
     template!("c", "src/mududb/types/UniScalar.h.tmpl"),
@@ -244,7 +244,7 @@ const GO_TEMPLATES: &[TemplateFile] = &[
     ),
     template!(
         "go",
-        "vendor/github.com/mududb/mududb-go/types/UniRecordType.go.tmpl"
+        "vendor/github.com/mududb/mududb-go/types/UniStructType.go.tmpl"
     ),
     template!(
         "go",

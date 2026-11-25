@@ -1,7 +1,7 @@
 use crate::rust::procedures;
 use crate::rust::wallets::object::Wallets;
 use mududb::common::id::OID;
-use mududb::contract::database::entity_set::EntitySet;
+use mududb::contract::database::object_set::ObjectSet;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::sys::sync::SMutex;
 use mududb::sys_interface::sync_api::{mudu_batch, mudu_close, mudu_open, mudu_query};
@@ -150,6 +150,86 @@ fn withdraw_rejects_insufficient_funds() {
     );
 }
 
+/// Error arms shared by the balance-changing procedures: non-positive
+/// amounts, missing wallets, insufficient balances.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn procedures_validate_amounts_and_wallets() {
+    let _guard = test_mutex().lock().unwrap();
+    let mut db = TestDb::new();
+    let xid = db.open_session();
+
+    let err = procedures::deposit(xid, 1, 0).unwrap_err();
+    assert!(err.message().contains("positive"), "{err:?}");
+    let err = procedures::withdraw(xid, 1, -1).unwrap_err();
+    assert!(err.message().contains("positive"), "{err:?}");
+    let err = procedures::purchase(xid, 1, 0, "book".to_string()).unwrap_err();
+    assert!(err.message().contains("positive"), "{err:?}");
+
+    let err = procedures::deposit(xid, 999, 1).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    let err = procedures::withdraw(xid, 999, 1).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    let err = procedures::purchase(xid, 999, 1, "book".to_string()).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    let err = procedures::purchase(xid, 1, 20000, "yacht".to_string()).unwrap_err();
+    assert!(err.message().contains("Insufficient funds"), "{err:?}");
+
+    let err = procedures::update_user(xid, 999, "Nobody".to_string(), String::new()).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    // Email-only update (name left unchanged).
+    procedures::update_user(xid, 1, String::new(), "new@example.com".to_string()).unwrap();
+    assert_eq!(
+        db.query_string("SELECT email FROM users WHERE user_id = ?", &(1,)),
+        Some("new@example.com".to_string())
+    );
+}
+
+/// `transfer` (the second transfer procedure) moves funds and records a
+/// TRANSFER transaction; it rejects self-transfers, non-positive amounts,
+/// missing accounts, and insufficient balances.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn transfer_moves_balance_and_validates() {
+    let _guard = test_mutex().lock().unwrap();
+    let mut db = TestDb::new();
+    let xid = db.open_session();
+
+    procedures::transfer(xid, 1, 2, 500).unwrap();
+    assert_eq!(db.query_wallet(1).unwrap().balance, Some(9500));
+    assert_eq!(db.query_wallet(2).unwrap().balance, Some(10500));
+    assert_eq!(
+        db.query_count(
+            "SELECT COUNT(*) FROM transactions WHERE trans_type = ?",
+            &(String::from("TRANSFER"),),
+        ),
+        1
+    );
+
+    let err = procedures::transfer(xid, 1, 1, 1).unwrap_err();
+    assert!(err.message().contains("self"), "{err:?}");
+    let err = procedures::transfer(xid, 1, 2, 0).unwrap_err();
+    assert!(err.message().contains("positive"), "{err:?}");
+    let err = procedures::transfer(xid, 999, 2, 1).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    let err = procedures::transfer(xid, 1, 999, 1).unwrap_err();
+    assert!(err.message().contains("not found"), "{err:?}");
+    let err = procedures::transfer(xid, 1, 2, 100000).unwrap_err();
+    assert!(err.message().contains("Insufficient funds"), "{err:?}");
+
+    // transfer_funds validation-only arms (its happy path is covered above).
+    let err = procedures::transfer_funds(xid, 1, 2, 0).unwrap_err();
+    assert!(err.message().contains("greater than 0"), "{err:?}");
+    let err = procedures::transfer_funds(xid, 1, 1, 1).unwrap_err();
+    assert!(err.message().contains("oneself"), "{err:?}");
+    let err = procedures::transfer_funds(xid, 999, 2, 1).unwrap_err();
+    assert!(err.message().contains("no such user"), "{err:?}");
+    let err = procedures::transfer_funds(xid, 1, 2, 100000).unwrap_err();
+    assert!(err.message().contains("insufficient funds"), "{err:?}");
+    let err = procedures::transfer_funds(xid, 1, 999, 1).unwrap_err();
+    assert!(err.message().contains("no such user"), "{err:?}");
+}
+
 fn test_mutex() -> &'static SMutex<()> {
     TEST_MUTEX.get_or_init(|| SMutex::new(()))
 }
@@ -185,7 +265,7 @@ impl TestDb {
     }
 
     fn query_wallet(&self, user_id: i32) -> Option<Wallets> {
-        let rs: EntitySet<Wallets> = self.query_records(Wallets::SQL_GET_BY_PK, &(user_id,));
+        let rs: ObjectSet<Wallets> = self.query_records(Wallets::SQL_GET_BY_PK, &(user_id,));
         rs.next_record().unwrap()
     }
 
@@ -208,13 +288,13 @@ impl TestDb {
     }
 
     fn query_records<
-        R: mududb::contract::database::entity::Entity,
+        R: mududb::contract::database::object::Object,
         P: mududb::contract::database::sql_params::SQLParams,
     >(
         &self,
         sql: &str,
         params: &P,
-    ) -> mududb::contract::database::entity_set::EntitySet<R> {
+    ) -> mududb::contract::database::object_set::ObjectSet<R> {
         mudu_query::<R>(self.current_session(), sql_stmt!(&sql), params).unwrap()
     }
 

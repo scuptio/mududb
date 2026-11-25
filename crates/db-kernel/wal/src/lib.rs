@@ -22,6 +22,7 @@ pub mod lsn;
 pub mod migrate;
 /// Batches of physical log entries.
 pub mod pl_batch;
+mod pl_batch_type;
 /// Worker-log specialization for physical log batches.
 pub mod pl_batch_worker_log;
 /// Physical log entries describing file/page mutations.
@@ -33,5 +34,13 @@ pub mod worker_log;
 mod worker_wal_backend;
 /// Batches of transaction log entries.
 pub mod xl_batch;
+mod xl_batch_type;
 /// Worker-log specialization for transaction log batches.
 pub mod xl_batch_worker_log;
+
+mod frame_bounds;
+
+mod part_chain;
+
+/// Durable two-phase-commit participant records.
+pub mod participant;

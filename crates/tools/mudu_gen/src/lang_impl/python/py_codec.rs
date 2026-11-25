@@ -27,7 +27,7 @@ use std::collections::HashMap;
 /// Func-signature context: `list<u8>`/`blob` encode as a MessagePack bin.
 pub const PY_FUNC_BIN: bool = true;
 
-/// Record/variant definition context: `list<u8>`/`blob` encode as an array.
+/// Struct/variant definition context: `list<u8>`/`blob` encode as an array.
 pub const PY_RECORD_BIN: bool = false;
 
 /// The Python type annotation of a value of the given WIT type.
@@ -105,7 +105,7 @@ fn to_value_at(ty: &UniDataType, expr: &str, func_bin: bool, depth: usize) -> RS
             format!("[{}]", parts.join(", "))
         }
         UniDataType::Box(inner) => to_value_at(inner, expr, func_bin, depth)?,
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Python wire conversion for {ty:?} is not implemented")
@@ -195,7 +195,7 @@ fn from_value_at(ty: &UniDataType, expr: &str, depth: usize) -> RS<String> {
             format!("({})", parts.join(", "))
         }
         UniDataType::Box(inner) => from_value_at(inner, expr, depth)?,
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Python wire conversion for {ty:?} is not implemented")
@@ -255,7 +255,7 @@ pub fn py_zero(ty: &UniDataType, type_kinds: &HashMap<String, String>) -> RS<Str
                 _ => format!("{pascal}()"),
             }
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!("Python default value for {ty:?} is not implemented")

@@ -115,14 +115,14 @@ print("regular - should parse")
 @startuml
 !theme plain
 
-entity users {
+object users {
   * user_id: INTEGER
   --
   phone_number: TEXT
   created_at: INTEGER
 }
 
-entity votes {
+object votes {
   * vote_id: TEXT
   --
   creator_id: INTEGER
@@ -135,7 +135,7 @@ entity votes {
   created_at: INTEGER
 }
 
-entity vote_options {
+object vote_options {
   * option_id: TEXT
   * vote_id: TEXT
   --
@@ -143,7 +143,7 @@ entity vote_options {
   created_at: INTEGER
 }
 
-entity user_votes {
+object user_votes {
   * record_id: TEXT
   --
   user_id: INTEGER

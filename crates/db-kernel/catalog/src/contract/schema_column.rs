@@ -3,6 +3,8 @@ use arbitrary::{Arbitrary, Unstructured};
 use mudu::common::id::{AttrIndex, OID};
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily as TypeID;
+#[cfg(any(test, feature = "test", fuzzing))]
+use mudu_type::type_family_ext::TypeFamilyExt;
 use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
@@ -147,7 +149,11 @@ impl<'a> Arbitrary<'a> for SchemaColumn {
         let data_type = TypeID::arbitrary(u)?;
         let fn_arbitrary = data_type.fn_arb_param();
         let param = fn_arbitrary(u)?;
-        let schema = Self::new(name, data_type, DataTypeInfo::from_opt_object(&param));
+        let schema = Self::new(
+            name,
+            data_type,
+            mudu_type::data_type_codec::from_opt_object(&param),
+        );
         Ok(schema)
     }
 }

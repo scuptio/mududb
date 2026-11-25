@@ -101,6 +101,21 @@ export enum MessageKind {
     
     RelationInsert = 23,
     
+    
+    CacheOpen = 24,
+    
+    
+    CacheGet = 25,
+    
+    
+    CachePut = 26,
+    
+    
+    CacheDelete = 27,
+    
+    
+    CacheTtl = 28,
+    
 }
 
 // Convert a raw header value into a message kind; throws on `0` and unknown
@@ -176,6 +191,21 @@ export function messageKindFromU32(raw: u32): MessageKind {
         
         case 23:
             return MessageKind.RelationInsert;
+        
+        case 24:
+            return MessageKind.CacheOpen;
+        
+        case 25:
+            return MessageKind.CacheGet;
+        
+        case 26:
+            return MessageKind.CachePut;
+        
+        case 27:
+            return MessageKind.CacheDelete;
+        
+        case 28:
+            return MessageKind.CacheTtl;
         
         default:
             throw new Error(`MSSP unknown syscall message kind ${raw}`);
@@ -3063,6 +3093,599 @@ export function decodeRelationInsertResult(frame: Uint8Array): RelationInsertRes
     }
     if (tag === 1) {
         const result = RelationInsertResult.err(UniErrorCodec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+
+
+
+
+
+
+export function encodeCacheOpenRequest(name: string): Uint8Array {
+    const writer = new MpackWriter();
+        writer.writeMapHeader(1);
+        writer.writeU64(1);
+        writer.writeString(name);
+    return encodeFrame(MessageKind.CacheOpen, writer.toBytes());
+}
+
+
+export function decodeCacheOpenRequest(frame: Uint8Array): string {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheOpen));
+    let value: string = "";
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        
+        if (key == 1) {
+            value = reader.readString();
+        } else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+
+
+
+export class CacheOpenResult {
+    
+    value: UniOid = new UniOid();
+    
+    error: UniError | null = null;
+
+    
+    static ok(value: UniOid): CacheOpenResult {
+        const result = new CacheOpenResult();
+        result.value = value;
+        return result;
+    }
+    
+
+    static err(error: UniError): CacheOpenResult {
+        const result = new CacheOpenResult();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+
+export function encodeCacheOpenResult(result: CacheOpenResult): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        UniErrorCodec.encode(error, writer);
+    } else {
+        writer.writeU64(0);
+            UniOidCodec.encode(result.value, writer);
+    }
+    return encodeFrame(MessageKind.CacheOpen, writer.toBytes());
+}
+
+export function decodeCacheOpenResult(frame: Uint8Array): CacheOpenResult {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheOpen));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        const result = new CacheOpenResult();
+            result.value = UniOidCodec.decode(reader);
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    if (tag === 1) {
+        const result = CacheOpenResult.err(UniErrorCodec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+
+
+
+
+
+export class CacheGetRequest {
+    
+    cache: UniOid = new UniOid();
+    
+    key: Uint8Array = new Uint8Array(0);
+    
+}
+
+
+export function encodeCacheGetRequest(cache: UniOid, key: Uint8Array): Uint8Array {
+    const writer = new MpackWriter();
+        writer.writeMapHeader(2);
+        writer.writeU64(1);
+        UniOidCodec.encode(cache, writer);
+        writer.writeU64(2);
+        writer.writeBin(key);
+    return encodeFrame(MessageKind.CacheGet, writer.toBytes());
+}
+
+
+export function decodeCacheGetRequest(frame: Uint8Array): CacheGetRequest {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheGet));
+    const value = new CacheGetRequest();
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        
+        if (key == 1) {
+            value.cache = UniOidCodec.decode(reader);
+        } 
+        else if (key == 2) {
+            value.key = reader.readBin();
+        } else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+
+
+
+export class CacheGetResult {
+    
+    value: Uint8Array | null = null;
+    
+    error: UniError | null = null;
+
+    
+    static ok(value: Uint8Array | null): CacheGetResult {
+        const result = new CacheGetResult();
+        result.value = value;
+        return result;
+    }
+    
+
+    static err(error: UniError): CacheGetResult {
+        const result = new CacheGetResult();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+
+export function encodeCacheGetResult(result: CacheGetResult): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        UniErrorCodec.encode(error, writer);
+    } else {
+        writer.writeU64(0);
+            {
+                const opt = result.value;
+                if (opt === null) {
+                    writer.writeNil();
+                } else {
+                    writer.writeBin(opt);
+                }
+            }
+    }
+    return encodeFrame(MessageKind.CacheGet, writer.toBytes());
+}
+
+export function decodeCacheGetResult(frame: Uint8Array): CacheGetResult {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheGet));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        const result = new CacheGetResult();
+            if (reader.tryNil()) {
+                result.value = null;
+            } else {
+                result.value = reader.readBin();
+            }
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    if (tag === 1) {
+        const result = CacheGetResult.err(UniErrorCodec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+
+
+
+
+
+export class CachePutRequest {
+    
+    cache: UniOid = new UniOid();
+    
+    key: Uint8Array = new Uint8Array(0);
+    
+    value: Uint8Array = new Uint8Array(0);
+    
+    ttlSecs: u64 | null = null;
+    
+}
+
+
+export function encodeCachePutRequest(cache: UniOid, key: Uint8Array, value: Uint8Array, ttlSecs: u64 | null): Uint8Array {
+    const writer = new MpackWriter();
+        writer.writeMapHeader(4);
+        writer.writeU64(1);
+        UniOidCodec.encode(cache, writer);
+        writer.writeU64(2);
+        writer.writeBin(key);
+        writer.writeU64(3);
+        writer.writeBin(value);
+        writer.writeU64(4);
+        {
+            const opt = ttlSecs;
+            if (opt === null) {
+                writer.writeNil();
+            } else {
+                writer.writeU64(opt);
+            }
+        }
+    return encodeFrame(MessageKind.CachePut, writer.toBytes());
+}
+
+
+export function decodeCachePutRequest(frame: Uint8Array): CachePutRequest {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CachePut));
+    const value = new CachePutRequest();
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        
+        if (key == 1) {
+            value.cache = UniOidCodec.decode(reader);
+        } 
+        else if (key == 2) {
+            value.key = reader.readBin();
+        } 
+        else if (key == 3) {
+            value.value = reader.readBin();
+        } 
+        else if (key == 4) {
+            if (reader.tryNil()) {
+                value.ttlSecs = null;
+            } else {
+                value.ttlSecs = reader.readU64();
+            }
+        } else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+
+
+
+export class CachePutResult {
+    
+    error: UniError | null = null;
+
+    
+    static ok(): CachePutResult {
+        return new CachePutResult();
+    }
+    
+
+    static err(error: UniError): CachePutResult {
+        const result = new CachePutResult();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+
+export function encodeCachePutResult(result: CachePutResult): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        UniErrorCodec.encode(error, writer);
+    } else {
+        // unit success: the `0u8` placeholder payload
+        writer.writeU64(0);
+        writer.writeU64(0);
+    }
+    return encodeFrame(MessageKind.CachePut, writer.toBytes());
+}
+
+export function decodeCachePutResult(frame: Uint8Array): CachePutResult {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CachePut));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        // consume the `0u8` placeholder payload
+        reader.readU64();
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return new CachePutResult();
+    }
+    if (tag === 1) {
+        const result = CachePutResult.err(UniErrorCodec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+
+
+
+
+
+export class CacheDeleteRequest {
+    
+    cache: UniOid = new UniOid();
+    
+    key: Uint8Array = new Uint8Array(0);
+    
+}
+
+
+export function encodeCacheDeleteRequest(cache: UniOid, key: Uint8Array): Uint8Array {
+    const writer = new MpackWriter();
+        writer.writeMapHeader(2);
+        writer.writeU64(1);
+        UniOidCodec.encode(cache, writer);
+        writer.writeU64(2);
+        writer.writeBin(key);
+    return encodeFrame(MessageKind.CacheDelete, writer.toBytes());
+}
+
+
+export function decodeCacheDeleteRequest(frame: Uint8Array): CacheDeleteRequest {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheDelete));
+    const value = new CacheDeleteRequest();
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        
+        if (key == 1) {
+            value.cache = UniOidCodec.decode(reader);
+        } 
+        else if (key == 2) {
+            value.key = reader.readBin();
+        } else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+
+
+
+export class CacheDeleteResult {
+    
+    error: UniError | null = null;
+
+    
+    static ok(): CacheDeleteResult {
+        return new CacheDeleteResult();
+    }
+    
+
+    static err(error: UniError): CacheDeleteResult {
+        const result = new CacheDeleteResult();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+
+export function encodeCacheDeleteResult(result: CacheDeleteResult): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        UniErrorCodec.encode(error, writer);
+    } else {
+        // unit success: the `0u8` placeholder payload
+        writer.writeU64(0);
+        writer.writeU64(0);
+    }
+    return encodeFrame(MessageKind.CacheDelete, writer.toBytes());
+}
+
+export function decodeCacheDeleteResult(frame: Uint8Array): CacheDeleteResult {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheDelete));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        // consume the `0u8` placeholder payload
+        reader.readU64();
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return new CacheDeleteResult();
+    }
+    if (tag === 1) {
+        const result = CacheDeleteResult.err(UniErrorCodec.decode(reader));
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    throw new Error(`MSSP unknown result tag ${tag}, expected 0 (ok) or 1 (err)`);
+}
+
+
+
+
+
+export class CacheTtlRequest {
+    
+    cache: UniOid = new UniOid();
+    
+    key: Uint8Array = new Uint8Array(0);
+    
+}
+
+
+export function encodeCacheTtlRequest(cache: UniOid, key: Uint8Array): Uint8Array {
+    const writer = new MpackWriter();
+        writer.writeMapHeader(2);
+        writer.writeU64(1);
+        UniOidCodec.encode(cache, writer);
+        writer.writeU64(2);
+        writer.writeBin(key);
+    return encodeFrame(MessageKind.CacheTtl, writer.toBytes());
+}
+
+
+export function decodeCacheTtlRequest(frame: Uint8Array): CacheTtlRequest {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheTtl));
+    const value = new CacheTtlRequest();
+    const count = reader.readMapHeader();
+    for (let i: u32 = 0; i < count; i++) {
+        const key = reader.readMapKey();
+        
+        if (key == 1) {
+            value.cache = UniOidCodec.decode(reader);
+        } 
+        else if (key == 2) {
+            value.key = reader.readBin();
+        } else {
+            reader.skipValue();
+        }
+    }
+    if (!reader.isDone()) {
+        throw new Error("trailing bytes after syscall payload body");
+    }
+    return value;
+}
+
+
+
+export class CacheTtlResult {
+    
+    value: u64 | null = null;
+    
+    error: UniError | null = null;
+
+    
+    static ok(value: u64 | null): CacheTtlResult {
+        const result = new CacheTtlResult();
+        result.value = value;
+        return result;
+    }
+    
+
+    static err(error: UniError): CacheTtlResult {
+        const result = new CacheTtlResult();
+        result.error = error;
+        return result;
+    }
+
+    get isOk(): bool {
+        return this.error === null;
+    }
+}
+
+
+export function encodeCacheTtlResult(result: CacheTtlResult): Uint8Array {
+    const writer = new MpackWriter();
+    writer.writeArrayHeader(2);
+    const error = result.error;
+    if (error !== null) {
+        writer.writeU64(1);
+        UniErrorCodec.encode(error, writer);
+    } else {
+        writer.writeU64(0);
+            {
+                const opt = result.value;
+                if (opt === null) {
+                    writer.writeNil();
+                } else {
+                    writer.writeU64(opt);
+                }
+            }
+    }
+    return encodeFrame(MessageKind.CacheTtl, writer.toBytes());
+}
+
+export function decodeCacheTtlResult(frame: Uint8Array): CacheTtlResult {
+    const reader = new MpackReader(expectFrameBody(frame, MessageKind.CacheTtl));
+    const count = reader.readArrayHeader();
+    if (count !== 2) {
+        throw new Error(`Expected array of length 2, got ${count}`);
+    }
+    const tag = reader.readU64() as u8;
+    if (tag === 0) {
+        const result = new CacheTtlResult();
+            if (reader.tryNil()) {
+                result.value = null;
+            } else {
+                result.value = reader.readU64();
+            }
+        if (!reader.isDone()) {
+            throw new Error("trailing bytes after syscall payload body");
+        }
+        return result;
+    }
+    if (tag === 1) {
+        const result = CacheTtlResult.err(UniErrorCodec.decode(reader));
         if (!reader.isDone()) {
             throw new Error("trailing bytes after syscall payload body");
         }

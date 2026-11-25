@@ -8,6 +8,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_type::data_value::DataValue;
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// A field value that may be SQL NULL.
 #[derive(Clone, Debug)]

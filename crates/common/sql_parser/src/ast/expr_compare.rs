@@ -107,7 +107,8 @@ mod tests {
 
         assert_eq!(field.name(), "id");
         assert_eq!(literal.data_type().unwrap().data_internal().to_i32(), 7);
-        assert!(matches!(op, ValueCompare::LE));
+        // `7 > id` is `id < 7`: direction flips, strictness is kept.
+        assert!(matches!(op, ValueCompare::LT));
     }
 
     #[test]

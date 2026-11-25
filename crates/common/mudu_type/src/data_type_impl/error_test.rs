@@ -6,6 +6,7 @@ use crate::data_type_param_numeric::DataTypeParamNumeric;
 use crate::data_value::DataValue;
 use crate::type_error::{TyEC, TyErr};
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use mudu::utils::json::JsonValue;
 
 fn assert_ty_ec(err: TyErr, ec: TyEC) {
@@ -65,7 +66,7 @@ fn invalid_textual_input_paths_return_type_convert_failed() {
             "{\"oops\":1}",
         ),
         (
-            TypeFamily::Record,
+            TypeFamily::Struct,
             create_object_type(
                 "user".to_string(),
                 vec![("name".to_string(), create_string_type(Some(16)))],
@@ -130,7 +131,7 @@ fn textual_input_rejects_json_with_wrong_shape() {
             "{[\"bad\"]",
         ),
         (
-            TypeFamily::Record,
+            TypeFamily::Struct,
             create_object_type(
                 "user".to_string(),
                 vec![("name".to_string(), create_string_type(Some(16)))],
@@ -238,7 +239,7 @@ fn object_error_paths_return_expected_error_codes() {
         ],
     );
 
-    let err = TypeFamily::Record.fn_input_json()(
+    let err = TypeFamily::Struct.fn_input_json()(
         &JsonValue::Object(
             [("name".to_string(), JsonValue::String("neo".to_string()))]
                 .into_iter()
@@ -249,21 +250,21 @@ fn object_error_paths_return_expected_error_codes() {
     .unwrap_err();
     assert_ty_ec(err, TyEC::TypeConvertFailed);
 
-    let err = TypeFamily::Record.fn_output_json()(
-        &DataValue::from_record(vec![DataValue::from_string("neo".to_string())]),
+    let err = TypeFamily::Struct.fn_output_json()(
+        &DataValue::from_struct(vec![DataValue::from_string("neo".to_string())]),
         &dt,
     )
     .err()
     .unwrap();
     assert_ty_ec(err, TyEC::TypeConvertFailed);
 
-    let value = DataValue::from_record(vec![
+    let value = DataValue::from_struct(vec![
         DataValue::from_string("neo".to_string()),
         DataValue::from_i32(7),
     ]);
-    let err = TypeFamily::Record.fn_send_to()(&value, &dt, &mut [0u8; 4]).unwrap_err();
+    let err = TypeFamily::Struct.fn_send_to()(&value, &dt, &mut [0u8; 4]).unwrap_err();
     assert_ty_ec(err, TyEC::InsufficientSpace);
 
-    let err = TypeFamily::Record.fn_recv()(&[0, 0, 0, 0], &dt).unwrap_err();
+    let err = TypeFamily::Struct.fn_recv()(&[0, 0, 0, 0], &dt).unwrap_err();
     assert_ty_ec(err, TyEC::InsufficientSpace);
 }

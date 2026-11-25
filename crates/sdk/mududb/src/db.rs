@@ -1,7 +1,7 @@
 //! Canonical guest facade `mududb.db`: the database session handle.
 //!
 //! Mirrors the cross-language canonical surface
-//! (`doc/dev/binding_api_surface.md`): `open`/`close`/`query`/`command`/
+//! (`doc/en/binding_api_surface.md`): `open`/`close`/`query`/`command`/
 //! `batch` with the AssemblyScript `Database` semantics. Statements and
 //! parameters are accepted as `&dyn SQLStmt` / `&dyn SQLParams`, so the
 //! existing `sql_stmt!` / `sql_params!` values (string literals, tuples,
@@ -67,10 +67,10 @@ impl Database {
 
     /// Run a `SELECT` statement and return the full result set.
     pub fn query(&self, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<ResultSet> {
-        // `i32` is a phantom entity: only the raw rows and the column
-        // description are consumed; no entity record is ever materialized.
-        let entity_set = sync_api::mudu_query::<i32>(self.id, sql, params)?;
-        let (raw, desc) = entity_set.into_parts();
+        // `i32` is a phantom object: only the raw rows and the column
+        // description are consumed; no object record is ever materialized.
+        let object_set = sync_api::mudu_query::<i32>(self.id, sql, params)?;
+        let (raw, desc) = object_set.into_parts();
         let mut rows = Vec::new();
         while let Some(row) = raw.next()? {
             rows.push(row);
@@ -84,9 +84,49 @@ impl Database {
         sync_api::mudu_command(self.id, sql, params)
     }
 
+    /// Enqueue one message into a queue. This is the guest-side spelling of
+    /// the `emit` primitive: it runs the given `INSERT INTO <queue> ...`
+    /// statement and the kernel synthesizes the queue system columns
+    /// (`__seq`/`__lsn`) on enqueue. The consumer side is `RECEIVE ... [WAIT
+    /// FOREVER]`, which the server's WebSocket gateway loops on.
+    pub fn emit(&self, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
+        self.command(sql, params)
+    }
+
     /// Run a batch of statements through the batch syscall path; same
     /// argument and return shape as [`Database::command`].
     pub fn batch(&self, sql: &dyn SQLStmt, params: &dyn SQLParams) -> RS<u64> {
         sync_api::mudu_batch(self.id, sql, params)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    /// A non-numeric URI is rejected before any syscall is made, so this
+    /// test needs no transport.
+    #[test]
+    fn open_uri_rejects_non_numeric_worker_id() {
+        for bad in ["not-a-number", "-1", "1.5", "0x10", "  "] {
+            let err = match Database::open_uri(bad) {
+                Ok(_) => panic!("open_uri({bad:?}) must fail"),
+                Err(err) => err,
+            };
+            assert_eq!(err.ec(), ErrorCode::Parse, "open_uri({bad:?})");
+        }
+    }
+
+    /// A decimal string beyond u128 range overflows the parse and is
+    /// rejected with the same `ErrorCode::Parse`.
+    #[test]
+    fn open_uri_rejects_out_of_range_worker_id() {
+        let bad = "340282366920938463463374607431768211456"; // u128::MAX + 1
+        let err = match Database::open_uri(bad) {
+            Ok(_) => panic!("open_uri({bad:?}) must fail"),
+            Err(err) => err,
+        };
+        assert_eq!(err.ec(), ErrorCode::Parse);
     }
 }

@@ -11,25 +11,22 @@ use crate::async_func_task::HandleResult;
 use crate::request_ctx::RequestCtx;
 use crate::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
 use crate::routing::SessionOpenConfig;
-use crate::worker_registry::WorkerIdentity;
+use crate::worker_registry::WorkerIdobject;
 use crate::worker_registry::WorkerRegistry;
-use ::catalog::contract::message_bus_api::{
-    Envelope, MessageBus, MessageBusRef, MessageId, OnRecvCallback, OutgoingMessage, RecvFilter,
-    SubscriptionId,
-};
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::conn::worker_local::{WorkerExecute, WorkerLocal};
 use ::xengine::api::{
     AlterTable, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum,
-    VecSelTerm, XContract,
+    VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::TxMgr;
 use async_trait::async_trait;
+use mudu::channel::{Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter};
 use mudu::common::buf::Buf;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
@@ -40,13 +37,14 @@ use mudu_contract::protocol::{
     decode_handshake_response, encode_handshake_request, Frame, HandshakeRequest,
     HandshakeResponse, MessageType,
 };
+use mudu_utils::channel::{ChannelEndpoint, ChannelEndpointRef, KindHandler};
 use std::sync::Arc;
 
-struct NullXContract;
+pub(super) struct NullXContract;
 
 #[async_trait]
 impl XContract for NullXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -123,7 +121,9 @@ impl XContract for NullXContract {
     }
 }
 
-struct NullMetaMgr;
+impl XContractQueue for NullXContract {}
+
+pub(super) struct NullMetaMgr;
 
 #[async_trait]
 impl MetaMgr for NullMetaMgr {
@@ -136,7 +136,7 @@ impl MetaMgr for NullMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         unimplemented!()
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         unimplemented!()
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -172,37 +172,33 @@ impl MetaMgr for NullMetaMgr {
     async fn list_partition_placements(&self) -> RS<Vec<PartitionPlacement>> {
         unimplemented!()
     }
-    async fn list_schemas(&self) -> RS<Vec<SchemaTable>> {
+    async fn list_schemas(&self) -> RS<Vec<SchemaClass>> {
         unimplemented!()
     }
 }
 
-struct NullMessageBus;
+pub(super) struct NullWorkerChannel;
 
 #[async_trait]
-impl MessageBus for NullMessageBus {
+impl ChannelEndpoint for NullWorkerChannel {
     fn local_endpoint(&self) -> OID {
         unimplemented!()
     }
     async fn send(&self, _dst: OID, _message: OutgoingMessage) -> RS<MessageId> {
         unimplemented!()
     }
-    async fn recv(&self, _filter: RecvFilter) -> RS<Envelope> {
+    async fn recv(&self, _filter: RecvFilter, _deadline_ms: Option<u64>) -> RS<Envelope> {
         unimplemented!()
     }
-    fn on_recv_callback(
-        &self,
-        _filter: RecvFilter,
-        _callback: OnRecvCallback,
-    ) -> RS<SubscriptionId> {
+    fn register_kind_handler(&self, _kind: MessageKind, _handler: KindHandler) -> RS<()> {
         unimplemented!()
     }
-    fn cancel_callback(&self, _id: SubscriptionId) -> RS<bool> {
+    fn unregister_kind_handler(&self, _kind: MessageKind) -> RS<()> {
         unimplemented!()
     }
 }
 
-struct NullWorkerRuntime;
+pub(super) struct NullWorkerRuntime;
 
 #[async_trait]
 impl WorkerLocal for NullWorkerRuntime {
@@ -212,8 +208,8 @@ impl WorkerLocal for NullWorkerRuntime {
     fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         Arc::new(NullMetaMgr)
     }
-    fn message_bus(&self) -> MessageBusRef {
-        Arc::new(NullMessageBus)
+    fn worker_channel(&self) -> ChannelEndpointRef {
+        Arc::new(NullWorkerChannel)
     }
     async fn open_async(&self) -> RS<OID> {
         unimplemented!()
@@ -283,7 +279,7 @@ impl RequestResponseWorker for NullWorkerRuntime {
     }
     fn registry(&self) -> Arc<WorkerRegistry> {
         Arc::new(
-            WorkerRegistry::new(vec![WorkerIdentity {
+            WorkerRegistry::new(vec![WorkerIdobject {
                 worker_index: 0,
                 worker_id: 0,
                 partition_ids: vec![],
@@ -306,7 +302,7 @@ impl RequestResponseWorker for NullWorkerRuntime {
     }
 }
 
-fn null_ctx(request_id: u64) -> RequestCtx {
+pub(super) fn null_ctx(request_id: u64) -> RequestCtx {
     RequestCtx::new(
         Arc::new(NullWorkerRuntime) as WorkerRuntimeRef,
         0,
@@ -409,4 +405,77 @@ fn handshake_handler_malformed_frame_returns_decode_error() {
             Ok(_) => panic!("expected decode error"),
         }
     });
+}
+
+/// The `Null*` fixtures satisfy trait bounds the handshake flow never calls;
+/// pin that contract down by driving every one of their entry points and
+/// asserting each panics (or returns its documented value).
+#[test]
+fn null_fixtures_cover_their_surface() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    fn panics<R>(f: impl FnOnce() -> R) {
+        assert!(catch_unwind(AssertUnwindSafe(f)).is_err());
+    }
+    fn panics_async<F: std::future::Future>(fut: F) {
+        panics(move || futures::executor::block_on(fut));
+    }
+
+    // The non-panicking constructor surface.
+    let worker = NullWorkerRuntime;
+    assert_eq!(worker.worker_index(), 0);
+    assert_eq!(worker.worker_id(), 0);
+    let _registry = worker.registry();
+    let _x = worker.x_contract();
+    let _meta = worker.meta_mgr();
+    let _bus = worker.worker_channel();
+
+    // WorkerLocal entry points.
+    panics_async(worker.open_async());
+    panics_async(worker.open_argv_async(1));
+    panics_async(worker.close_async(1));
+    panics_async(worker.put_async(1, b"k".to_vec(), b"v".to_vec()));
+    panics_async(worker.delete_async(1, b"k"));
+    panics_async(worker.get_async(1, b"k"));
+    panics_async(worker.range_async(1, b"a", b"z"));
+    let new_stmt = |sql: &str| {
+        Box::new(mudu_contract::database::sql_stmt_text::SQLStmtText::new(
+            sql.to_string(),
+        )) as Box<dyn SQLStmt>
+    };
+    panics_async(worker.query(1, None, new_stmt("select 1"), Box::new(())));
+    panics_async(worker.execute(1, None, new_stmt("update t set x = 1"), Box::new(())));
+    panics_async(worker.batch(1, None, new_stmt("insert into t values (1)"), Box::new(())));
+
+    // RequestResponseWorker entry points.
+    panics(|| worker.close_session_for_connection(1, 2));
+    panics_async(worker.handle_procedure_request(
+        0,
+        &mudu_contract::protocol::ProcedureInvokeRequest::new(1, "p".to_string(), vec![]),
+    ));
+
+    // NullWorkerChannel.
+    let bus = NullWorkerChannel;
+    panics(|| bus.local_endpoint());
+    panics(|| bus.unregister_kind_handler(MessageKind::User(0)));
+
+    // NullMetaMgr.
+    let meta = NullMetaMgr;
+    panics_async(meta.initialize());
+    panics_async(meta.get_table_by_id(1));
+    panics_async(meta.get_table_by_name("s", "t"));
+    panics_async(meta.create_table(&SchemaClass::new("t".to_string(), vec![], vec![], vec![])));
+    panics_async(meta.drop_table(1));
+    panics_async(meta.get_partition_rule_by_id(1));
+    panics_async(meta.get_partition_rule_by_name("r"));
+    panics_async(meta.list_partition_rules());
+    panics_async(meta.get_table_partition_binding(1));
+    panics_async(meta.upsert_partition_placements(&[]));
+    panics_async(meta.get_partition_worker(1));
+    panics_async(meta.list_partition_placements());
+    panics_async(meta.list_schemas());
+
+    // NullXContract: only `begin_tx` is constructible without a TxMgr.
+    let x = NullXContract;
+    panics_async(x.begin_tx());
 }

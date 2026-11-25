@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hasher;
 
-use crate::tuple::read_datum::{read_fixed_len_value, read_var_len_value};
+use crate::tuple::field_desc::{read_fixed_len_value, read_var_len_value};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -12,6 +12,7 @@ use mudu::mudu_error;
 use mudu_type::data_type::DataType;
 use mudu_type::data_value::DataValue;
 use mudu_type::type_family::TypeFamily;
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// Function pointers implementing comparison, equality, and hashing of
 /// binary tuples laid out by a [`TupleBinaryDesc`].

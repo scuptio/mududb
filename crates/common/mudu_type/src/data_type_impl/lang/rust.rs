@@ -15,7 +15,7 @@ lazy_static! {
         (TypeFamily::F64, "f64"),
         (TypeFamily::String, "String"),
         (TypeFamily::Array, "Vec"),
-        (TypeFamily::Record, "Record"),
+        (TypeFamily::Struct, "Struct"),
         (TypeFamily::Binary, "Vec<u8>")
     ];
     static ref _id2name: HashMap<TypeFamily, String> =

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[derive(Parser, Clone)]
 #[command(
     name = "mtp",
-    version = "1.0",
+    version,
     author = "scuptio",
     about = "Mudu Transpiler (mtp), transpile source code to Mudu procedure",
     long_about = "Transpiles source code from supported programming languages to Mudu procedure format"
@@ -311,13 +311,27 @@ fn handle_go(args: Args, type_registry: Option<&TypeRegistry>) -> Result<(), Str
 /// Parse command-line arguments from `args` and run the transpiler.
 ///
 /// Errors are returned as a string so tests can assert on them without the
-/// binary terminating the process.
+/// binary terminating the process. `--help` and `--version` are printed to
+/// stdout and reported as success, matching standard CLI behavior.
 pub fn run<I, T>(args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let args = Args::try_parse_from(args).map_err(|e| e.to_string())?;
+    let args = match Args::try_parse_from(args) {
+        Ok(args) => args,
+        Err(e) => {
+            // clap reports `--help` and `--version` as errors whose payload is
+            // the text to display; print it and treat them as success.
+            if matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                return e.print().map_err(|io_err| io_err.to_string());
+            }
+            return Err(e.to_string());
+        }
+    };
     execute(args)
 }
 

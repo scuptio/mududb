@@ -5,9 +5,9 @@ use mudu_binding::system::{command_invoke, query_invoke};
 #[cfg(not(all(target_arch = "wasm32", feature = "component-model", feature = "async")))]
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 #[cfg(not(all(target_arch = "wasm32", feature = "component-model", feature = "async")))]
-use mudu_contract::database::entity::Entity;
+use mudu_contract::database::object::Object;
 #[cfg(not(all(target_arch = "wasm32", feature = "component-model", feature = "async")))]
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql::Context;
 #[cfg(not(all(target_arch = "wasm32", feature = "component-model", feature = "async")))]
@@ -34,11 +34,11 @@ pub use super::async_wasm::*;
 
 #[cfg(not(all(target_arch = "wasm32", feature = "component-model", feature = "async")))]
 /// Execute a query against the session.
-pub async fn mudu_query<R: Entity>(
+pub async fn mudu_query<R: Object>(
     _oid: OID,
     _sql: &dyn SQLStmt,
     _params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     not_implemented("mudu_query")
 }
 
@@ -199,7 +199,7 @@ pub async fn mudu_query_bytes(query_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = query_invoke::deserialize_query_param(query_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -225,7 +225,7 @@ pub async fn mudu_fetch_bytes(cursor: &[u8]) -> RS<Vec<u8>> {
     let oid = super::fetch_cursor_oid(cursor)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -239,7 +239,7 @@ pub async fn mudu_command_bytes(command_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = command_invoke::deserialize_command_param(command_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -253,7 +253,7 @@ pub async fn mudu_batch_bytes(batch_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = command_invoke::deserialize_command_param(batch_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -312,7 +312,7 @@ mod tests {
     use mudu_binding::universal::uni_result_set::UniResultSet;
     use mudu_binding::universal::uni_scalar_value::UniScalarValue;
     use mudu_contract::database::db_conn::{DBConnAsync, DBConnSync};
-    use mudu_contract::database::entity::Entity;
+    use mudu_contract::database::object::Object;
     use mudu_contract::database::prepared_stmt::PreparedStmt;
     use mudu_contract::database::result_set::{ResultSet, ResultSetAsync};
     use mudu_contract::database::sql::{Context, DBConn};
@@ -560,7 +560,7 @@ mod tests {
         let oid = next_oid();
         let input = make_query_input(oid);
         let err = mudu_query_bytes(&input).await.unwrap_err();
-        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
     }
 
     #[tokio::test]
@@ -639,7 +639,7 @@ mod tests {
         let oid = next_oid();
         let cursor = serialize_cursor(oid);
         let err = mudu_fetch_bytes(&cursor).await.unwrap_err();
-        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
     }
 
     #[tokio::test]

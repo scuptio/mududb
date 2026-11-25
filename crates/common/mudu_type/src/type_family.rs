@@ -1,18 +1,6 @@
-use crate::data_type_fn_compare::{FnCompare, FnEqual, FnHash, FnOrder};
-use crate::data_type_fn_convert::{
-    FnBase, FnDataLength, FnDefault, FnInputJson, FnInputMsgPack, FnInputTextual, FnOutputJson,
-    FnOutputMsgPack, FnOutputTextual, FnReceive, FnSend, FnSendTo, FnTypeLength,
-};
-use crate::data_type_fn_param::{FnParam, FnParamDefault};
-use crate::data_type_impl::data_type_table::{
-    get_dt_name, get_fn_convert, get_kind, get_opt_fn_compare, get_opt_fn_param, is_all_fixed_len,
-};
+use crate::type_family_meta::{get_dt_name, get_kind, is_all_fixed_len};
 use crate::type_kind::TypeKind;
 
-#[cfg(any(test, feature = "arbitrary"))]
-use crate::data_type_fn_arbitrary::{FnArbParam, FnArbPrintable, FnArbValue, FnArbitrary};
-#[cfg(any(test, feature = "arbitrary"))]
-use crate::data_type_impl::data_type_table::get_fn_arbitrary;
 #[cfg(any(test, feature = "arbitrary"))]
 use arbitrary::Arbitrary;
 
@@ -28,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// It is **not** a unique identity for a fully-instantiated type.  Two concrete types
 /// such as `varchar(42)` and `varchar(255)`, or `array<integer>` and `array<string>`,
 /// belong to the same `TypeFamily` (`String` or `Array`) while differing in their
-/// parameters.  The fully-qualified concrete type is represented by [`DataType`], which
+/// parameters.  The fully-qualified concrete type is represented by [`crate::data_type::DataType`], which
 /// pairs a `TypeFamily` with an optional parameter object (`DataTypeParamKind`).
 ///
 /// # Design rationale
@@ -42,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// * `TypeFamily` answers "which implementation family does this type belong to?"
 ///   (`String`, `Numeric`, `Array`, ...).
 /// * `TypeKind` answers "what is the structural class of this family?"  (`Scalar`,
-///   `Array`, `Record`, `Binary`).
+///   `Array`, `Struct`, `Binary`).
 #[repr(u32)]
 #[derive(Hash, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(Arbitrary))]
@@ -76,8 +64,8 @@ pub enum TypeFamily {
 
     /// Array of values of a single element type (`array`).
     Array = 1001,
-    /// Record with named fields (`object`).
-    Record = 1002,
+    /// Struct with named fields (`object`).
+    Struct = 1002,
     /// Opaque binary data (`binary`).
     Binary = 1003,
 }
@@ -104,25 +92,6 @@ impl TypeFamily {
         unsafe { std::mem::transmute(n) }
     }
 
-    // Core function accessors
-    /// Returns the base conversion function table of this family.
-    pub fn fn_base(&self) -> &'static FnBase {
-        get_fn_convert(self.to_u32())
-    }
-
-    /// Returns the comparison function table of this family, if the family
-    /// supports comparison.
-    pub fn opt_fn_compare(&self) -> &'static Option<FnCompare> {
-        get_opt_fn_compare(self.to_u32())
-    }
-
-    /// Returns the parameter function table of this family, if the family is
-    /// parameterized.
-    pub fn opt_fn_param(&self) -> &'static Option<FnParam> {
-        get_opt_fn_param(self.to_u32())
-    }
-
-    // Type information queries
     /// Returns true if every type of this family has a fixed binary length.
     pub fn is_fixed_len(&self) -> bool {
         is_all_fixed_len(self.to_u32())
@@ -133,92 +102,6 @@ impl TypeFamily {
         get_dt_name(self.to_u32())
     }
 
-    // Conversion function accessors
-    /// Returns the textual input (parse) function.
-    pub fn fn_input(&self) -> FnInputTextual {
-        self.fn_base().input_textual
-    }
-
-    /// Returns the textual output (render) function.
-    pub fn fn_output(&self) -> FnOutputTextual {
-        self.fn_base().output_textual
-    }
-
-    /// Returns the JSON input function.
-    pub fn fn_input_json(&self) -> FnInputJson {
-        self.fn_base().input_json
-    }
-
-    /// Returns the JSON output function.
-    pub fn fn_output_json(&self) -> FnOutputJson {
-        self.fn_base().output_json
-    }
-
-    /// Returns the MessagePack input function.
-    pub fn fn_input_msg_pack(&self) -> FnInputMsgPack {
-        self.fn_base().input_msg_pack
-    }
-
-    /// Returns the MessagePack output function.
-    pub fn fn_output_msg_pack(&self) -> FnOutputMsgPack {
-        self.fn_base().output_msg_pack
-    }
-
-    /// Returns the function computing the binary length of the type itself.
-    pub fn fn_send_type_len(&self) -> FnTypeLength {
-        self.fn_base().type_len
-    }
-
-    /// Returns the function computing the binary length of a value.
-    pub fn fn_send_data_len(&self) -> FnDataLength {
-        self.fn_base().data_len
-    }
-
-    /// Returns the binary receive (decode) function.
-    pub fn fn_recv(&self) -> FnReceive {
-        self.fn_base().receive
-    }
-
-    /// Returns the binary send (encode) function.
-    pub fn fn_send(&self) -> FnSend {
-        self.fn_base().send
-    }
-
-    /// Returns the binary send function that writes into a caller-provided
-    /// buffer.
-    pub fn fn_send_to(&self) -> FnSendTo {
-        self.fn_base().send_to
-    }
-
-    /// Returns the function producing the default value of a type.
-    pub fn fn_default(&self) -> FnDefault {
-        self.fn_base().default
-    }
-
-    // Comparison function accessors
-    /// Returns the ordering function, if the family supports ordering.
-    pub fn fn_order(&self) -> Option<FnOrder> {
-        self.opt_fn_compare().as_ref().map(|compare| compare.order)
-    }
-
-    /// Returns the equality function, if the family supports equality.
-    pub fn fn_equal(&self) -> Option<FnEqual> {
-        self.opt_fn_compare().as_ref().map(|compare| compare.equal)
-    }
-
-    /// Returns the hash function, if the family supports hashing.
-    pub fn fn_hash(&self) -> Option<FnHash> {
-        self.opt_fn_compare().as_ref().map(|compare| compare.hash)
-    }
-
-    // Parameter function accessors
-    /// Returns the default-parameter function, if the family is
-    /// parameterized.
-    pub fn fn_param_default(&self) -> Option<FnParamDefault> {
-        self.opt_fn_param().as_ref().and_then(|param| param.default)
-    }
-
-    // Type classification
     /// Returns the structural kind (scalar, array, record, binary) of this
     /// family.
     pub fn kind(&self) -> TypeKind {
@@ -248,35 +131,12 @@ impl TypeFamily {
                 | TypeFamily::Date
         )
     }
+}
 
-    // Test/arbitrary function accessors (conditionally compiled)
-    /// Returns the arbitrary value-generation function table of this family
-    /// (test support).
-    #[cfg(any(test, feature = "arbitrary"))]
-    pub fn fn_arbitrary(&self) -> &'static FnArbitrary {
-        get_fn_arbitrary(self.to_u32())
-    }
-
-    /// Returns the function generating an arbitrary type parameter
-    /// (test support).
-    #[cfg(any(test, feature = "arbitrary"))]
-    pub fn fn_arb_param(&self) -> FnArbParam {
-        self.fn_arbitrary().param
-    }
-
-    /// Returns the function generating an arbitrary internal value
-    /// (test support).
-    #[cfg(any(test, feature = "arbitrary"))]
-    pub fn fn_arb_internal(&self) -> FnArbValue {
-        self.fn_arbitrary().value_object
-    }
-
-    /// Returns the function generating an arbitrary printable value
-    /// (test support).
-    #[cfg(any(test, feature = "arbitrary"))]
-    pub fn fn_arb_printable(&self) -> FnArbPrintable {
-        self.fn_arbitrary().value_print
-    }
+/// Naming of a concrete type: returns the SQL type name.
+pub trait TypeName {
+    /// Returns the SQL type name.
+    fn name(&self) -> String;
 }
 
 #[cfg(test)]
@@ -300,7 +160,7 @@ mod tests {
             TypeFamily::Timestamp,
             TypeFamily::TimestampTz,
             TypeFamily::Array,
-            TypeFamily::Record,
+            TypeFamily::Struct,
             TypeFamily::Binary,
         ];
         for v in variants {
@@ -332,7 +192,7 @@ mod tests {
         assert!(TypeFamily::Timestamp.is_scalar_type());
         assert!(TypeFamily::TimestampTz.is_scalar_type());
         assert!(!TypeFamily::Array.is_scalar_type());
-        assert!(!TypeFamily::Record.is_scalar_type());
+        assert!(!TypeFamily::Struct.is_scalar_type());
         assert!(!TypeFamily::Binary.is_scalar_type());
     }
 
@@ -367,7 +227,7 @@ mod tests {
         assert_eq!(TypeFamily::I32.kind(), TypeKind::Scalar);
         assert_eq!(TypeFamily::String.kind(), TypeKind::Scalar);
         assert_eq!(TypeFamily::Array.kind(), TypeKind::Array);
-        assert_eq!(TypeFamily::Record.kind(), TypeKind::Record);
+        assert_eq!(TypeFamily::Struct.kind(), TypeKind::Struct);
         assert_eq!(TypeFamily::Binary.kind(), TypeKind::Binary);
     }
 
@@ -376,7 +236,7 @@ mod tests {
         assert_eq!(TypeFamily::I32.dat_kind(), TypeKind::Scalar);
         assert_eq!(TypeFamily::String.dat_kind(), TypeKind::Scalar);
         assert_eq!(TypeFamily::Array.dat_kind(), TypeKind::Array);
-        assert_eq!(TypeFamily::Record.dat_kind(), TypeKind::Record);
+        assert_eq!(TypeFamily::Struct.dat_kind(), TypeKind::Struct);
         assert_eq!(TypeFamily::Binary.dat_kind(), TypeKind::Binary);
     }
 }

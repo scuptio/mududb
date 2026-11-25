@@ -216,7 +216,7 @@ This avoids corrupting data when multiple partitions of the same table exist on 
 
 ## Remote Partition Access
 
-The engine currently supports partition RPC over the worker message bus.
+The engine currently supports partition RPC over the channel (the endpoint messaging layer of `mudu_utils::channel`).
 
 Supported remote actions:
 
@@ -228,9 +228,9 @@ Supported remote actions:
 
 Remote requests are routed by partition placement and executed by the worker that owns the target partition.
 
-## Port Sharding
+## Per-worker Port Routing
 
-Partition placement decides which worker owns a logical partition. Port sharding exposes those workers through stable
+Partition placement decides which worker owns a logical partition. Per-worker port routing exposes those workers through stable
 TCP ports so clients and tools can connect directly to the worker that owns the data they want to use.
 
 The current IOUring and Tokio backends use this policy:
@@ -250,8 +250,8 @@ worker 2 -> 9529
 worker 3 -> 9530
 ```
 
-This is a transport-level sharding mechanism. It does not replace partition placement. Placement still maps
-`partition_id` to `worker_id`; port sharding maps the selected worker to a reachable TCP endpoint.
+This is a transport-level routing mechanism. It does not replace partition placement. Placement still maps
+`partition_id` to `worker_id`; per-worker port routing maps the selected worker to a reachable TCP endpoint.
 
 ### Discovering Worker Ports
 
@@ -285,7 +285,7 @@ A client can combine both calls:
 
 ### Why It Exists
 
-Port sharding is useful when the caller can choose the target partition before opening or rebinding a session.
+Per-worker port routing is useful when the caller can choose the target partition before opening or rebinding a session.
 
 It enables:
 
@@ -296,8 +296,8 @@ It enables:
 
 ### Limits
 
-Port sharding is currently tied to the multi-worker IOUring and Tokio backend paths. The legacy backend keeps the older
-single TCP/PG serving model and should not be treated as a per-worker port-sharded deployment.
+Per-worker port routing is currently tied to the multi-worker IOUring and Tokio backend paths. The legacy backend keeps the older
+single TCP/PG serving model and should not be treated as a per-worker port-routed deployment.
 
 Clients still need to respect partition placement. Connecting to a worker port only selects an execution worker; it
 does not move data or change which worker owns a partition.
@@ -311,14 +311,44 @@ The current implementation is intentionally scoped.
 - partition pruning is based on key columns, not arbitrary predicates
 - placement is explicit metadata
 - remote partition access uses worker-to-worker RPC
-- per-worker port sharding is available on the multi-worker IOUring and Tokio backend paths
+- per-worker port routing is available on the multi-worker IOUring and Tokio backend paths
 
-There is still an important transactional limit:
+Commit routing distinguishes four cases:
 
-- cross-worker writes are forwarded and executed remotely, but there is no distributed two-phase commit yet
+| Write scope | Current path |
+|---|---|
+| Worker-local relation writes or local KV writes | Local transaction commit |
+| Relation writes spanning data groups, with a cluster router | Two-phase commit: durable coordinator Begin/Decide records, participant prepare and settlement |
+| All relation writes owned by one remote Worker, without the cross-group condition | `CommitWriteSet` handoff to the owner |
+| Multiple Workers within one group | Existing cross-partition WAL/apply path; not the cross-group 2PC protocol |
 
-This means full atomic commit across multiple workers is not implemented. The current model is suitable for routed
-single-partition writes and for cross-partition reads, but it is not yet a complete distributed transaction protocol.
+The cross-group coordinator uses the initiating data group's `tx_decision` stream.
+It requires a configured decision client and durable participant WAL; a routing
+entry alone does not provide that infrastructure. Mixing local KV writes with
+relation writes owned by other Workers is rejected.
+
+See [commit routing](../../crates/db-kernel/xcontract/src/rpc/cross_partition.rs),
+[the coordinator](../../crates/db-kernel/xcontract/src/rpc/coordinator.rs), and
+[the cross-group integration scenario](../../crates/db-kernel/testing/tests/test_cluster_scale_out.rs).
+The existence of 2PC and its tests does not establish atomic recovery for every
+same-group multi-Worker path, every replication mode, or every failure combination.
+
+## Partition Maintenance Operations
+
+Cluster mode exposes partition move / split / merge through the HTTP management
+API (all under `/mudu`; no `mcli` wrapper yet — see
+[the HTTP API reference](http_api.md)). These operations re-home a partition
+across node groups and re-shape its range:
+
+| Endpoint | Body | Effect |
+|---|---|---|
+| `POST /mudu/cluster/partition/move` | `{ "rule", "partition", "group_id", "worker_index"? }` | Move `partition` to the target `group_id` (optionally a specific `worker_index`, default 0). Returns the new routes plus a `placement_version` for route-cache invalidation. |
+| `POST /mudu/cluster/partition/abort_move` | `{ "rule", "partition" }` | Abort an in-flight move of `partition`. |
+| `POST /mudu/cluster/partition/split` | `{ "rule", "partition", "at": [..], "new_partition" }` | Split `partition` at the bound values `at` (one textual value per partition-key column); `new_partition` receives the `[at, end)` range. |
+| `POST /mudu/cluster/partition/merge` | `{ "rule", "left", "right" }` | Merge adjacent `left` and `right` partitions into `left` (the surviving partition). |
+
+`split`/`merge` return the routes plus `rows_rehomed` (the number of rows
+re-homed into their new partition). These endpoints run only in cluster mode.
 
 ## Recommended Usage
 
@@ -329,7 +359,7 @@ Use partitioning when:
 - data should be spread across multiple workers
 - a single logical partition layout should be reused by multiple tables
 
-Avoid using the current implementation as if it were already a general distributed transaction engine.
+Choose transaction scope explicitly; do not infer the cross-group 2PC guarantees for the same-group multi-Worker apply path or unsupported KV/relation mixtures.
 
 ## Summary
 
@@ -340,10 +370,13 @@ The current partition subsystem separates:
 - worker placement
 - physical storage
 - runtime routing
-- optional per-worker TCP port sharding
+- optional per-worker TCP port routing
 
 This keeps the schema model separate from deployment topology while still allowing clients and tools to discover the
 worker endpoint that owns a routed partition.
 
-This keeps the schema model clean and allows the engine to evolve toward partition rebalance, partition split or merge,
-and distributed commit in later iterations.
+This keeps the schema model clean and allows the engine to evolve toward
+partition rebalance, partition split or merge, and distributed commit.
+Partition move / split / merge are available as cluster-mode HTTP management
+endpoints (see [Partition Maintenance Operations](#partition-maintenance-operations));
+distributed commit is still evolving.

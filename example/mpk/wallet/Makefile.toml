@@ -17,7 +17,7 @@ args = ["${WORKSPACE_ROOT}/script/build/install_binaries.py", "--profile", "rele
 dependencies = ["build-tools"]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files",
     "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder",
@@ -50,7 +50,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in src/rust against the DDL
-# schema (see doc/dev/sql_subset.md).
+# schema (see doc/en/sql_subset.md).
 [tasks.check-sql]
 dependencies = ["generate"]
 command = "cargo"

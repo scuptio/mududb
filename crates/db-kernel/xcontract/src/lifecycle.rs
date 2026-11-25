@@ -1,4 +1,13 @@
 use super::*;
+use crate::consumer_registry::ConsumerRegistry;
+use crate::contract::WorkerXContract;
+use crate::kv::log_cloned;
+use crate::queue_activation::ActivationRegistry;
+use crate::queue_types::QueueRegistry;
+use crate::queue_wait_registry::QueueWaitRegistry;
+use crate::types::ReplCommitRoute;
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
 
 impl WorkerXContract {
     /// Create a contract over `meta_mgr` with a fresh temporary data
@@ -15,6 +24,8 @@ impl WorkerXContract {
             data_dir: default_worker_storage_data_dir(),
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         })
     }
 
@@ -86,6 +97,8 @@ impl WorkerXContract {
             data_dir: default_worker_storage_data_dir(),
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         })
     }
 
@@ -103,6 +116,8 @@ impl WorkerXContract {
             data_dir,
             async_runtime,
             server_instance_id,
+            cluster_router,
+            epoch_oracle,
         } = config;
         let storage = Arc::new(WorkerStorage::new_with_async_runtime(
             meta_mgr.clone(),
@@ -111,6 +126,10 @@ impl WorkerXContract {
             async_runtime.clone(),
         ));
         storage.register_global()?;
+        let snapshot_mgr = WorkerSnapshotMgr::default();
+        if let Some(oracle) = &epoch_oracle {
+            snapshot_mgr.set_epoch_oracle(oracle.clone());
+        }
         Ok(Self {
             server_instance_id,
             worker_id,
@@ -119,16 +138,28 @@ impl WorkerXContract {
             storage,
             partition_router: PartitionRouter::new(meta_mgr.clone()),
             partition_rpc_registered: AtomicBool::new(false),
+            rpc_dedup: crate::rpc_dedup::RpcDedupCache::new(),
+            rpc_service: SMutex::new(None),
             log: SMutex::new(log),
             log_layout,
             active_sessions,
             async_runtime,
-            snapshot_mgr: WorkerSnapshotMgr::default(),
+            snapshot_mgr,
             tx_lock: XLockMgr::new(),
             raft_share: SMutex::new(None),
             commit_sequencer: SMutex::new(None),
             repl_ctl: SMutex::new(None),
             repl_ack_waiter: SMutex::new(None),
+            queue_registry: Arc::new(QueueRegistry::new()),
+            queue_wait_registry: QueueWaitRegistry::new(),
+            consumer_registry: ConsumerRegistry::new(),
+            activation_registry: ActivationRegistry::new(),
+            cluster_router,
+            participant_gate: mudu_sys::tokio::sync::Mutex::new(()),
+            tx_decision_client: SMutex::new(None),
+            partition_adoption: SMutex::new(None),
+            migration_inflight: Arc::new(SMutex::new(std::collections::HashMap::new())),
+            last_commit_epoch: AtomicU64::new(0),
         })
     }
 
@@ -163,6 +194,8 @@ impl WorkerXContract {
             data_dir,
             async_runtime: None,
             server_instance_id: 0,
+            cluster_router: None,
+            epoch_oracle: None,
         })
     }
 
@@ -181,6 +214,8 @@ impl WorkerXContract {
             data_dir,
             async_runtime,
             server_instance_id,
+            cluster_router,
+            epoch_oracle,
         } = config;
         let meta_mgr =
             MetaMgrFactory::create_with_async_runtime(data_dir.clone(), async_runtime.clone())
@@ -199,6 +234,8 @@ impl WorkerXContract {
             data_dir,
             async_runtime,
             server_instance_id,
+            cluster_router,
+            epoch_oracle,
         })?;
         Ok(worker)
     }
@@ -209,7 +246,13 @@ impl WorkerXContract {
     }
 
     /// Open relation indexes for every table already known to the metadata
-    /// manager (existing tables after a restart).
+    /// manager (existing tables after a restart). The queue runtime counters
+    /// and the consumer cursor cache are not rebuilt here — the server
+    /// bootstrap runs before WAL recovery, so they rebuild lazily on first
+    /// queue access; the registries are only cleared so a snapshot restore
+    /// underneath does not leave stale state behind. Parked queue waiters are
+    /// woken for the same reason: their next scan runs against the reloaded
+    /// relations.
     pub async fn bootstrap_storage_async(&self) -> RS<()> {
         self.storage
             .bootstrap_existing_tables_async()
@@ -220,12 +263,16 @@ impl WorkerXContract {
                     "bootstrap worker storage from meta failed",
                     e
                 )
-            })
+            })?;
+        self.queue_registry.clear()?;
+        self.queue_wait_registry.clear()?;
+        self.consumer_registry.clear()?;
+        Ok(())
     }
 
     /// The worker's WAL backend, if the log was opened.
     pub fn worker_log(&self) -> RS<Option<ChunkedWorkerLogBackend>> {
-        self.log_cloned()
+        log_cloned(&self.log)
     }
 
     /// Installs the raft share (and the snapshot term source for xid
@@ -259,7 +306,7 @@ impl WorkerXContract {
         Ok(())
     }
 
-    /// Installs the replication-mode control (write gate + sync commit
+    /// Installs the stream-mode control (write gate + sync commit
     /// path) when the server runs in stream mode. Also feeds the ctl's
     /// stream epoch to the xid allocator (`xid = (epoch << 32) | counter`,
     /// so a promoted primary never reissues the old primary's xids).
@@ -272,7 +319,7 @@ impl WorkerXContract {
         Ok(())
     }
 
-    /// The installed replication-mode control, if any.
+    /// The installed stream-mode control, if any.
     pub fn repl_ctl(&self) -> RS<Option<Arc<dyn ReplControl>>> {
         Ok(self
             .repl_ctl
@@ -281,7 +328,7 @@ impl WorkerXContract {
             .clone())
     }
 
-    /// Installs the worker's replica-ack waiter (replication-mode primary
+    /// Installs the worker's StreamFollower ack waiter (stream-mode Primary
     /// with `sync = true`).
     pub fn set_repl_ack_waiter(&self, waiter: Arc<dyn ReplAckWait>) -> RS<()> {
         *self
@@ -343,17 +390,6 @@ impl WorkerXContract {
     pub fn async_runtime(&self) -> Option<Arc<dyn AsyncIoProvider>> {
         self.async_runtime.clone()
     }
-
-    pub(crate) async fn resolve_partition_worker(&self, partition_id: OID) -> RS<Option<OID>> {
-        match self.meta_mgr.get_partition_worker(partition_id).await? {
-            Some(worker_id) => Ok(Some(worker_id)),
-            None if partition_id == DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID => {
-                Ok((self.default_unpartitioned_worker_id != 0)
-                    .then_some(self.default_unpartitioned_worker_id))
-            }
-            None => Ok(None),
-        }
-    }
 }
 
 fn default_worker_storage_data_dir() -> String {
@@ -361,6 +397,14 @@ fn default_worker_storage_data_dir() -> String {
         .join(format!("mududb-worker-storage-{}", gen_oid()))
         .to_string_lossy()
         .to_string()
+}
+
+impl Drop for WorkerXContract {
+    fn drop(&mut self) {
+        // Stop every queue activation driver task; the tasks re-park on their
+        // stop signal and exit without touching the dropped contract.
+        let _ = self.activation_registry.shutdown_all();
+    }
 }
 
 impl WorkerXContract {
@@ -373,6 +417,29 @@ impl WorkerXContract {
     /// The worker's storage facade.
     pub fn storage(&self) -> &Arc<WorkerStorage> {
         &self.storage
+    }
+
+    /// The worker's queue runtime registry (per-queue sequence and acked
+    /// frontier counters).
+    pub fn queue_registry(&self) -> &QueueRegistry {
+        self.queue_registry.as_ref()
+    }
+
+    /// The worker's queue WAIT registry (parked `RECEIVE ... WAIT` waiters).
+    pub fn queue_wait_registry(&self) -> &QueueWaitRegistry {
+        &self.queue_wait_registry
+    }
+
+    /// The worker's consumer cursor registry (named queue consumers, fan-out
+    /// mode).
+    pub fn consumer_registry(&self) -> &ConsumerRegistry {
+        &self.consumer_registry
+    }
+
+    /// The worker's queue activation registry (registered post-commit
+    /// activation procedures).
+    pub fn activation_registry(&self) -> &ActivationRegistry {
+        &self.activation_registry
     }
 
     /// Return the oldest xid still running on this worker, if any.

@@ -26,7 +26,7 @@ args = [
 command = "npm"
 args = ["install", "--prefix", "${CARGO_MAKE_WORKING_DIRECTORY}"]
 
-# Generate the AssemblyScript message types of the project WIT records
+# Generate the AssemblyScript message types of the project WIT structs
 # (item-info) with mgen: types.ts carries the classes plus their XxxCodec
 # MessagePack codecs. The generated file imports `./mpack` — the shim the
 # `gentypes-shim` task stages next to it.
@@ -50,7 +50,7 @@ args = [
 ]
 
 # Transpile the procedures into the byte-pipe adapter, the world WIT and the
-# procedure description. --type-wit registers the project record types
+# procedure description. --type-wit registers the project struct types
 # (wit/types.wit) so procedure signatures may use them; --type-import points
 # the generated adapter at the mgen-generated types module (relative to the
 # adapter's own location in generated/).
@@ -67,13 +67,13 @@ args = [
     "assembly-script",
 ]
 
-# Generate typed entity bindings from the DDL schema into assembly/ (one file
-# per table; import each as `import { <Record> } from "./<table>"`).
+# Generate typed object bindings from the DDL schema into assembly/ (one file
+# per table; import each as `import { <Struct> } from "./<table>"`).
 [tasks.generate]
 dependencies = ["prepare"]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/assembly",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",

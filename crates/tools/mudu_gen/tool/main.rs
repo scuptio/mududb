@@ -7,8 +7,8 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_gen::src_check::check_driver::{CheckOutcome, run_check_sql};
 use mudu_gen::src_gen::codegen_cfg::CodegenCfg;
-use mudu_gen::src_gen::gen_entity::gen_rust;
 use mudu_gen::src_gen::gen_message::gen_message_with_cfg;
+use mudu_gen::src_gen::gen_object::{gen_rust, gen_wit};
 use sql_parser::check::diagnostic::SqlSeverity;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,11 +23,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[derive(Debug)]
-struct EntityConfig {
+struct ObjectConfig {
     pub input: Vec<String>,
     pub output: String,
     pub type_desc: Option<String>,
     pub lang: String,
+    pub emit_wit: bool,
+    pub wit_package: Option<String>,
+    pub wit_interface: Option<String>,
+    pub wit_output: Option<String>,
 }
 
 #[derive(Debug)]
@@ -87,13 +91,34 @@ fn run_gen_message(config: &MessageConfig) -> RS<()> {
     Ok(())
 }
 
-fn run_gen_entity(config: &EntityConfig) -> RS<()> {
+fn run_gen_object(config: &ObjectConfig) -> RS<()> {
     gen_rust(
         config.input.clone(),
         config.output.clone(),
         config.type_desc.clone(),
         config.lang.clone(),
     )?;
+    if config.emit_wit {
+        let package = config.wit_package.clone().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "--wit-package is required with --emit-wit"
+            )
+        })?;
+        let interface = config.wit_interface.clone().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "--wit-interface is required with --emit-wit"
+            )
+        })?;
+        let output = config.wit_output.clone().ok_or_else(|| {
+            mudu_error!(
+                ErrorCode::InvalidArgument,
+                "--wit-output is required with --emit-wit"
+            )
+        })?;
+        gen_wit(config.input.clone(), package, interface, output)?;
+    }
     Ok(())
 }
 
@@ -104,7 +129,7 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let command = Command::new("mgen")
-        .version("1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("scuptio")
         .about("Mudu Source Code Generate(mgen), generate source code from wit/sql")
         // Common arguments shared by all subcommands
@@ -118,15 +143,15 @@ where
                 .help("Enable verbose output"),
         )
         // Subcommands
-        .subcommand(entity_subcommand())
+        .subcommand(object_subcommand())
         .subcommand(message_subcommand())
         .subcommand(check_sql_subcommand());
     matches_or_exit(command.try_get_matches_from(args))
 }
 
-fn entity_subcommand() -> Command {
-    Command::new("entity")
-        .about("Generate entity class from DDL SQL/wit")
+fn object_subcommand() -> Command {
+    Command::new("object")
+        .about("Generate object class from DDL SQL/wit")
         .arg(
             Arg::new("input-source-files")
                 .short('i')
@@ -159,6 +184,34 @@ fn entity_subcommand() -> Command {
                 .value_name("LANG")
                 .required(true)
                 .help("Generate language"),
+        )
+        .arg(
+            Arg::new("emit-wit")
+                .long("emit-wit")
+                .action(ArgAction::SetTrue)
+                .required(false)
+                .help("Also emit a WIT module projected from the DDL"),
+        )
+        .arg(
+            Arg::new("wit-package")
+                .long("wit-package")
+                .value_name("NAME")
+                .required(false)
+                .help("WIT package name (e.g. mududb:wallet), with --emit-wit"),
+        )
+        .arg(
+            Arg::new("wit-interface")
+                .long("wit-interface")
+                .value_name("NAME")
+                .required(false)
+                .help("WIT interface name (e.g. types), with --emit-wit"),
+        )
+        .arg(
+            Arg::new("wit-output")
+                .long("wit-output")
+                .value_name("FILE")
+                .required(false)
+                .help("Output .wit file path, with --emit-wit"),
         )
 }
 
@@ -273,9 +326,9 @@ fn matches_or_exit(r_matches: Result<ArgMatches, clap::error::Error>) -> RS<ArgM
 
 fn process_arguments(matches: ArgMatches) -> RS<()> {
     match matches.subcommand() {
-        Some(("entity", sub_args)) => {
-            let config = handle_entity_command(sub_args)?;
-            run_gen_entity(&config)
+        Some(("object", sub_args)) => {
+            let config = handle_object_command(sub_args)?;
+            run_gen_object(&config)
         }
         Some(("message", sub_args)) => {
             let config = handle_message_command(sub_args)?;
@@ -296,7 +349,7 @@ fn process_arguments(matches: ArgMatches) -> RS<()> {
     }
 }
 
-fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
+fn handle_object_command(sub_args: &ArgMatches) -> RS<ObjectConfig> {
     let input: Vec<String> = sub_args
         .get_many::<String>("input-source-files")
         .ok_or_else(|| mudu_error!(ErrorCode::InvalidArgument, "no input source path specify"))?
@@ -315,11 +368,20 @@ fn handle_entity_command(sub_args: &ArgMatches) -> RS<EntityConfig> {
         .cloned()
         .unwrap_or_else(|| "rust".to_string());
 
-    Ok(EntityConfig {
+    let emit_wit = sub_args.get_flag("emit-wit");
+    let wit_package = sub_args.get_one::<String>("wit-package").cloned();
+    let wit_interface = sub_args.get_one::<String>("wit-interface").cloned();
+    let wit_output = sub_args.get_one::<String>("wit-output").cloned();
+
+    Ok(ObjectConfig {
         input,
         output,
         type_desc,
         lang,
+        emit_wit,
+        wit_package,
+        wit_interface,
+        wit_output,
     })
 }
 
@@ -403,10 +465,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_arguments_with_entity() {
+    fn test_parse_arguments_with_object() {
         let args = vec![
             "mgen".to_string(),
-            "entity".to_string(),
+            "object".to_string(),
             "-i".to_string(),
             "test.sql".to_string(),
             "-o".to_string(),
@@ -418,7 +480,7 @@ mod tests {
         ];
 
         let matches = parse_arguments(args).unwrap();
-        assert_eq!(matches.subcommand_name(), Some("entity"));
+        assert_eq!(matches.subcommand_name(), Some("object"));
     }
 
     #[test]
@@ -442,7 +504,7 @@ mod tests {
     fn test_parse_arguments_missing_required() {
         let args = vec![
             "mgen".to_string(),
-            "entity".to_string(),
+            "object".to_string(),
             // lost required argument
         ];
 

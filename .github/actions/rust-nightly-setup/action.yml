@@ -16,6 +16,43 @@ runs:
           apt-get install -y python3 pip build-essential curl liburing-dev clang libclang-dev llvm-dev
         fi
 
+    - name: Pin bindgen clang environment (Linux)
+      shell: bash
+      run: |
+        # bindgen parses rliburing's C headers with whatever libclang and
+        # include search path the runner image provides; on some images
+        # libstdc++'s /usr/include/c++/<ver> directory sits on the C search
+        # path, and clang's resource-dir <stdatomic.h> then delegates to the
+        # C++-only stdatomic.h via #include_next, which declares nothing in C
+        # mode - the parse fails with "use of undeclared identifier
+        # 'memory_order_acquire'". Ordering tricks (-isystem first,
+        # -nostdinc++) cannot help because the delegation still lands on the
+        # empty C++ header, so strip every ambient include directory with
+        # -nostdinc and re-add exactly the C paths bindgen needs. The final
+        # command is a self-test: if the pinned paths cannot parse
+        # <liburing.h>, fail here instead of deep inside a cargo build.
+        resource_dir="$(clang -print-resource-dir)"
+        multiarch="$(gcc -print-multiarch 2>/dev/null || echo x86_64-linux-gnu)"
+        args="-nostdinc -isystem $resource_dir/include -isystem /usr/local/include -isystem /usr/include/$multiarch -isystem /usr/include"
+        echo "BINDGEN_EXTRA_CLANG_ARGS=$args" >> "$GITHUB_ENV"
+        clang --version | head -1
+        echo "BINDGEN_EXTRA_CLANG_ARGS: $args"
+        # A leaked CPATH/C_INCLUDE_PATH would survive -nostdinc and re-enter
+        # bindgen's probe of the C search path; clear any that are set.
+        for var in CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH OBJCPLUS_INCLUDE_PATH; do
+          if [ -n "${!var:-}" ]; then
+            echo "clearing $var=${!var}"
+            echo "$var=" >> "$GITHUB_ENV"
+          fi
+        done
+        # Print the search list bindgen's clang probe will compute, so a
+        # future failure is diagnosable from this log alone.
+        echo 'int main(void){return 0;}' | clang -x c $args -E -v -fsyntax-only - 2>&1 \
+          | sed -n '/search starts here/,/End of search/p'
+        printf '#include <liburing.h>\nint main(void){return 0;}\n' > /tmp/bindgen_pin_check.c
+        clang $args -fsyntax-only /tmp/bindgen_pin_check.c \
+          && echo "liburing parse with pinned args: ok"
+
     - name: Install rustup
       shell: bash
       run: |

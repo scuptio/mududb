@@ -1,0 +1,177 @@
+# Distributed e2e: one container per endpoint, real sockets over a bridge
+# network. The `mudud` binary + per-node configs are prepared by
+# script/test/distributed_e2e.py before `docker compose up`.
+#
+#   cargo make test-e2e-distributed
+#
+# A single compose file hosts every node shape; `distributed_e2e.py` starts
+# only the services for the selected scenario (`--scenario`) and passes the node
+# list to the driver through MUDUDB_E2E_NODES. Scenarios:
+#
+#   single-node   node1                      (no data_plane, no replication)
+#   raft          node1 node2 node3          (one data group, Raft, Combined)
+#   stream        node1 node2                (one data group, stream)
+#   scale-out     ctrl1..3 + node1..6        (dedicated control + 2 Raft groups)
+#
+# The `driver` service runs the client-side test (test_distributed_driver)
+# against the deployed nodes over the bridge network.
+
+x-node: &node
+  image: mududb-e2e:local
+
+services:
+  node1:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node1.toml"]
+    hostname: node1
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node1:/data
+    networks:
+      - e2e
+
+  node2:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node2.toml"]
+    hostname: node2
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node2:/data
+    networks:
+      - e2e
+
+  node3:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node3.toml"]
+    hostname: node3
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node3:/data
+    networks:
+      - e2e
+
+  node4:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node4.toml"]
+    hostname: node4
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node4:/data
+    networks:
+      - e2e
+
+  node5:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node5.toml"]
+    hostname: node5
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node5:/data
+    networks:
+      - e2e
+
+  node6:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/node6.toml"]
+    hostname: node6
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-node6:/data
+    networks:
+      - e2e
+
+  ctrl1:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/ctrl1.toml"]
+    hostname: ctrl1
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-ctrl1:/data
+    networks:
+      - e2e
+
+  ctrl2:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/ctrl2.toml"]
+    hostname: ctrl2
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-ctrl2:/data
+    networks:
+      - e2e
+
+  ctrl3:
+    <<: *node
+    command: ["/opt/mudud/mudud", "serve", "-c", "/config/ctrl3.toml"]
+    hostname: ctrl3
+    volumes:
+      - ./configs:/config:ro
+      - ./wallet.mpk:/data/mpk/wallet.mpk:ro
+      - data-ctrl3:/data
+    networks:
+      - e2e
+
+  driver:
+    image: mududb-dev:local
+    # Root so `cargo test` can populate the image's cargo git/index cache.
+    user: "0:0"
+    working_dir: /workspace
+    # Mount the repository root (three levels above this file) so the driver
+    # can run `cargo test` against the deployed nodes.
+    volumes:
+      - ../../..:/workspace
+      # Shadow the host target directory with this environment's own cache.
+      - driver-target:/workspace/target
+      - driver-registry:/usr/local/cargo/registry
+      - driver-git:/usr/local/cargo/git
+    environment:
+      MUDUDB_E2E_SCENARIO: "${MUDUDB_E2E_SCENARIO:-raft}"
+      MUDUDB_E2E_NODES: "${MUDUDB_E2E_NODES:-node1,node2,node3}"
+      MUDUDB_E2E_TCP_PORT: "9527"
+    networks:
+      - e2e
+    command:
+      [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/db-kernel/testing/Cargo.toml",
+        "--features",
+        "socket",
+        "--test",
+        "test_distributed_driver",
+        "--",
+        "--nocapture",
+      ]
+
+networks:
+  e2e:
+    driver: bridge
+
+volumes:
+  driver-target:
+    external: true
+    name: "${MUDUDB_E2E_TARGET_VOLUME:-e2e_driver-target}"
+  driver-registry:
+    external: true
+    name: "${MUDUDB_E2E_REGISTRY_VOLUME:-e2e_driver-registry}"
+  driver-git:
+    external: true
+    name: "${MUDUDB_E2E_GIT_VOLUME:-e2e_driver-git}"
+  data-node1:
+  data-node2:
+  data-node3:
+  data-node4:
+  data-node5:
+  data-node6:
+  data-ctrl1:
+  data-ctrl2:
+  data-ctrl3:

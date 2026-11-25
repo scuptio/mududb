@@ -1,5 +1,5 @@
 """The cross-language 7-step behavioral consistency scenario for the Python
-facade (doc/dev/binding_api_surface.md), run against a scripted in-memory
+facade (doc/en/binding_api_surface.md), run against a scripted in-memory
 transport that answers the real wire frames — proving the facade's framing
 and semantics end to end without a host.
 """
@@ -18,7 +18,7 @@ from mududb.generated.uni_fs_dirent import UniFsDirent
 from mududb.generated.uni_fs_stat import UniFsStat
 from mududb.generated.uni_oid import UniOid
 from mududb.generated.uni_query_result import UniQueryResult
-from mududb.generated.uni_record_type import UniRecordField, UniRecordType
+from mududb.generated.uni_struct_type import UniStructField, UniStructType
 from mududb.generated.uni_result_set import UniResultSet
 from mududb.generated.uni_scalar_value import UniScalarValueI64, UniScalarValueString
 from mududb.generated.uni_tuple_row import UniTupleRow
@@ -35,8 +35,8 @@ def _text(v):
 
 def _query_result(columns, rows):
     return UniQueryResult(
-        tuple_desc=UniRecordType(
-            record_fields=[UniRecordField(field_name=c) for c in columns]
+        tuple_desc=UniStructType(
+            struct_fields=[UniStructField(field_name=c) for c in columns]
         ),
         result_set=UniResultSet(
             eof=True, row_set=[UniTupleRow(fields=r) for r in rows]

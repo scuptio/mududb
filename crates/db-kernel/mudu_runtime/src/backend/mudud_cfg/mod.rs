@@ -9,20 +9,22 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::time::Duration;
 
+mod cluster;
 mod io;
 mod replication;
 #[cfg(test)]
 mod tests;
 
+pub use cluster::{
+    ControlMemberCfg, ControlPlaneCfg, ControlReplicaCfg, DataGroupCfg, DataMemberCfg,
+    DataPlaneCfg, DataReplicaCfg, PlacementCfg,
+};
 #[cfg(test)]
 pub(crate) use io::load_mudud_cfg_with_local;
 pub use io::{
     NODE_ID_FILE_NAME, default_cfg_path, init_mudud_cfg, load_mudud_cfg, load_or_create_node_id,
 };
-pub use replication::{
-    BackupCfg, RaftReplCfg, ReplicationCfg, ReplicationMode, ReplicationPeer, RoutingMode,
-    StreamCfg,
-};
+pub use replication::{BackupCfg, RaftReplCfg, RoutingMode, StreamCfg};
 
 /// MuduDB server configuration.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
@@ -48,6 +50,11 @@ pub struct MuduDBCfg {
     pub component_target: Option<ComponentTarget>,
     /// Whether async runtime support is enabled.
     pub enable_async: bool,
+    /// Trusted package signer fingerprints (ed25519 public-key SHA-256, hex).
+    /// When non-empty, package install/load requires a valid signature from a
+    /// trusted fingerprint.
+    #[serde(default)]
+    pub trusted_key_fingerprints: Vec<String>,
     /// Selected server execution mode.
     #[serde(default)]
     pub server_mode: ServerMode,
@@ -81,6 +88,12 @@ pub struct MuduDBCfg {
     /// WAL log chunk size in bytes.
     #[serde(default = "default_log_chunk_size")]
     pub log_chunk_size: u64,
+    /// Maximum live messages per queue.
+    #[serde(default = "default_queue_max_msgs")]
+    pub queue_max_msgs: u64,
+    /// Maximum encoded payload bytes per queue.
+    #[serde(default = "default_queue_max_bytes")]
+    pub queue_max_bytes: u64,
     /// Database page size in bytes.
     ///
     /// This is a `ConfigMutability::Persistent` setting: it is written into the
@@ -104,13 +117,40 @@ pub struct MuduDBCfg {
     /// A power loss may lose acknowledged commits from the last interval.
     #[serde(default = "default_wal_sync_interval_ms")]
     pub wal_sync_interval_ms: u64,
-    /// Primary-replica replication and Raft fault tolerance. Absent means
-    /// single-node mode with no replication components started.
+    /// Configuration-format version; must be 1.
+    #[serde(default = "default_version")]
+    pub version: u32,
+    /// Cluster-global unique name of this node. Present only in cluster mode.
     #[serde(default)]
-    pub replication: Option<ReplicationCfg>,
+    pub name: Option<String>,
+    /// Cluster name, identical across all nodes of the cluster.
+    #[serde(default)]
+    pub cluster: Option<String>,
+    /// Local inter-node channel listener port.
+    #[serde(default)]
+    pub channel_listen_port: Option<u16>,
+    /// Fencing token of the topology; the operator bumps it on every
+    /// topology change and all nodes must agree.
+    #[serde(default)]
+    pub topology_version: Option<u64>,
+    /// Dedicated control plane. Omitted selects the Combined layout (the
+    /// control replica set is the single data replica set).
+    #[serde(default)]
+    pub control_plane: Option<ControlPlaneCfg>,
+    /// Data plane: the data replica sets, placements and rebalance scheduler.
+    /// Absent means the server runs as a single self-contained node.
+    #[serde(default)]
+    pub data_plane: Option<DataPlaneCfg>,
     /// Backup and point-in-time recovery. Absent means backup-free.
     #[serde(default)]
     pub backup: Option<BackupCfg>,
+    /// Enables the sparse epoch protocol (P4): the control plane advances the
+    /// stable/current epoch in memory within a committed reserved range
+    /// instead of committing an `Advance` record per tick. Off by default
+    /// while the protocol rolls out; the committed per-tick path stays the
+    /// default.
+    #[serde(default)]
+    pub epoch_sparse: bool,
 }
 
 impl Display for MuduDBCfg {
@@ -164,15 +204,18 @@ impl Display for MuduDBCfg {
             "  -> WAL sync interval ms: {}",
             self.wal_sync_interval_ms
         )?;
-        match &self.replication {
-            Some(replication) => writeln!(
+        match &self.data_plane {
+            Some(data_plane) => writeln!(
                 f,
-                "  -> Replication: node {} on port {}, {} peer(s)",
-                replication.node_id,
-                replication.listen_port,
-                replication.peers.len()
+                "  -> Topology: {} data group(s), {} control plane",
+                data_plane.group.len(),
+                if self.control_plane.is_some() {
+                    "dedicated"
+                } else {
+                    "combined"
+                }
             )?,
-            None => writeln!(f, "  -> Replication: disabled (single node)")?,
+            None => writeln!(f, "  -> Topology: single node")?,
         }
         writeln!(f, "-------------------")?;
         Ok(())
@@ -191,6 +234,7 @@ impl Default for MuduDBCfg {
             pg_listen_port: 5432,
             component_target: None,
             enable_async: true,
+            trusted_key_fingerprints: Vec::new(),
             server_mode: ServerMode::Tokio,
             tcp_listen_port: default_tcp_listen_port(),
             tcp_multi_port: false,
@@ -202,12 +246,21 @@ impl Default for MuduDBCfg {
             io_uring_enable_fixed_files: false,
             routing_mode: RoutingMode::ConnectionId,
             log_chunk_size: default_log_chunk_size(),
+            queue_max_msgs: default_queue_max_msgs(),
+            queue_max_bytes: default_queue_max_bytes(),
             page_size: default_page_size(),
             wal_flush_max_wait_us: default_wal_flush_max_wait_us(),
             wal_sync_mode: default_wal_sync_mode(),
             wal_sync_interval_ms: default_wal_sync_interval_ms(),
-            replication: None,
+            version: default_version(),
+            name: None,
+            cluster: None,
+            channel_listen_port: None,
+            topology_version: None,
+            control_plane: None,
+            data_plane: None,
             backup: None,
+            epoch_sparse: false,
         }
     }
 }
@@ -217,6 +270,9 @@ const MUDUDB_CONFIG_DIR: &str = ".mududb";
 
 const DEFAULT_CFG_TEMPLATE: &str = r#"# MuduDB server configuration
 # Generated by mudud. Edit as needed.
+
+# Configuration-format version. Currently 1.
+version = 1
 
 # Directory containing .mpk application packages.
 mpk_path = "./mpk"
@@ -267,6 +323,8 @@ tcp_multi_port = false
 
 # WAL log chunk size in bytes.
 log_chunk_size = 67108864
+queue_max_msgs = 65536
+queue_max_bytes = 67108864
 
 # Database page size in bytes. Persistent: changing it requires re-initialization.
 page_size = 4096
@@ -284,46 +342,66 @@ wal_sync_mode = "commit"
 # periodic 模式下的 WAL fsync 间隔（毫秒）。
 wal_sync_interval_ms = 10
 
-# Primary-replica streaming replication and Raft fault tolerance.
-# Uncomment to enable; when absent the server runs as a single node.
-# Exactly one of [replication.stream] / [replication.raft] must be present;
-# the present subsection selects the mode.
-# 主从流复制与 Raft 容错配置。取消注释以启用；缺省时为单机模式。
-# [replication.stream] 与 [replication.raft] 二选一，存在的子段即模式。
-# [replication]
-# node_id = 1
-# listen_port = 19527
-# repl_flow_window_segments = 64
-# snapshot_wal_threshold_bytes = 1073741824   # optional: committed WAL bytes past the last snapshot that trigger the next snapshot
-# gc_check_interval_secs = 60                 # optional: WAL/staging GC evaluation interval
+# Cluster topology: top-level identity plus the control/data planes. Uncomment
+# to enable; absent means a single self-contained node. The topology must be
+# identical on every node except name; bump topology_version on every
+# topology change.
+# 集群拓扑配置。取消注释以启用；缺省时为单机模式。除 name 外整段须在
+# 所有节点上保持一致；每次拓扑变更须递增 topology_version。
+# name = "g1-node-1"
+# cluster = "prod"
+# channel_listen_port = 29527   # inter-node channel listener
+# topology_version = 1
 #
-# Mode 1: primary-replica streaming replication (no raft).
-# 模式一：主从流复制（无 raft）。
-# [replication.stream]
-# primary = true                 # required: whether this node is the primary; exactly one in the cluster
-# sync = true                    # required: true = wait for a replica's durable ack before answering a commit
-# sync_timeout_ms = 10000        # optional: synchronous replication wait timeout
+# Omit [control_plane] for the Combined layout (exactly one data group).
+# Provide [control_plane] for a dedicated control plane (Raft only).
+# 省略 [control_plane] 即 Combined（恰好一个数据组）；提供 [control_plane]
+# 即独立控制面（仅 Raft）。
+# [control_plane.replica.raft]
 #
-# Mode 2: Raft consensus fault tolerance (HA).
-# 模式二：Raft 共识容错（HA）。
-# [replication.raft]
-# raft_tick_ms = 50              # optional: raft state machine tick interval
-# election_timeout_ticks = 500   # optional: election timeout in ticks
-#
-# [[replication.peers]]
-# node_id = 1
+# [[control_plane.replica.member]]
+# name = "ctl-1"
 # host = "127.0.0.1"
-# port = 19527
+# channel_port = 29527
+# client_port = 5432
 #
-# [[replication.peers]]
-# node_id = 2
-# host = "127.0.0.1"
-# port = 19527
+# [data_plane]
+# rebalance_interval_ms = 0
 #
-# [[replication.peers]]
-# node_id = 3
+# [[data_plane.group]]
+# name = "grp-1"
+# worker_count = 2
+#
+# [data_plane.group.replica.raft]
+# tick_ms = 50                    # optional: raft state machine tick interval
+# election_timeout_ticks = 500    # optional: election timeout in ticks
+#
+# [[data_plane.group.replica.member]]
+# name = "g1-node-1"
 # host = "127.0.0.1"
-# port = 19527
+# channel_port = 29527
+# client_port = 5432
+# replication_port = 19527
+#
+# [[data_plane.group.replica.member]]
+# name = "g1-node-2"
+# host = "127.0.0.1"
+# channel_port = 29528
+# client_port = 5433
+# replication_port = 19528
+#
+# Stream mode (replaces the raft subsection above):
+# 流复制模式（替换上面的 raft 子段）：
+# [data_plane.group.replica.stream]
+# bootstrap_primary = "g1-node-1"
+# sync = true
+# sync_timeout_ms = 10000
+#
+# [[data_plane.placements]]
+# rule = "r"
+# partition = "p1"
+# group = "grp-1"
+# worker_index = 0
 "#;
 
 impl MuduDBCfg {
@@ -366,6 +444,317 @@ impl MuduDBCfg {
         }
     }
 
+    /// Validates the topology sections: `version` must be 1; in cluster mode
+    /// the top-level identity fields must be present together; each data group
+    /// must declare at most one replication mode; names and member addresses
+    /// must be unique; and the Combined/dedicated membership rules must hold.
+    pub fn validate_topology(&self) -> RS<()> {
+        if self.version != 1 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                format!("unsupported configuration version {}", self.version)
+            ));
+        }
+        let Some(data_plane) = &self.data_plane else {
+            if self.control_plane.is_some() {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    "control_plane requires data_plane"
+                ));
+            }
+            return Ok(());
+        };
+        self.validate_cluster_identity()?;
+        if data_plane.group.is_empty() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "data_plane.group must not be empty"
+            ));
+        }
+        if self.control_plane.is_none() && data_plane.group.len() != 1 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "Combined layout (no control_plane) requires exactly one data group"
+            ));
+        }
+        let node_names = self.validate_data_groups(data_plane)?;
+        self.validate_control_plane(&node_names)?;
+        self.validate_member_addresses(data_plane)?;
+        self.validate_local_membership(data_plane)?;
+        self.validate_channel_port()?;
+        Ok(())
+    }
+
+    /// Cluster mode requires the top-level identity fields to be present.
+    fn validate_cluster_identity(&self) -> RS<()> {
+        if self.name.is_none()
+            || self.cluster.is_none()
+            || self.channel_listen_port.is_none()
+            || self.topology_version.is_none()
+        {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "cluster mode requires name, cluster, channel_listen_port and topology_version"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates each data group and returns the set of data-member names.
+    fn validate_data_groups(
+        &self,
+        data_plane: &DataPlaneCfg,
+    ) -> RS<std::collections::HashSet<String>> {
+        let mut group_names = std::collections::HashSet::new();
+        let mut node_names = std::collections::HashSet::new();
+        for group in &data_plane.group {
+            if !group_names.insert(group.name.as_str()) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!("duplicate data group name {}", group.name)
+                ));
+            }
+            if group.worker_count == 0 {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!("data group {} has zero workers", group.name)
+                ));
+            }
+            if group.replica.member.is_empty() {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!("data group {} has no members", group.name)
+                ));
+            }
+            self.validate_group_mode(group)?;
+            if let Some(stream) = &group.replica.stream {
+                if !group
+                    .replica
+                    .member
+                    .iter()
+                    .any(|member| member.name == stream.bootstrap_primary)
+                {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!(
+                            "data group {} bootstrap_primary {} is not a member",
+                            group.name, stream.bootstrap_primary
+                        )
+                    ));
+                }
+                if stream.sync && group.replica.member.len() < 2 {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!(
+                            "data group {} stream sync=true requires at least two members",
+                            group.name
+                        )
+                    ));
+                }
+            }
+            for member in &group.replica.member {
+                if !node_names.insert(member.name.clone()) {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!("node name {} appears in more than one group", member.name)
+                    ));
+                }
+            }
+        }
+        Ok(node_names)
+    }
+
+    /// A data group must declare at most one replication mode. With neither
+    /// mode, the group is a single replica and must have exactly one member.
+    fn validate_group_mode(&self, group: &DataGroupCfg) -> RS<()> {
+        match (group.replica.raft.is_some(), group.replica.stream.is_some()) {
+            (true, true) => Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                format!("data group {} declares both raft and stream", group.name)
+            )),
+            (false, false) => {
+                if group.replica.member.len() != 1 {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!(
+                            "data group {} with neither raft nor stream must have exactly one member",
+                            group.name
+                        )
+                    ));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The dedicated control plane must be non-empty, Raft-declared, and
+    /// disjoint from the data members.
+    fn validate_control_plane(&self, node_names: &std::collections::HashSet<String>) -> RS<()> {
+        let Some(control) = &self.control_plane else {
+            return Ok(());
+        };
+        if control.replica.member.is_empty() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "control_plane.replica.member must not be empty"
+            ));
+        }
+        if control.replica.raft.is_none() {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "control_plane.replica.raft must be declared"
+            ));
+        }
+        let mut control_names = std::collections::HashSet::new();
+        for member in &control.replica.member {
+            if !control_names.insert(member.name.clone()) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!("duplicate control node {}", member.name)
+                ));
+            }
+            if node_names.contains(&member.name) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!("control node {} also belongs to a data group", member.name)
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Member `(host, port)` pairs must be unique within their role, and the
+    /// local member's ports must not collide with the client-facing ports.
+    fn validate_member_addresses(&self, data_plane: &DataPlaneCfg) -> RS<()> {
+        let mut repl_addrs = std::collections::HashSet::new();
+        let mut channel_addrs = std::collections::HashSet::new();
+        let mut client_addrs = std::collections::HashSet::new();
+        for member in data_plane
+            .group
+            .iter()
+            .flat_map(|group| group.replica.member.iter())
+        {
+            if !repl_addrs.insert((member.host.as_str(), member.replication_port)) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!(
+                        "duplicate replication address {}:{}",
+                        member.host, member.replication_port
+                    )
+                ));
+            }
+            if !channel_addrs.insert((member.host.as_str(), member.channel_port)) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!(
+                        "duplicate channel address {}:{}",
+                        member.host, member.channel_port
+                    )
+                ));
+            }
+            if !client_addrs.insert((member.host.as_str(), member.client_port)) {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!(
+                        "duplicate client address {}:{}",
+                        member.host, member.client_port
+                    )
+                ));
+            }
+        }
+        if let Some(control) = &self.control_plane {
+            for member in &control.replica.member {
+                if !channel_addrs.insert((member.host.as_str(), member.channel_port)) {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!(
+                            "duplicate channel address {}:{}",
+                            member.host, member.channel_port
+                        )
+                    ));
+                }
+                if !client_addrs.insert((member.host.as_str(), member.client_port)) {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!(
+                            "duplicate client address {}:{}",
+                            member.host, member.client_port
+                        )
+                    ));
+                }
+            }
+        }
+        if let Some(local) = self.local_data_group().and_then(|group| {
+            group
+                .replica
+                .member
+                .iter()
+                .find(|member| Some(&member.name) == self.name.as_ref())
+        }) {
+            for (name, port) in [
+                ("http_listen_port", self.http_listen_port),
+                ("pg_listen_port", self.pg_listen_port),
+                ("tcp_listen_port", self.tcp_listen_port),
+            ] {
+                if local.replication_port == port || local.channel_port == port {
+                    return Err(mudu_error!(
+                        ErrorCode::InvalidArgument,
+                        format!("member {} port {} collides with {}", local.name, port, name)
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The local node's name must occur in a data group or the control plane.
+    fn validate_local_membership(&self, data_plane: &DataPlaneCfg) -> RS<()> {
+        let name = self.name.as_deref().unwrap_or("");
+        let in_group = data_plane
+            .group
+            .iter()
+            .any(|group| group.replica.member.iter().any(|m| m.name == name));
+        let in_control = self.control_plane.as_ref().is_some_and(|control| {
+            control
+                .replica
+                .member
+                .iter()
+                .any(|member| member.name == name)
+        });
+        if !in_group && !in_control {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                format!(
+                    "node name {} does not belong to any data group or the control plane",
+                    name
+                )
+            ));
+        }
+        Ok(())
+    }
+
+    /// The channel listener port must not collide with the client-facing ports.
+    fn validate_channel_port(&self) -> RS<()> {
+        let channel_port = self.channel_listen_port.unwrap_or(0);
+        for (name, port) in [
+            ("http_listen_port", self.http_listen_port),
+            ("pg_listen_port", self.pg_listen_port),
+            ("tcp_listen_port", self.tcp_listen_port),
+        ] {
+            if channel_port == port {
+                return Err(mudu_error!(
+                    ErrorCode::InvalidArgument,
+                    format!(
+                        "channel_listen_port {} collides with {}",
+                        channel_port, name
+                    )
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Maps `wal_sync_mode` / `wal_sync_interval_ms` to the kernel's WAL
     /// durability policy. Unknown mode strings are rejected with a clear
     /// startup error.
@@ -385,99 +774,57 @@ impl MuduDBCfg {
         }
     }
 
-    /// Validates the replication configuration when present: the peer list
-    /// must be non-empty with unique node ids and addresses, must contain this
-    /// node's `node_id`, and the replication port must not collide with the
-    /// client-facing ports. Exactly one of the `[replication.stream]` /
-    /// `[replication.raft]` subsections must be present and selects the mode:
-    /// a two-peer raft list only warns (it is the sanctioned bootstrap shape
-    /// of a joining node, but discouraged as a steady-state cluster); stream
-    /// requires at least two peers. Returns `Ok(())` for single-node
-    /// configurations.
-    pub fn validate_replication(&self) -> RS<()> {
-        let Some(replication) = &self.replication else {
-            return Ok(());
+    /// The data group containing this node, when this node is a data member.
+    pub fn local_data_group(&self) -> Option<&DataGroupCfg> {
+        let name = self.name.as_ref()?;
+        self.data_plane.as_ref()?.group.iter().find(|group| {
+            group
+                .replica
+                .member
+                .iter()
+                .any(|member| &member.name == name)
+        })
+    }
+
+    /// Whether this node is a dedicated control-plane node: a control member
+    /// of no data group (it runs no business workers).
+    pub fn is_control_node(&self) -> bool {
+        let name = match &self.name {
+            Some(name) => name,
+            None => return false,
         };
-        replication.validate_snapshot_gc()?;
-        if replication.peers.is_empty() {
-            return Err(mudu_error!(
-                ErrorCode::InvalidArgument,
-                "replication.peers must not be empty"
-            ));
+        if self.local_data_group().is_some() {
+            return false;
         }
-        let mut seen_ids = std::collections::HashSet::new();
-        let mut seen_addrs = std::collections::HashSet::new();
-        let mut contains_self = false;
-        for peer in &replication.peers {
-            if !seen_ids.insert(peer.node_id) {
-                return Err(mudu_error!(
-                    ErrorCode::InvalidArgument,
-                    format!("duplicate replication peer node_id {}", peer.node_id)
-                ));
-            }
-            if !seen_addrs.insert((peer.host.as_str(), peer.port)) {
-                return Err(mudu_error!(
-                    ErrorCode::InvalidArgument,
-                    format!(
-                        "duplicate replication peer address {}:{}",
-                        peer.host, peer.port
-                    )
-                ));
-            }
-            if peer.node_id == replication.node_id {
-                contains_self = true;
-            }
-        }
-        if !contains_self {
-            return Err(mudu_error!(
-                ErrorCode::InvalidArgument,
-                format!(
-                    "replication.peers does not contain this node's node_id {}",
-                    replication.node_id
-                )
-            ));
-        }
-        match replication.mode()? {
-            ReplicationMode::Raft => {
-                if replication.peers.len() == 2 {
-                    // A two-entry peer list is the sanctioned bootstrap
-                    // shape of a JOINING node (itself + one existing
-                    // member; the stored/leader conf wins). As a
-                    // steady-state deployment a two-node raft group is
-                    // still discouraged: no automatic fault tolerance and
-                    // worse write availability than a single node.
-                    tracing::warn!(
-                        "[replication.raft] with two peers is only recommended for bootstrapping a joining node, not as a steady-state cluster"
-                    );
-                }
-            }
-            ReplicationMode::Stream => {
-                if replication.peers.len() < 2 {
-                    return Err(mudu_error!(
-                        ErrorCode::InvalidArgument,
-                        "[replication.stream] requires at least two peers (a primary and a replica)"
-                    ));
-                }
-            }
-        }
-        for (name, port) in [
-            ("http_listen_port", self.http_listen_port),
-            ("pg_listen_port", self.pg_listen_port),
-            ("tcp_listen_port", self.tcp_listen_port),
-        ] {
-            if replication.listen_port == port {
-                return Err(mudu_error!(
-                    ErrorCode::InvalidArgument,
-                    format!("replication.listen_port {} collides with {}", port, name)
-                ));
-            }
-        }
-        Ok(())
+        self.control_plane.as_ref().is_some_and(|control| {
+            control
+                .replica
+                .member
+                .iter()
+                .any(|member| &member.name == name)
+        })
     }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_version() -> u32 {
+    1
+}
+
+/// FNV-1a 64-bit hash over the UTF-8 bytes of `s` (offset basis
+/// `0xcbf29ce484222325`, prime `0x100000001b3`, no salt/seed). This is the
+/// contract-pinned derivation of the internal `node_id` / `group_id` /
+/// `cluster_id` from their names.
+pub(crate) fn fnv1a64(s: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in s.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn default_http_worker_threads() -> usize {
@@ -520,7 +867,7 @@ pub(crate) fn default_election_timeout_ticks() -> u64 {
     500
 }
 
-fn default_repl_flow_window_segments() -> u64 {
+pub(crate) fn default_repl_flow_window_segments() -> u64 {
     64
 }
 
@@ -540,3 +887,10 @@ pub(crate) fn default_sync_timeout_ms() -> u64 {
 #[cfg(test)]
 #[path = "../mudud_cfg_test.rs"]
 mod mudud_cfg_test;
+
+fn default_queue_max_msgs() -> u64 {
+    65536
+}
+fn default_queue_max_bytes() -> u64 {
+    64 * 1024 * 1024
+}

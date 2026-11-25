@@ -2,13 +2,13 @@
 {% if table.table_comments.len() > 0 %}
 {{ table.table_comments }}
 {% endif %}
-[MessagePackFormatter(typeof({{ table.table_name }}Formatter))]
-public struct {{ table.table_name }} {
-    [MessagePackFormatter(typeof({{table.table_name}}KeyFormatter))]
-    public struct {{table.table_name}}Key {
+[MessagePackFormatter(typeof({{ table.class_name }}Formatter))]
+public struct {{ table.class_name }} {
+    [MessagePackFormatter(typeof({{table.class_name}}KeyFormatter))]
+    public struct {{table.class_name}}Key {
         {% if cfg.impl_default %}
         [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-        public {{table.table_name}}Key()
+        public {{table.class_name}}Key()
         {
             {% for field in table.key_fields %}
             {{ field.rf_name }} = {{ field.rf_default_value }};
@@ -23,11 +23,11 @@ public struct {{ table.table_name }} {
         {% endfor %}
     }
 
-    [MessagePackFormatter(typeof({{table.table_name}}ValueFormatter))]
-    public struct {{table.table_name}}Value {
+    [MessagePackFormatter(typeof({{table.class_name}}ValueFormatter))]
+    public struct {{table.class_name}}Value {
         {% if cfg.impl_default %}
         [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-        public {{table.table_name}}Value()
+        public {{table.class_name}}Value()
         {
             {% for field in table.value_fields %}
             {{ field.rf_name }} = {{ field.rf_default_value }};
@@ -44,18 +44,18 @@ public struct {{ table.table_name }} {
 
     {% if cfg.impl_default %}
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public {{ table.table_name }}()
+    public {{ table.class_name }}()
     {
         ResultSet = [];
     }
     {% endif %}
 
-    public required List<KeyValuePair<{{table.table_name}}Key, {{table.table_name}}Value>> ResultSet { get; set; }
+    public required List<KeyValuePair<{{table.class_name}}Key, {{table.class_name}}Value>> ResultSet { get; set; }
 }
 
-public class {{ table.table_name }}KeyFormatter : IMessagePackFormatter<{{ table.table_name }}.{{ table.table_name }}Key?>
+public class {{ table.class_name }}KeyFormatter : IMessagePackFormatter<{{ table.class_name }}.{{ table.class_name }}Key?>
 {
-    public void Serialize(ref MessagePackWriter writer, {{ table.table_name }}.{{ table.table_name }}Key? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, {{ table.class_name }}.{{ table.class_name }}Key? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -69,7 +69,7 @@ public class {{ table.table_name }}KeyFormatter : IMessagePackFormatter<{{ table
         {% endfor %}
     }
 
-    public {{ table.table_name }}.{{ table.table_name }}Key? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public {{ table.class_name }}.{{ table.class_name }}Key? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -82,7 +82,7 @@ public class {{ table.table_name }}KeyFormatter : IMessagePackFormatter<{{ table
             throw new global::System.InvalidOperationException($"Expected array of length {{ table.key_fields.len() }}, got {count}");
         }
 
-        var value = new {{ table.table_name }}.{{ table.table_name }}Key();
+        var value = new {{ table.class_name }}.{{ table.class_name }}Key();
         {% for field in table.key_fields %}
         value.{{ field.rf_name }} = MessagePackSerializer.Deserialize<{{ field.rf_type }}>(ref reader, options){{ field.rf_deserialize_suffix }};
         {% endfor %}
@@ -90,9 +90,9 @@ public class {{ table.table_name }}KeyFormatter : IMessagePackFormatter<{{ table
     }
 }
 
-public class {{ table.table_name }}ValueFormatter : IMessagePackFormatter<{{ table.table_name }}.{{ table.table_name }}Value?>
+public class {{ table.class_name }}ValueFormatter : IMessagePackFormatter<{{ table.class_name }}.{{ table.class_name }}Value?>
 {
-    public void Serialize(ref MessagePackWriter writer, {{ table.table_name }}.{{ table.table_name }}Value? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, {{ table.class_name }}.{{ table.class_name }}Value? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -106,7 +106,7 @@ public class {{ table.table_name }}ValueFormatter : IMessagePackFormatter<{{ tab
         {% endfor %}
     }
 
-    public {{ table.table_name }}.{{ table.table_name }}Value? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public {{ table.class_name }}.{{ table.class_name }}Value? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -119,7 +119,7 @@ public class {{ table.table_name }}ValueFormatter : IMessagePackFormatter<{{ tab
             throw new global::System.InvalidOperationException($"Expected array of length {{ table.value_fields.len() }}, got {count}");
         }
 
-        var value = new {{ table.table_name }}.{{ table.table_name }}Value();
+        var value = new {{ table.class_name }}.{{ table.class_name }}Value();
         {% for field in table.value_fields %}
         value.{{ field.rf_name }} = MessagePackSerializer.Deserialize<{{ field.rf_type }}>(ref reader, options){{ field.rf_deserialize_suffix }};
         {% endfor %}
@@ -127,9 +127,9 @@ public class {{ table.table_name }}ValueFormatter : IMessagePackFormatter<{{ tab
     }
 }
 
-public class {{ table.table_name }}Formatter : IMessagePackFormatter<{{ table.table_name }}?>
+public class {{ table.class_name }}Formatter : IMessagePackFormatter<{{ table.class_name }}?>
 {
-    public void Serialize(ref MessagePackWriter writer, {{ table.table_name }}? value, MessagePackSerializerOptions options)
+    public void Serialize(ref MessagePackWriter writer, {{ table.class_name }}? value, MessagePackSerializerOptions options)
     {
         if (value is null)
         {
@@ -141,7 +141,7 @@ public class {{ table.table_name }}Formatter : IMessagePackFormatter<{{ table.ta
         MessagePackSerializer.Serialize(ref writer, value.ResultSet, options);
     }
 
-    public {{ table.table_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+    public {{ table.class_name }}? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
     {
         if (reader.TryReadNil())
         {
@@ -154,8 +154,8 @@ public class {{ table.table_name }}Formatter : IMessagePackFormatter<{{ table.ta
             throw new global::System.InvalidOperationException($"Expected array of length 1, got {count}");
         }
 
-        var value = new {{ table.table_name }}();
-        value.ResultSet = MessagePackSerializer.Deserialize<List<KeyValuePair<{{ table.table_name }}.{{ table.table_name }}Key, {{ table.table_name }}.{{ table.table_name }}Value>>>(ref reader, options)!;
+        var value = new {{ table.class_name }}();
+        value.ResultSet = MessagePackSerializer.Deserialize<List<KeyValuePair<{{ table.class_name }}.{{ table.class_name }}Key, {{ table.class_name }}.{{ table.class_name }}Value>>>(ref reader, options)!;
         return value;
     }
 }

@@ -1,0 +1,671 @@
+# The extraction root imports this exact production source, without substitutions.
+#
+# Registry schema (validated by script/verification/check.py validate_registry):
+# - status: "proven" (theorems + sanity audited) or "extracted" (drift-checked only)
+# - owner: free-form owning area, non-empty
+# - assumptions: trust-boundary notes believed but not machine-checked; the list
+#   must be present even when empty so the decision is explicit
+# - sanity: theorems proving the specification is satisfiable on concrete inputs;
+#   audited with the same axiom rules as `theorems`; required when status=proven
+# - premises: proof preconditions that the integration layer must establish, each
+#   with `established_by` references as "<path>" or "<path>::<symbol>" pointing at
+#   the Rust test or assertion that discharges it
+[target.buf]
+source = "crates/common/mudu/src/utils/buf.rs"
+entry = "verification/extract/Cargo.toml"
+# Module name under which the extraction crate exposes the production source.
+extract_module = "buf"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["sized_buf_len", "write_sized_buf", "read_sized_buf"]
+module = "crates.common.mudu.src.utils.buf.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "mudu"
+assumptions = [
+  "usize is 64-bit on the pinned x86_64-unknown-linux-gnu extraction target",
+]
+# Completed proof names are checked by the verification runner.
+theorems = [
+  "sized_buf_proof.length_correct",
+  "sized_buf_proof.write_success",
+  "sized_buf_proof.write_overflow",
+  "sized_buf_proof.write_short",
+  "sized_buf_proof.read_short_header",
+  "sized_buf_proof.read_success",
+  "sized_buf_proof.read_overflow",
+  "sized_buf_proof.read_truncated",
+  "sized_buf_proof.decode_header_append",
+  "sized_buf_proof.roundtrip",
+]
+sanity = [
+  "sized_buf_proof.sanity_roundtrip",
+  "sized_buf_proof.sanity_write_short",
+]
+
+[[target.buf.premises]]
+note = "Error values and the big-endian header layout observed by callers match the proved model"
+established_by = [
+  "crates/common/mudu/src/utils/buf_test.rs::length_header_uses_all_big_endian_bytes",
+  "crates/common/mudu/src/utils/buf_test.rs::errors_preserve_output_and_success_preserves_tail",
+]
+
+[target.record_slot_core]
+source = "crates/db-kernel/storage/src/page/record_slot_core.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "record_slot_core"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["StructSlot::decode_bytes", "StructSlot::encode_bytes", "StructSlot::fragment_kind", "StructSlot::set_fragment_kind"]
+module = "crates.«db-kernel».storage.src.page.record_slot_core.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "storage"
+assumptions = [
+  "The public StructSlot API and the 32-byte little-endian disk layout are the contract",
+]
+theorems = [
+  "record_slot_proof.write_short",
+  "record_slot_proof.read_short",
+  "record_slot_proof.write_success",
+  "record_slot_proof.read_success",
+  "record_slot_proof.fragment_fields",
+  "record_slot_proof.fragment_read",
+  "record_slot_proof.decode_encode",
+  "record_slot_proof.encode_decode",
+  "record_slot_proof.roundtrip",
+  "record_slot_proof.disk_roundtrip",
+]
+sanity = [
+  "record_slot_proof.sanity_roundtrip",
+  "record_slot_proof.sanity_write_short",
+]
+
+[[target.record_slot_core.premises]]
+note = "The public StructSlot API rejects invalid slot counts before decoding into the core codec"
+established_by = ["crates/db-kernel/storage/src/page/record_slot.rs::disk_fixture_and_short_buffers_preserve_all_bytes"]
+
+[[target.record_slot_core.premises]]
+note = "Fragment-kind updates preserve unrelated flag bits on the real type"
+established_by = ["crates/db-kernel/storage/src/page/record_slot.rs::record_slot_low_two_flag_bits_describe_fragment_kind"]
+
+[target.layout_math]
+source = "crates/db-kernel/storage/src/page/layout_math.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "layout_math"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["slot_start", "record_end", "allocate"]
+module = "crates.«db-kernel».storage.src.page.layout_math.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "storage"
+assumptions = [
+  "Separation assumes previous intervals end at or before the allocation cursor; arbitrary existing pages are not certified non-overlapping",
+]
+theorems = [
+  "page_layout_proof.slots_correct",
+  "page_layout_proof.range_correct",
+  "page_layout_proof.allocation_correct",
+  "page_layout_proof.allocation_separates",
+]
+sanity = [
+  "page_layout_proof.sanity_allocation",
+  "page_layout_proof.sanity_rejects",
+]
+
+[[target.layout_math.premises]]
+note = "Page writers allocate with a monotone cursor: earlier records end at or before the allocation start"
+established_by = [
+  "crates/db-kernel/storage/src/page/page_block_ref_test.rs::validate_layout_accepts_well_formed_empty_page",
+  "crates/db-kernel/storage/src/page/layout_math.rs::checked_boundaries_and_padding",
+]
+
+[target.decision]
+source = "crates/db-kernel/wal/src/worker_wal_backend/layout/decision.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "decision"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["successor", "recovery_lsn", "reuse_tail", "gc_limit", "deletable"]
+module = "crates.«db-kernel».wal.src.worker_wal_backend.layout.decision.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "wal"
+assumptions = [
+  "Inputs are validated frame summaries and persisted frontiers; CRC, directory enumeration, filesystem persistence order, and concurrent GC are out of scope",
+]
+theorems = [
+  "wal_decision_proof.successor_correct",
+  "wal_decision_proof.recovery_correct",
+  "wal_decision_proof.reuse_correct",
+  "wal_decision_proof.gc_limit_correct",
+  "wal_decision_proof.deletion_correct",
+]
+sanity = [
+  "wal_decision_proof.sanity_recovery",
+  "wal_decision_proof.sanity_gc",
+]
+
+[[target.decision.premises]]
+note = "Recovery and GC consume frontiers persisted by the layout layer"
+established_by = [
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_gc_prefix_and_frontier_recovery",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::gc_stops_at_unknown_prefix_and_recovery_keeps_frontier",
+]
+
+[[target.decision.premises]]
+note = "GC never reclaims chunks whose archive frontier has not passed them"
+established_by = ["crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_gc_never_reclaims_unarchived_chunks"]
+
+# Self-test: mutation_from is replaced exactly once in an isolated source copy;
+# the registered proofs must reject the regenerated implementation.
+[[target.buf.mutations]]
+mutation_note = "wrong length header"
+mutation_from = "(src.len() as u32).to_be_bytes()"
+mutation_to = "0u32.to_be_bytes()"
+
+[[target.record_slot_core.mutations]]
+mutation_note = "lost reserved field"
+mutation_from = "out[28..32].copy_from_slice(&self.reserved.to_le_bytes());"
+mutation_to = "out[28..32].copy_from_slice(&0u32.to_le_bytes());"
+
+[[target.record_slot_core.mutations]]
+mutation_note = "fragment update clears unrelated flag bits"
+mutation_from = "(self.flag & !RECORD_SLOT_FLAG_FRAGMENT_MASK)"
+mutation_to = "(self.flag & RECORD_SLOT_FLAG_FRAGMENT_MASK)"
+
+[[target.layout_math.mutations]]
+mutation_note = "allocation end omits payload"
+mutation_from = "Some((start, start + size))"
+mutation_to = "Some((start, start))"
+
+[[target.layout_math.mutations]]
+mutation_note = "record range excludes its last byte"
+mutation_from = "Some(offset + size)"
+mutation_to = "Some(offset)"
+
+[[target.decision.mutations]]
+mutation_note = "recovery reuses the last identifier"
+mutation_from = "Some(value + 1)"
+mutation_to = "Some(value)"
+
+[[target.decision.mutations]]
+mutation_note = "GC deletes at the retained boundary"
+mutation_from = "Some(value) => value < limit"
+mutation_to = "Some(value) => value <= limit"
+
+[[target.layout_math.mutations]]
+mutation_note = "slot accounting loses one byte per entry"
+mutation_from = "Some(tail - count * 32)"
+mutation_to = "Some(tail - count * 31)"
+
+[[target.decision.mutations]]
+mutation_note = "GC ignores the archive bound"
+mutation_from = "Some(if bound < wanted { bound } else { wanted })"
+mutation_to = "Some(wanted)"
+
+[target.append_plan]
+source = "crates/db-kernel/wal/src/worker_wal_backend/append_plan.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "append_plan"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["reserve"]
+module = "crates.«db-kernel».wal.src.worker_wal_backend.append_plan.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "wal"
+assumptions = [
+  "Reservations start from a valid cursor; arbitrary corrupted states are not covered",
+  "No filesystem durability claim is implied",
+]
+theorems = ["append_plan_proof.reservation_correct", "append_plan_proof.reservation_separates", "append_plan_proof.successive_disjoint"]
+sanity = [
+  "append_plan_proof.sanity_reservation",
+  "append_plan_proof.sanity_exhaustion",
+]
+
+[[target.append_plan.premises]]
+note = "reserve is called with a valid cursor: current sequence below next, size within capacity, zero size when there is no current chunk"
+established_by = [
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_appends_batch_frames",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_rotates_chunks_by_size",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_places_oversized_entry_in_dedicated_chunk",
+]
+
+[target.frame_bounds]
+source = "crates/db-kernel/wal/src/frame_bounds.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "frame_bounds"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["bounds", "Prefix::advance"]
+module = "crates.«db-kernel».wal.src.frame_bounds.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "wal"
+assumptions = [
+  "Validation outcomes are inputs; CRC, version migration, and the full parser loop are not proved",
+]
+theorems = ["frame_bounds_proof.bounds_correct", "frame_bounds_proof.advance_correct", "frame_bounds_proof.stopped_stays", "frame_bounds_proof.prefix_conservation"]
+sanity = [
+  "frame_bounds_proof.sanity_bounds",
+  "frame_bounds_proof.sanity_advance",
+]
+
+[[target.frame_bounds.premises]]
+note = "Frame validity (CRC, version) is decided by the frame layer before Prefix::advance consumes it"
+established_by = [
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_reopen_truncates_checksum_corrupted_tail",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_reopen_truncates_partial_frame_tail",
+  "crates/db-kernel/wal/src/frame_bounds.rs::extreme_bounds_and_sticky_failure",
+]
+
+[[target.append_plan.mutations]]
+mutation_note = "fresh append reuses its sequence"
+mutation_from = "let next = state.next + 1;"
+mutation_to = "let next = state.next;"
+
+[[target.append_plan.mutations]]
+mutation_note = "append overwrites the current chunk prefix"
+mutation_from = "offset: state.size,\n                    flush: false,"
+mutation_to = "offset: 0,\n                    flush: false,"
+
+[[target.frame_bounds.mutations]]
+mutation_note = "frame boundary omits the trailer"
+mutation_from = "Some((24 + payload, 32 + payload))"
+mutation_to = "Some((24 + payload, 24 + payload))"
+
+[[target.frame_bounds.mutations]]
+mutation_note = "prefix accepts a frame rejected by validation"
+mutation_from = "self.stopped || !valid || length == 0"
+mutation_to = "self.stopped || length == 0"
+
+[[target.frame_bounds.mutations]]
+mutation_note = "prefix resumes after the first corrupt frame"
+mutation_from = "self.stopped || !valid || length == 0"
+mutation_to = "!valid || length == 0"
+
+[target.part_chain]
+source = "crates/db-kernel/wal/src/part_chain.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "part_chain"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["advance", "append"]
+module = "crates.«db-kernel».wal.src.part_chain.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "wal"
+assumptions = [
+  "Delivery sequencing is tracked by the caller; two-delivery composition is proved, arbitrary interleavings are not",
+]
+theorems = ["part_chain_proof.advance_correct", "part_chain_proof.append_correct", "part_chain_proof.partition_invariant"]
+sanity = [
+  "part_chain_proof.sanity_advance",
+  "part_chain_proof.sanity_append",
+]
+
+[[target.part_chain.premises]]
+note = "Multipart continuations arrive in the order the decoder expects; rejection does not consume pending state"
+established_by = [
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::multipart_decode_is_independent_of_input_batch_boundaries",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::reordered_multipart_continuation_is_rejected_without_consuming_pending",
+]
+
+[target.truncate_plan]
+source = "crates/db-kernel/wal/src/worker_wal_backend/layout/truncate_plan.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "truncate_plan"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["cut_before", "remove_chunk", "reset"]
+module = "crates.«db-kernel».wal.src.worker_wal_backend.layout.truncate_plan.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "wal"
+assumptions = [
+  "Truncation requires the exclusive-use precondition: no commit or promote in flight",
+  "Monotone LSN order is needed to interpret the retained prefix as all records below a boundary",
+  "Crash-atomic filesystem writes are not modeled",
+]
+theorems = ["truncate_plan_proof.cut_correct", "truncate_plan_proof.remove_correct", "truncate_plan_proof.reset_correct", "truncate_plan_proof.first_cut"]
+sanity = [
+  "truncate_plan_proof.sanity_cut",
+  "truncate_plan_proof.sanity_reset",
+]
+
+[[target.truncate_plan.premises]]
+note = "Live truncation retains the prefix and appends at the cut boundary"
+established_by = [
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::live_truncation_retains_prefix_then_appends_at_the_cut",
+  "crates/db-kernel/wal/src/worker_wal_backend/tests.rs::worker_log_reopen_truncates_at_corrupted_middle_frame",
+]
+
+[target.sequence_edit]
+source = "crates/db-kernel/storage/src/page/sequence_edit.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "sequence_edit"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["splice", "publish", "key_less", "copy_payload"]
+module = "crates.«db-kernel».storage.src.page.sequence_edit.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "storage"
+assumptions = [
+  "Generic sequence proofs require value-preserving Clone, as used by byte and slot callers",
+  "Publication all-or-nothing covers the modeled draft/publish path, not filesystem atomicity",
+]
+theorems = ["sequence_edit_proof.splice_correct", "sequence_edit_proof.publish_correct", "sequence_edit_proof.key_order", "sequence_edit_proof.splice_ordered", "sequence_edit_proof.delete_ordered", "sequence_edit_proof.transaction_failure", "sequence_edit_proof.compaction_payloads"]
+sanity = [
+  "sequence_edit_proof.sanity_splice",
+  "sequence_edit_proof.sanity_publish",
+]
+
+[[target.sequence_edit.premises]]
+note = "Ordered edits require the retained parts and inserted records to satisfy the comparator's boundary relations"
+established_by = [
+  "crates/db-kernel/storage/src/page/sequence_edit_tests.rs::mixed_page_edits_match_the_logical_record_map",
+  "crates/db-kernel/storage/src/page/sequence_edit_tests.rs::every_failed_public_edit_preserves_all_page_bytes",
+]
+
+[target.delta_value]
+source = "crates/db-kernel/storage/src/time_series/time_series_file/delta_value.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "delta_value"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["diff", "apply", "replay_needed"]
+module = "crates.«db-kernel».storage.src.time_series.time_series_file.delta_value.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "storage"
+assumptions = [
+  "The page model assumes unique keys and a sound payload equality comparison",
+  "Replay idempotence assumes a successfully constructed image is stamped with its batch LSN; fsync ordering is out of scope",
+]
+theorems = ["delta_value_proof.diff_apply", "delta_value_proof.other_keys", "delta_value_proof.page_roundtrip", "delta_value_proof.replay_correct", "delta_value_proof.replay_idempotent"]
+sanity = [
+  "delta_value_proof.sanity_diff_apply",
+  "delta_value_proof.sanity_replay",
+]
+
+[[target.delta_value.premises]]
+note = "Persisted delta pages replay to byte-stable data files under WAL recovery"
+established_by = [
+  "crates/db-kernel/storage/src/time_series/time_series_file/tests/batch_integrity.rs::wal_replay_after_full_flush_leaves_data_file_byte_stable",
+  "crates/db-kernel/storage/src/time_series/time_series_file/tests/batch_integrity.rs::persisted_pages_carry_valid_checksums_after_flush",
+]
+
+[[target.part_chain.mutations]]
+mutation_note = "multipart continuation repeats its counter"
+mutation_from = "remaining != previous - 1"
+mutation_to = "remaining != previous"
+
+[[target.part_chain.mutations]]
+mutation_note = "multipart accumulation drops the new bytes"
+mutation_from = "payload.extend_from_slice(part);"
+mutation_to = "payload.extend_from_slice(&[]);"
+
+[[target.truncate_plan.mutations]]
+mutation_note = "truncation retains the boundary frame"
+mutation_from = "frame_lsn >= from_lsn"
+mutation_to = "frame_lsn > from_lsn"
+
+[[target.truncate_plan.mutations]]
+mutation_note = "truncation deletes the cut chunk"
+mutation_from = "sequence > cut_sequence"
+mutation_to = "sequence >= cut_sequence"
+
+[[target.truncate_plan.mutations]]
+mutation_note = "reset reuses the retained chunk sequence"
+mutation_from = "let next = sequence + 1;"
+mutation_to = "let next = sequence;"
+
+[[target.sequence_edit.mutations]]
+mutation_note = "record edit drops the retained prefix"
+mutation_from = "output.extend_from_slice(&items[..start]);"
+mutation_to = "output.extend_from_slice(&items[..0]);"
+
+[[target.sequence_edit.mutations]]
+mutation_note = "page publication reports success without copying"
+mutation_from = "page.copy_from_slice(prepared);"
+mutation_to = "let _ = prepared;"
+
+[[target.sequence_edit.mutations]]
+mutation_note = "compaction loses the materialized payload"
+mutation_from = "page[offset..end].copy_from_slice(source);"
+mutation_to = "let _ = end;"
+
+[[target.delta_value.mutations]]
+mutation_note = "delta deletion retains the old value"
+mutation_from = "Change::Remove => None,"
+mutation_to = "Change::Remove => old,"
+
+[[target.delta_value.mutations]]
+mutation_note = "delta creation drops newly inserted values"
+mutation_from = "Change::Set(value)\n            }"
+mutation_to = "Change::Keep\n            }"
+
+[[target.delta_value.mutations]]
+mutation_note = "replay repeats an already applied batch"
+mutation_from = "page_lsn < batch_lsn"
+mutation_to = "page_lsn <= batch_lsn"
+
+[target.mp_core]
+source = "crates/common/mudu_binding/src/universal/mp_core.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "mp_core"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["write_nil", "write_bool", "write_uint", "write_sint", "write_f32_bits", "write_f64_bits", "write_str_header", "write_bin_header", "write_array_header", "write_map_header", "read_uint", "read_sint", "read_bool", "read_nil", "read_f32_bits", "read_f64_bits", "read_str_header", "read_bin_header", "read_array_header", "read_map_header"]
+module = "crates.common.mudu_binding.src.universal.mp_core.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "mudu_binding"
+assumptions = [
+  "The recursive Value walk, UTF-8 validation, and float bit conversion live in the mp_wire caller and are covered by premises, not by these proofs",
+  "Canonical form is defined by the spec functions; cross-language byte compatibility is pinned by the golden corpus premise",
+  "usize is 64-bit on the pinned x86_64-unknown-linux-gnu extraction target",
+]
+theorems = [
+  "mp_core_proof.uint_encode",
+  "mp_core_proof.uint_decode",
+  "mp_core_proof.uint_short",
+  "mp_core_proof.uint_foreign_marker",
+  "mp_core_proof.sint_encode",
+  "mp_core_proof.sint_decode",
+  "mp_core_proof.sint_nonneg_unsigned_chain",
+  "mp_core_proof.sint_short",
+  "mp_core_proof.sint_foreign_marker",
+  "mp_core_proof.bool_encode",
+  "mp_core_proof.bool_decode",
+  "mp_core_proof.nil_decode",
+  "mp_core_proof.f32_encode",
+  "mp_core_proof.f32_decode",
+  "mp_core_proof.f64_encode",
+  "mp_core_proof.f64_decode",
+  "mp_core_proof.str_header_encode",
+  "mp_core_proof.str_header_decode",
+  "mp_core_proof.bin_header_encode",
+  "mp_core_proof.bin_header_decode",
+  "mp_core_proof.array_header_encode",
+  "mp_core_proof.array_header_decode",
+  "mp_core_proof.map_header_encode",
+  "mp_core_proof.map_header_decode",
+  "mp_core_proof.reserved_marker_rejected",
+]
+sanity = [
+  "mp_core_proof.sanity_uint_roundtrip",
+  "mp_core_proof.sanity_str_header_roundtrip",
+]
+
+[[target.mp_core.premises]]
+note = "The canonical marker-level encoding is byte-identical to rmp_serde 1.3.1 and to the six language codecs"
+established_by = [
+  "crates/common/mudu_binding/src/universal/mp_wire.rs::encoder_matches_rmp_serde_byte_for_byte",
+  "crates/db-kernel/testing/tests/compat_golden/mp_primitives.rs::mp_primitives_v1_roundtrip",
+]
+
+[[target.mp_core.premises]]
+note = "The Value dispatch layer maps markers to value variants, validates UTF-8, and rejects trailing bytes"
+established_by = [
+  "crates/common/mudu_binding/src/universal/mp_wire.rs::canonical_bytes_for_nested_structure",
+  "crates/common/mudu_binding/src/universal/mp_wire.rs::integer_encodings_are_minimal_width",
+]
+
+[[target.mp_core.mutations]]
+mutation_note = "fixpos boundary excludes 127"
+mutation_from = "if value <= 0x7f {"
+mutation_to = "if value <= 0x7e {"
+
+[[target.mp_core.mutations]]
+mutation_note = "signed fixneg boundary admits -33"
+mutation_from = "} else if value >= -32 {"
+mutation_to = "} else if value >= -33 {"
+
+[[target.mp_core.mutations]]
+mutation_note = "fixstr header drops the base bits"
+mutation_from = "out.push(FIXSTR_BASE + len as u8);"
+mutation_to = "out.push(len as u8);"
+
+[[target.mp_core.mutations]]
+mutation_note = "u8 width reports one byte consumed"
+mutation_from = "Ok((value as u64, 2))"
+mutation_to = "Ok((value as u64, 1))"
+
+[target.mssp_frame]
+source = "crates/common/mudu/src/utils/mssp_frame.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "mssp_frame"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["encode_header_fields", "decode_header_fields"]
+module = "crates.common.mudu.src.utils.mssp_frame.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "mudu"
+assumptions = [
+  "Magic, version range, flags, and message-kind validation live in the syscall_payload caller and the mudu::compat registry, covered by premises",
+  "usize is 64-bit on the pinned x86_64-unknown-linux-gnu extraction target",
+]
+theorems = [
+  "mssp_frame_proof.encode_layout",
+  "mssp_frame_proof.header_roundtrip",
+  "mssp_frame_proof.short_rejected",
+]
+sanity = [
+  "mssp_frame_proof.sanity_header",
+  "mssp_frame_proof.sanity_short",
+]
+
+[[target.mssp_frame.premises]]
+note = "Magic/version/kind values, the zero-flags rule, and the error taxonomy are pinned by the contract tests and the golden corpus"
+established_by = [
+  "crates/common/mudu_binding/src/codec/syscall_payload/syscall_payload_test/codec_basics.rs::header_layout_exact_bytes",
+  "crates/common/mudu_binding/src/codec/syscall_payload/syscall_payload_test/codec_basics.rs::message_kind_values_and_header_roundtrip",
+  "crates/db-kernel/testing/tests/compat_golden/syscall_v1.rs::golden_v1_roundtrips",
+]
+
+[[target.mssp_frame.mutations]]
+mutation_note = "version's first byte duplicated over the second"
+mutation_from = "v[0], v[1], v[2], v[3]"
+mutation_to = "v[1], v[1], v[2], v[3]"
+
+[[target.mssp_frame.mutations]]
+mutation_note = "reserved flags written nonzero"
+mutation_from = "0, 0, 0, 0, k[0]"
+mutation_to = "0, 0, 0, 1, k[0]"
+
+
+[target.raft_quorum]
+source = "crates/db-kernel/mudu_raft/src/core/quorum_core.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "quorum_core"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["count_agreeing_excluding", "majority_met", "majority_pick"]
+module = "crates.«db-kernel».mudu_raft.src.core.quorum_core.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "mudu_raft"
+assumptions = [
+  "The HashMap/closure evaluation of per-node grants and the descending sort stay in quorum.rs and are pinned by its tests",
+  "usize is 64-bit on the pinned x86_64-unknown-linux-gnu extraction target",
+]
+theorems = [
+  "raft_quorum_proof.count_correct",
+  "raft_quorum_proof.count_bounded",
+  "raft_quorum_proof.quorum_intersection",
+  "raft_quorum_proof.majority_met_iff",
+  "raft_quorum_proof.pick_value_correct",
+  "raft_quorum_proof.pick_none_incomplete",
+]
+sanity = [
+  "raft_quorum_proof.sanity_vote_quorum",
+  "raft_quorum_proof.sanity_match_index",
+]
+
+[[target.raft_quorum.premises]]
+note = "Vote/match-index plumbing (HashMap evaluation, exclusion of the leader, the descending sort) is pinned by the quorum tests"
+established_by = [
+  "crates/db-kernel/mudu_raft/src/core/quorum.rs::test_majority_agree_index",
+  "crates/db-kernel/mudu_raft/src/core/quorum.rs::vote_quorum_three_nodes",
+  "crates/db-kernel/mudu_raft/src/core/quorum.rs::vote_quorum_single_node",
+]
+
+[[target.raft_quorum.mutations]]
+mutation_note = "majority accepts an exact half"
+mutation_from = "agreed * 2 > voters"
+mutation_to = "agreed * 2 >= voters"
+
+[[target.raft_quorum.mutations]]
+mutation_note = "the leader is counted twice"
+mutation_from = "if voters[i] != exclude && granted[i] {"
+mutation_to = "if granted[i] {"
+
+[target.raft_vote]
+source = "crates/db-kernel/mudu_raft/src/core/vote_core.rs"
+entry = "verification/extract/Cargo.toml"
+extract_module = "vote_core"
+platform = "x86_64-unknown-linux-gnu"
+features = []
+functions = ["log_fresh", "vote_decision"]
+module = "crates.«db-kernel».mudu_raft.src.core.vote_core.proof"
+status = "proven"
+allowed_axioms = ["propext", "Classical.choice", "Quot.sound"]
+owner = "mudu_raft"
+assumptions = [
+  "The RaftCore state plumbing (log head, snapshot frontier, voted_for persistence) stays in election.rs and is pinned by the election tests",
+  "usize is 64-bit on the pinned x86_64-unknown-linux-gnu extraction target",
+]
+theorems = [
+  "raft_vote_proof.fresh_iff",
+  "raft_vote_proof.vote_iff",
+  "raft_vote_proof.no_double_grant",
+  "raft_vote_proof.grant_term_bound",
+]
+sanity = [
+  "raft_vote_proof.sanity_fresh_grants",
+  "raft_vote_proof.sanity_stale_rejected",
+]
+
+[[target.raft_vote.premises]]
+note = "The predicates' wiring into RaftCore (current_term, voted_for persistence, log head) is pinned by the election and pre-vote tests"
+established_by = [
+  "crates/db-kernel/mudu_raft/src/core/tests.rs::pre_vote_rejects_stale_logs",
+  "crates/db-kernel/mudu_raft/src/core/tests.rs::three_node_election_and_majority_commit",
+  "crates/db-kernel/mudu_raft/src/core/tests.rs::leader_kill_reelection_and_committed_entries_survive",
+]
+
+[[target.raft_vote.mutations]]
+mutation_note = "the same term grants twice"
+mutation_from = "candidate_term > current_term"
+mutation_to = "candidate_term >= current_term"
+
+[[target.raft_vote.mutations]]
+mutation_note = "single-vote-per-term rule dropped"
+mutation_from = "Some(n) => n == candidate"
+mutation_to = "Some(_) => true"

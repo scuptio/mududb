@@ -1,6 +1,6 @@
 //! Generate procedure descriptors from parsed AssemblyScript procedures.
 
-use crate::assemblyscript::procedure::AsProcedure;
+use crate::assemblyscript::types::AsProcedure;
 use crate::common::desc::{ProcDescField, ProcDescModel};
 use mudu_contract::procedure::proc_desc::ProcDesc;
 

@@ -1,7 +1,7 @@
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_data_type::UniDataType;
 
-use super::ctype::c_type;
+use super::ctype::{CTypeNamer, c_type};
 
 /// The kind of a generated composite holder type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,17 +49,6 @@ impl CHolder {
             }
         }
     }
-}
-
-/// Names composite holder types (`list` slices, `option` wrappers, tuples)
-/// so that every value in codec position maps to exactly one named C type.
-pub trait CTypeNamer {
-    /// Return the slice type name for a `list` of `elem`.
-    fn list_name(&mut self, elem: &UniDataType) -> RS<String>;
-    /// Return the option-wrapper type name for an `option` of `inner`.
-    fn option_name(&mut self, inner: &UniDataType) -> RS<String>;
-    /// Return the struct type name for a tuple with the given element types.
-    fn tuple_name(&mut self, elems: &[UniDataType]) -> RS<String>;
 }
 
 /// A [`CTypeNamer`] that names holders within one top-level signature

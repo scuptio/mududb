@@ -5,9 +5,9 @@
 
 use crate::universal::uni_data_type::UniDataType;
 use crate::universal::uni_data_value::UniDataValue;
-use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 use crate::universal::uni_scalar::UniScalar;
 use crate::universal::uni_scalar_value::UniScalarValue;
+use crate::universal::uni_struct_type::{UniStructField, UniStructType};
 use mudu::error::ErrorCode;
 use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
@@ -114,15 +114,15 @@ fn array_uni_to_and_from_roundtrip() {
 
 #[test]
 fn record_uni_to_and_from_roundtrip() {
-    let uni = UniDataType::from_record(UniRecordType {
-        record_name: "person".to_string(),
-        record_fields: vec![
-            UniRecordField {
+    let uni = UniDataType::from_struct(UniStructType {
+        struct_name: "person".to_string(),
+        struct_fields: vec![
+            UniStructField {
                 field_name: "id".to_string(),
                 field_type: scalar(UniScalar::I32),
                 field_attrs: Vec::new(),
             },
-            UniRecordField {
+            UniStructField {
                 field_name: "name".to_string(),
                 field_type: scalar(UniScalar::String),
                 field_attrs: Vec::new(),
@@ -130,10 +130,10 @@ fn record_uni_to_and_from_roundtrip() {
         ],
     });
     let dat = uni.uni_to().unwrap();
-    assert_eq!(dat.type_family(), TypeFamily::Record);
+    assert_eq!(dat.type_family(), TypeFamily::Struct);
 
     let back = UniDataType::uni_from(dat).unwrap();
-    assert!(matches!(back, UniDataType::Record(_)));
+    assert!(matches!(back, UniDataType::Struct(_)));
 }
 
 #[test]
@@ -154,9 +154,9 @@ fn unsupported_uni_type_to_dat_fails() {
 
 #[test]
 fn rewrite_inline_for_independent_records() {
-    let record_a = UniDataType::from_record(UniRecordType {
-        record_name: "a".to_string(),
-        record_fields: vec![UniRecordField {
+    let record_a = UniDataType::from_struct(UniStructType {
+        struct_name: "a".to_string(),
+        struct_fields: vec![UniStructField {
             field_name: "x".to_string(),
             field_type: scalar(UniScalar::I32),
             field_attrs: Vec::new(),
@@ -164,21 +164,21 @@ fn rewrite_inline_for_independent_records() {
     });
     let result = UniDataType::rewrite_inline(vec![record_a]).unwrap();
     assert_eq!(result.len(), 1);
-    assert!(matches!(result[0], UniDataType::Record(_)));
+    assert!(matches!(result[0], UniDataType::Struct(_)));
 }
 
 #[test]
 fn rewrite_inline_missing_dependency_fails() {
-    let record = UniDataType::from_record(UniRecordType {
-        record_name: "orphan".to_string(),
-        record_fields: vec![UniRecordField {
+    let record = UniDataType::from_struct(UniStructType {
+        struct_name: "orphan".to_string(),
+        struct_fields: vec![UniStructField {
             field_name: "other".to_string(),
             field_type: UniDataType::from_identifier("unknown".to_string()),
             field_attrs: Vec::new(),
         }],
     });
     let err = UniDataType::rewrite_inline(vec![record]).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,9 +189,9 @@ fn rewrite_inline_missing_dependency_fails() {
 
 mod wire {
     use crate::universal::uni_data_type::UniDataType;
-    use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
     use crate::universal::uni_result_type::UniResultType;
     use crate::universal::uni_scalar::UniScalar;
+    use crate::universal::uni_struct_type::{UniStructField, UniStructType};
     use mudu::common::serde_utils::{
         deserialize_from, deserialize_from_json, serialize_to_json, serialize_to_vec,
     };
@@ -212,21 +212,21 @@ mod wire {
         assert_eq!(used as usize, binary.len());
     }
 
-    fn sample_record_type() -> UniRecordType {
-        UniRecordType {
-            record_name: "vote_record".to_string(),
-            record_fields: vec![
-                UniRecordField {
+    fn sample_struct_type() -> UniStructType {
+        UniStructType {
+            struct_name: "vote_record".to_string(),
+            struct_fields: vec![
+                UniStructField {
                     field_name: "id".to_string(),
                     field_type: UniDataType::Scalar(UniScalar::U128),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "name".to_string(),
                     field_type: UniDataType::Scalar(UniScalar::String),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "tags".to_string(),
                     field_type: UniDataType::Array(Box::new(UniDataType::Scalar(
                         UniScalar::String,
@@ -238,10 +238,10 @@ mod wire {
     }
 
     fn sample_data_type() -> UniDataType {
-        UniDataType::Record(UniRecordType {
-            record_name: "envelope".to_string(),
-            record_fields: vec![
-                UniRecordField {
+        UniDataType::Struct(UniStructType {
+            struct_name: "envelope".to_string(),
+            struct_fields: vec![
+                UniStructField {
                     field_name: "meta".to_string(),
                     field_type: UniDataType::Tuple(vec![
                         UniDataType::Scalar(UniScalar::U64),
@@ -249,7 +249,7 @@ mod wire {
                     ]),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "payload".to_string(),
                     field_type: UniDataType::Result(UniResultType {
                         ok: Some(Box::new(UniDataType::Array(Box::new(UniDataType::Scalar(
@@ -259,7 +259,7 @@ mod wire {
                     }),
                     field_attrs: Vec::new(),
                 },
-                UniRecordField {
+                UniStructField {
                     field_name: "blob".to_string(),
                     field_type: UniDataType::Binary,
                     field_attrs: Vec::new(),
@@ -294,11 +294,11 @@ mod wire {
             UniDataType::Scalar(UniScalar::String)
         ));
 
-        let record = UniDataType::from_record(sample_record_type());
-        assert!(record.as_record().is_some());
+        let record = UniDataType::from_struct(sample_struct_type());
+        assert!(record.as_struct().is_some());
         assert!(record.as_scalar().is_none());
-        let inner = record.expect_record();
-        assert_eq!(inner.record_name, "vote_record");
+        let inner = record.expect_struct();
+        assert_eq!(inner.struct_name, "vote_record");
 
         let option = UniDataType::from_option(Box::new(UniDataType::Scalar(UniScalar::I64)));
         assert!(matches!(
@@ -372,7 +372,7 @@ mod wire {
         assert_json_and_binary_roundtrip(&UniDataType::Array(Box::new(UniDataType::Scalar(
             UniScalar::String,
         ))));
-        assert_json_and_binary_roundtrip(&UniDataType::Record(sample_record_type()));
+        assert_json_and_binary_roundtrip(&UniDataType::Struct(sample_struct_type()));
         assert_json_and_binary_roundtrip(&UniDataType::Option(Box::new(UniDataType::Scalar(
             UniScalar::I64,
         ))));

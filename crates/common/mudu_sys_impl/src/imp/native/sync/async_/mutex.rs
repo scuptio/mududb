@@ -298,4 +298,21 @@ mod tests {
         let _ = format!("{}", guard);
         let _ = format!("{:?}", guard);
     }
+    #[tokio::test]
+    async fn nested_mapping_keeps_lock_until_final_guard_drops() {
+        let mutex = AMutex::const_new(((1, 2), 3));
+        let guard = AMutexGuard::map(mutex.lock().await, |value| &mut value.0);
+        let guard =
+            MappedAMutexGuard::try_map(guard, |_: &mut (i32, i32)| None::<&mut i32>).unwrap_err();
+        assert!(mutex.try_lock().is_none());
+        let guard = MappedAMutexGuard::map(guard, |value| &mut value.1);
+        let mut guard = MappedAMutexGuard::try_map(guard, |value| Some(value)).unwrap();
+        *guard = 9;
+        assert_eq!(format!("{guard}"), "9");
+        assert_eq!(format!("{guard:?}"), "9");
+        assert!(mutex.try_lock().is_none());
+        drop(guard);
+        assert_eq!(*mutex.try_lock().unwrap(), ((1, 9), 3));
+        assert_eq!(TryLockError(()).to_string(), "operation would block");
+    }
 }

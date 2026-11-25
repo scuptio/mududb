@@ -10,15 +10,15 @@ use mudu_type::data_type::DataType;
 use mudu_type::data_type_param_array::DataTypeParamArray;
 use mudu_type::data_type_param_kind::DataTypeParamKind;
 use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
-use mudu_type::data_type_param_record::DataTypeParamRecord;
 use mudu_type::data_type_param_string::DataTypeParamString;
+use mudu_type::data_type_param_struct::DataTypeParamStruct;
 use mudu_type::data_type_param_time::DataTypeParamTime;
 use mudu_type::data_type_param_timestamp::DataTypeParamTimestamp;
 use mudu_type::data_type_param_timestamptz::DataTypeParamTimestampTz;
 use mudu_type::type_family::TypeFamily;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
+use crate::universal::uni_struct_type::{UniStructField, UniStructType};
 
 impl UniDataType {
     pub fn uni_to(self) -> RS<DataType> {
@@ -35,17 +35,17 @@ impl UniDataType {
                     DataTypeParamKind::Array(Box::new(DataTypeParamArray::new(inner_ty)));
                 DataType::from_id_param(TypeFamily::Array, Some(array_kind))
             }
-            UniDataType::Record(inner) => {
-                let mut fields = Vec::with_capacity(inner.record_fields.len());
-                for field in inner.record_fields {
+            UniDataType::Struct(inner) => {
+                let mut fields = Vec::with_capacity(inner.struct_fields.len());
+                for field in inner.struct_fields {
                     let field_ty = field.field_type.uni_to()?;
                     fields.push((field.field_name, field_ty));
                 }
-                let object_kind = DataTypeParamKind::Record(Box::new(DataTypeParamRecord::new(
-                    inner.record_name.clone(),
+                let object_kind = DataTypeParamKind::Struct(Box::new(DataTypeParamStruct::new(
+                    inner.struct_name.clone(),
                     fields,
                 )));
-                DataType::from_id_param(TypeFamily::Record, Some(object_kind))
+                DataType::from_id_param(TypeFamily::Struct, Some(object_kind))
             }
             _ => {
                 return Err(mudu_error!(ErrorCode::InvalidType, "not supported type"));
@@ -69,24 +69,24 @@ impl UniDataType {
                     let inner_uni_ty = Self::uni_from(inner_ty)?;
                     UniDataType::Array(Box::new(inner_uni_ty))
                 }
-                TypeFamily::Record => {
-                    let param = ty.into_record_param();
-                    let mut record_fields = Vec::with_capacity(param.fields().len());
-                    let (record_name, fields) = param.into();
+                TypeFamily::Struct => {
+                    let param = ty.into_struct_param();
+                    let mut struct_fields = Vec::with_capacity(param.fields().len());
+                    let (struct_name, fields) = param.into();
                     for (name, f_ty) in fields {
                         let mu_f_ty = Self::uni_from(f_ty)?;
-                        let field = UniRecordField {
+                        let field = UniStructField {
                             field_name: name,
                             field_type: mu_f_ty,
                             field_attrs: Vec::new(),
                         };
-                        record_fields.push(field);
+                        struct_fields.push(field);
                     }
-                    let record = UniRecordType {
-                        record_name,
-                        record_fields,
+                    let record = UniStructType {
+                        struct_name,
+                        struct_fields,
                     };
-                    UniDataType::Record(record)
+                    UniDataType::Struct(record)
                 }
                 _ => {
                     return Err(mudu_error!(ErrorCode::InvalidType, "unexpected type"));
@@ -194,19 +194,19 @@ fn extract_param_i64(params: &[UniDataValue], index: usize, name: &str) -> RS<i6
 }
 
 fn _rewrite_inline(vec_ty: Vec<UniDataType>) -> RS<Vec<UniDataType>> {
-    let mut record_ty = HashMap::new();
+    let mut struct_ty = HashMap::new();
     let mut dependency = HashMap::new();
     for (i, ty) in vec_ty.iter().enumerate() {
-        visit_ty_root(i as u64, ty, &mut record_ty, &mut dependency);
+        visit_ty_root(i as u64, ty, &mut struct_ty, &mut dependency);
     }
     let mut dependency_index = HashMap::<u64, HashSet<u64>>::new();
     for (u, set) in dependency.iter() {
-        for record_name in set.iter() {
-            let v = record_ty.get(record_name).map_or_else(
+        for struct_name in set.iter() {
+            let v = struct_ty.get(struct_name).map_or_else(
                 || {
                     Err(mudu_error!(
-                        ErrorCode::EntityNotFound,
-                        format!("No data type named {}", record_name)
+                        ErrorCode::ObjectNotFound,
+                        format!("No data type named {}", struct_name)
                     ))
                 },
                 |v| Ok(*v),
@@ -227,20 +227,20 @@ fn _rewrite_inline(vec_ty: Vec<UniDataType>) -> RS<Vec<UniDataType>> {
 
 fn build_inline(ty: &mut UniDataType, records: &mut HashMap<String, UniDataType>) -> RS<()> {
     match ty {
-        UniDataType::Identifier(record_name) => {
-            let record_ty = records.get(record_name).map_or_else(
+        UniDataType::Identifier(struct_name) => {
+            let struct_ty = records.get(struct_name).map_or_else(
                 || {
                     Err(mudu_error!(
-                        ErrorCode::EntityNotFound,
-                        format!("no such record named {}", record_name)
+                        ErrorCode::ObjectNotFound,
+                        format!("no such record named {}", struct_name)
                     ))
                 },
                 |t| Ok(t.clone()),
             )?;
-            *ty = record_ty;
+            *ty = struct_ty;
         }
-        UniDataType::Record(record) => {
-            let name = record.record_name.clone();
+        UniDataType::Struct(record) => {
+            let name = record.struct_name.clone();
             records.insert(name, ty.clone());
         }
         UniDataType::Tuple(tuple) => {
@@ -269,16 +269,16 @@ fn build_inline(ty: &mut UniDataType, records: &mut HashMap<String, UniDataType>
 fn visit_ty_root(
     index: u64,
     ty: &UniDataType,
-    record_ty: &mut HashMap<String, u64>,
+    struct_ty: &mut HashMap<String, u64>,
     dependency: &mut HashMap<u64, HashSet<String>>,
 ) {
-    visit_ty(index, ty, record_ty, dependency);
+    visit_ty(index, ty, struct_ty, dependency);
 }
 
 fn visit_ty(
     index: u64,
     ty: &UniDataType,
-    record_ty: &mut HashMap<String, u64>,
+    struct_ty: &mut HashMap<String, u64>,
     dependency: &mut HashMap<u64, HashSet<String>>,
 ) {
     match ty {
@@ -291,34 +291,34 @@ fn visit_ty(
                 dependency.insert(index, set);
             }
         }
-        UniDataType::Record(uni_record) => {
-            let record_name = uni_record.record_name.clone();
-            record_ty.insert(record_name.clone(), index);
-            for field in uni_record.record_fields.iter() {
-                visit_ty(index, &field.field_type, record_ty, dependency);
+        UniDataType::Struct(uni_record) => {
+            let struct_name = uni_record.struct_name.clone();
+            struct_ty.insert(struct_name.clone(), index);
+            for field in uni_record.struct_fields.iter() {
+                visit_ty(index, &field.field_type, struct_ty, dependency);
             }
         }
         UniDataType::Tuple(tuple) => {
             for field_ty in tuple.iter() {
-                visit_ty(index, field_ty, record_ty, dependency);
+                visit_ty(index, field_ty, struct_ty, dependency);
             }
         }
         UniDataType::Array(array_type) => {
-            visit_ty(index, array_type.as_ref(), record_ty, dependency);
+            visit_ty(index, array_type.as_ref(), struct_ty, dependency);
         }
         UniDataType::Option(option_type) => {
-            visit_ty(index, option_type, record_ty, dependency);
+            visit_ty(index, option_type, struct_ty, dependency);
         }
         UniDataType::Result(result) => {
             if let Some(ok) = &result.ok {
-                visit_ty(index, ok.as_ref(), record_ty, dependency);
+                visit_ty(index, ok.as_ref(), struct_ty, dependency);
             }
             if let Some(err) = &result.err {
-                visit_ty(index, err.as_ref(), record_ty, dependency);
+                visit_ty(index, err.as_ref(), struct_ty, dependency);
             }
         }
         UniDataType::Box(boxed_type) => {
-            visit_ty(index, boxed_type, record_ty, dependency);
+            visit_ty(index, boxed_type, struct_ty, dependency);
         }
         UniDataType::Scalar(_) => {}
         UniDataType::Binary => {}

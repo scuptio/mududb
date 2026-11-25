@@ -1,61 +1,12 @@
-use super::id::TaskID;
 use mudu::common::result::RS;
-use std::cell::Cell;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::task_local;
 
-task_local! {
-    /// Task id of the currently executing Tokio task (set by `spawn_task`
-    /// and friends).
-    pub static TASK_ID: TaskID;
-}
-
-thread_local! {
-    static CURRENT_POLL_TASK_ID: Cell<Option<TaskID>> = const { Cell::new(None) };
-}
-
-/// RAII guard that records the task id currently being polled on this
-/// thread; restores the previous value on drop.
-///
-/// Used by custom executors (the io_uring worker loop) where Tokio
-/// task-locals do not apply.
-pub struct PollTaskIdGuard(Option<TaskID>);
-
-impl Drop for PollTaskIdGuard {
-    fn drop(&mut self) {
-        CURRENT_POLL_TASK_ID.with(|f| f.set(self.0));
-    }
-}
-
-impl PollTaskIdGuard {
-    /// Sets the poll task id for the current thread until the guard drops.
-    pub fn enter(task_id: TaskID) -> PollTaskIdGuard {
-        PollTaskIdGuard(CURRENT_POLL_TASK_ID.with(|f| f.replace(Some(task_id))))
-    }
-}
-
-/// 获取当前任务的ID（如果存在）
-pub fn try_this_task_id() -> Option<TaskID> {
-    TASK_ID.try_with(|f| *f).ok()
-}
-
-/// 获取当前任务的ID（必须存在，否则 panic）
-#[expect(
-    clippy::expect_used,
-    reason = "this_task_id is only valid inside a task context; callers should use try_this_task_id for optional access"
-)]
-pub fn this_task_id() -> TaskID {
-    try_this_task_id()
-        .expect("cannot access task id: neither tokio task-local nor poll-task TLS is set")
-}
-
-/// 获取当前正在poll的任务ID（用于跨线程/LocalSet场景）
-pub fn current_poll_task_id() -> Option<TaskID> {
-    CURRENT_POLL_TASK_ID.with(|f| f.get())
-}
+pub use super::id::{
+    current_poll_task_id, this_task_id, try_this_task_id, PollTaskIdGuard, TASK_ID,
+};
 
 /// Namespace for async sleep/timeout helpers.
 ///
@@ -160,11 +111,14 @@ where
 pub use super::join_handle::{TaskJoinError, TaskJoinHandle};
 pub use super::runtime::{
     block_on_async_current, block_on_tokio_current_thread, build_current_thread_runtime,
-    build_multi_thread_runtime, has_tokio_runtime, wait_for_shutdown_signal,
-    CurrentThreadTaskRuntime, TaskRuntime, TaskRuntimeEnterGuard,
+    build_multi_thread_runtime, build_serial_io_runtime, has_tokio_runtime,
+    wait_for_shutdown_signal, CurrentThreadTaskRuntime, TaskRuntime, TaskRuntimeEnterGuard,
 };
 pub use super::spawn::{spawn_blocking, spawn_task, spawn_task_detached};
-pub use super::spawn_local::{spawn_local_detached, spawn_local_task, LocalTaskSet, TaskFailed};
+pub use super::spawn_local::{
+    spawn_local_detached, spawn_local_task, spawn_thread_confined_background_task,
+    spawn_thread_confined_task, LocalTaskSet, TaskFailed,
+};
 
 #[cfg(all(test, target_os = "linux"))]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

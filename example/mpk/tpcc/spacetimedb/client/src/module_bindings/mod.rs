@@ -273,7 +273,7 @@ impl TryFrom<__ws::DatabaseUpdate<__ws::BsatnFormat>> for DbUpdate {
     fn try_from(raw: __ws::DatabaseUpdate<__ws::BsatnFormat>) -> Result<Self, Self::Error> {
         let mut db_update = DbUpdate::default();
         for table_update in raw.tables {
-            match &table_update.table_name[..] {
+            match &table_update.class_name[..] {
                 "customer" => db_update
                     .customer
                     .append(customer_table::parse_table_update(table_update)?),
@@ -551,7 +551,7 @@ impl __sdk::DbContext for DbConnection {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {
@@ -780,7 +780,7 @@ impl __sdk::DbContext for EventContext {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {
@@ -866,7 +866,7 @@ impl __sdk::DbContext for ReducerEventContext {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {
@@ -948,7 +948,7 @@ impl __sdk::DbContext for ProcedureEventContext {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {
@@ -1030,7 +1030,7 @@ impl __sdk::DbContext for SubscriptionEventContext {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {
@@ -1116,7 +1116,7 @@ impl __sdk::DbContext for ErrorContext {
         __sdk::SubscriptionBuilder::new(&self.imp)
     }
 
-    fn try_identity(&self) -> Option<__sdk::Identity> {
+    fn try_identity(&self) -> Option<__sdk::Idobject> {
         self.imp.try_identity()
     }
     fn connection_id(&self) -> __sdk::ConnectionId {

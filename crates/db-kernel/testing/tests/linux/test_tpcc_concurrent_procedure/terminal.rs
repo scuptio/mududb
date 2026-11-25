@@ -247,7 +247,7 @@ async fn invoke_op<T: TupleDatum, R: TupleDatum>(
     })?
 }
 
-/// Records one invoke outcome: retryable aborts are counted and skipped,
+/// Structs one invoke outcome: retryable aborts are counted and skipped,
 /// commits update the latency stats; any other error ends the terminal.
 fn record_op_outcome(
     report: &mut TerminalReport,

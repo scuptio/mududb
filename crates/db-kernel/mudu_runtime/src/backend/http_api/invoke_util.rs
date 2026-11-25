@@ -1,5 +1,5 @@
 use crate::backend::app_mgr::AppMgr;
-use crate::backend::mudu_app_mgr::ListOption;
+use crate::backend::app_mgr::ListOption;
 use base64::Engine;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -8,12 +8,12 @@ use mudu_binding::procedure::procedure_invoke;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_type::type_family_ext::TypeFamilyExt;
 use runtime_wasm::service::app_inst::AppInst;
 use runtime_wasm::service::app_list::AppListItem;
 use runtime_wasm::service::runtime::Runtime;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 pub(crate) fn decode_install_request(body_str: &str) -> RS<Vec<u8>> {
@@ -31,19 +31,9 @@ pub(crate) fn decode_install_request(body_str: &str) -> RS<Vec<u8>> {
 }
 
 pub(crate) fn mpk_package_name(binary: &[u8]) -> Option<String> {
-    let cursor = Cursor::new(binary);
-    let mut archive = zip::ZipArchive::new(cursor).ok()?;
-    let mut package_cfg = String::new();
-    archive
-        .by_name("package.cfg.json")
-        .ok()?
-        .read_to_string(&mut package_cfg)
-        .ok()?;
-    serde_json::from_str::<Value>(&package_cfg)
-        .ok()?
-        .get("name")?
-        .as_str()
-        .map(str::to_string)
+    mudu_caf::verify::verify_bytes(binary)
+        .ok()
+        .map(|report| report.name)
 }
 
 pub(crate) fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<ProcedureParam> {
@@ -53,7 +43,7 @@ pub(crate) fn to_param(argv: &Map<String, Value>, desc: &[DatumDesc]) -> RS<Proc
             .get(datum_desc.name())
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no parameter {}", datum_desc.name())
                 )
             })?
@@ -91,7 +81,7 @@ pub(crate) async fn runtime_get_app_and_desc(
 ) -> RS<(Arc<dyn AppInst>, Arc<ProcDesc>)> {
     let app = service.app(app_name.to_string()).await.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such app {}", app_name)
         )
     })?;
@@ -149,7 +139,7 @@ pub(crate) async fn find_app(app_mgr: &dyn AppMgr, app_name: &str) -> RS<AppList
         .find(|app| app.info.name == app_name)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such app {}", app_name)
             )
         })

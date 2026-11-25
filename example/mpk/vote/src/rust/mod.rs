@@ -11,7 +11,28 @@ pub mod vote_result;
 pub mod votes;
 
 #[cfg(test)]
+mod options_test;
+
+#[cfg(test)]
+mod users_test;
+
+#[cfg(test)]
+mod vote_actions_test;
+
+#[cfg(test)]
+mod vote_choices_test;
+
+#[cfg(test)]
+mod vote_history_item_test;
+
+#[cfg(test)]
+mod vote_result_test;
+
+#[cfg(test)]
 mod votes_test;
 
 #[cfg(test)]
 mod procedure_test;
+
+#[cfg(test)]
+mod procedure_scenario_test;

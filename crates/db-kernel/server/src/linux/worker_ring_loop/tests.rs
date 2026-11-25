@@ -97,6 +97,7 @@ async fn test_worker_loop() -> Option<WorkerRingLoop> {
         log_chunk_size: 4096,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime: None,
         registry,
         async_runtime: None,
@@ -105,6 +106,8 @@ async fn test_worker_loop() -> Option<WorkerRingLoop> {
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();
@@ -475,7 +478,7 @@ fn worker_ring_loop_executes_user_socket_accept_io_via_cqe() {
 /// Reproduces the partition-RPC wait composition: a worker task parks in
 /// `async_::timeout(..., wait.wait())` (as `bus.recv` does), the response
 /// is delivered via `notify` from the loop thread (as
-/// `WorkerMessageBusState::handle_incoming` does), and the next loop
+/// `WorkerChannelState::handle_incoming` does), and the next loop
 /// iteration must complete the task with the value.
 #[test]
 #[cfg_attr(miri, ignore)]
@@ -684,6 +687,85 @@ fn worker_ring_loop_runs_sequence_callback_when_frontier_advances_and_skips_canc
         loop_state.poll_ready_worker_tasks().unwrap();
         assert_eq!(hit.load(AtomicOrdering::SeqCst), 1);
 
+        loop_state.ring.exit();
+        mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
+    })
+    .unwrap()
+}
+
+#[cfg(not(feature = "ds"))]
+#[test]
+#[cfg_attr(miri, ignore)]
+fn drive_future_with_ring_drives_user_file_io() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
+        };
+        set_current_worker_ring(loop_state.worker_local_ring.clone());
+
+        let path = temp_dir().join(format!("iouring_drive_future_{}", gen_oid()));
+        let path_str = path.to_string_lossy().into_owned();
+        // One future doing open + write + read + close: every await pends
+        // on the standalone ring drive pumping user I/O through CQEs.
+        let fut = async move {
+            let file = open(
+                &path_str,
+                libc::O_CREAT | libc::O_RDWR | libc::O_TRUNC | libc::O_CLOEXEC,
+                0o644,
+            )
+            .await?;
+            let raw = mudu_sys::imp::native::linux::io_uring::file::IoFile::from_raw_fd(file.fd());
+            let written = write(&raw, b"drive me".to_vec(), 0).await?;
+            assert_eq!(written, 8);
+            let back = read(&raw, 8, 0).await?;
+            assert_eq!(back, b"drive me".to_vec());
+            close(file).await?;
+            Ok::<(), mudu::error::MuduError>(())
+        };
+        super::bootstrap::drive_future_with_ring(
+            &mut loop_state.ring,
+            &loop_state.worker_local_ring,
+            fut,
+            "test drive_future_with_ring",
+        )
+        .unwrap();
+
+        unset_current_worker_ring();
+        loop_state.ring.exit();
+        mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
+        let _ = mudu_sys::fs::sync::remove_file(&path);
+    })
+    .unwrap()
+}
+
+#[cfg(not(feature = "ds"))]
+#[test]
+#[cfg_attr(miri, ignore)]
+fn task_spawn_registers_and_runs_on_the_worker_ring() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let Some(mut loop_state) = test_worker_loop().await else {
+            return;
+        };
+        set_current_worker_ring(loop_state.worker_local_ring.clone());
+        let count = Arc::new(AtomicUsize::new(0));
+        let c1 = count.clone();
+        crate::task::spawn(Some(1), async move {
+            c1.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(())
+        });
+        let c2 = count.clone();
+        crate::task::spawn_system("sys-test", async move {
+            c2.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(())
+        });
+        for _ in 0..1000 {
+            loop_state.poll_ready_worker_tasks().unwrap();
+            if count.load(AtomicOrdering::SeqCst) == 2 {
+                break;
+            }
+        }
+        assert_eq!(count.load(AtomicOrdering::SeqCst), 2);
+        unset_current_worker_ring();
         loop_state.ring.exit();
         mudu_sys::sync::sync_::blocking::close_fd(loop_state.mailbox_fd).unwrap();
     })

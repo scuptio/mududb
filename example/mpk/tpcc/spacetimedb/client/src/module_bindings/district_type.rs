@@ -37,17 +37,17 @@ pub struct DistrictCols {
 
 impl __sdk::__query_builder::HasCols for District {
     type Cols = DistrictCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         DistrictCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            d_id: __sdk::__query_builder::Col::new(table_name, "d_id"),
-            d_w_id: __sdk::__query_builder::Col::new(table_name, "d_w_id"),
-            d_name: __sdk::__query_builder::Col::new(table_name, "d_name"),
-            d_tax: __sdk::__query_builder::Col::new(table_name, "d_tax"),
-            d_ytd: __sdk::__query_builder::Col::new(table_name, "d_ytd"),
-            d_next_o_id: __sdk::__query_builder::Col::new(table_name, "d_next_o_id"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            d_id: __sdk::__query_builder::Col::new(class_name, "d_id"),
+            d_w_id: __sdk::__query_builder::Col::new(class_name, "d_w_id"),
+            d_name: __sdk::__query_builder::Col::new(class_name, "d_name"),
+            d_tax: __sdk::__query_builder::Col::new(class_name, "d_tax"),
+            d_ytd: __sdk::__query_builder::Col::new(class_name, "d_ytd"),
+            d_next_o_id: __sdk::__query_builder::Col::new(class_name, "d_next_o_id"),
             d_last_delivery_o_id: __sdk::__query_builder::Col::new(
-                table_name,
+                class_name,
                 "d_last_delivery_o_id",
             ),
         }
@@ -63,9 +63,9 @@ pub struct DistrictIxCols {
 
 impl __sdk::__query_builder::HasIxCols for District {
     type IxCols = DistrictIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         DistrictIxCols {
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
         }
     }
 }

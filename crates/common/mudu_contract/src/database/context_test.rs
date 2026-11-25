@@ -5,7 +5,7 @@
 mod tests {
     use crate::database::context::Context;
     use crate::database::db_conn::DBConnSync;
-    use crate::database::entity::Entity;
+    use crate::database::object::Object;
     use crate::database::result_set::ResultSet;
     use crate::database::sql_params::SQLParams;
     use crate::database::sql_stmt::SQLStmt;
@@ -113,12 +113,12 @@ mod tests {
     }
 
     #[test]
-    fn context_query_returns_entity_set() {
+    fn context_query_returns_object_set() {
         let value = TupleValue::from(vec![mudu_type::data_value::DataValue::from_i32(42)]);
         let conn = Arc::new(MockDBConn::with_query(vec![value]));
         let ctx = Context::new(conn);
-        let entity_set = ctx.query::<i32>(&"SELECT 1", &()).unwrap();
-        let record = entity_set.next_record().unwrap();
+        let object_set = ctx.query::<i32>(&"SELECT 1", &()).unwrap();
+        let record = object_set.next_record().unwrap();
         assert_eq!(record, Some(42));
     }
 

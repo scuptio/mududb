@@ -57,14 +57,29 @@ impl WorkerRuntime {
         instruction: WorkerExecute,
     ) -> RS<()> {
         match instruction {
-            WorkerExecute::BeginTx => self
-                .session_manager
-                .begin_session_tx(session_id, self.contract.worker_begin_tx()?),
+            WorkerExecute::BeginTx => {
+                // Read-your-writes: wait out the session's recorded commit
+                // watermark before the fresh transaction registers (epoch
+                // design doc §5.2).
+                self.wait_session_commit_epoch(session_id).await?;
+                self.session_manager
+                    .begin_session_tx(session_id, self.contract.worker_begin_tx()?)
+            }
             WorkerExecute::CommitTx => {
                 let tx_manager = self.session_manager.take_session_tx(session_id)?;
-                self.contract
-                    .worker_commit_routed_tx_async(tx_manager)
+                // A commit error must not leak the transaction's epoch
+                // registration: abort it before propagating.
+                match self
+                    .contract
+                    .worker_commit_routed_tx_async(tx_manager.clone())
                     .await
+                {
+                    Ok(committed) => self.note_session_commit_epoch(session_id, committed),
+                    Err(err) => {
+                        let _ = self.contract.worker_abort_tx_async(tx_manager).await;
+                        Err(err)
+                    }
+                }
             }
             WorkerExecute::RollbackTx => {
                 let tx_manager = self.session_manager.take_session_tx(session_id)?;

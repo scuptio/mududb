@@ -7,8 +7,8 @@
 //! string. The mappings below mirror that surface: all integer widths map
 //! to `int64_t` and the string family maps to `mudu_string`. 128-bit integers
 //! and blobs have no datum shape in the C guest; they are named here for
-//! completeness but rejected by the entity wire classifier
-//! (`template_entity_c`) before any code is emitted.
+//! completeness but rejected by the object wire classifier
+//! (`template_object_c`) before any code is emitted.
 
 use crate::lang_impl::c::render_c::create_render;
 use crate::lang_impl::lang::non_scalar::NonScalarType;

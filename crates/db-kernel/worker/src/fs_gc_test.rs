@@ -26,7 +26,7 @@ use crate::fs_service_test::{
 use ::catalog::contract::fs_type::FsTypeKind;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::meta::fs_type_catalog::fs_storage_root;
-use ::xcontract::WorkerXContract;
+use ::xcontract::contract::WorkerXContract;
 
 struct GcFixture {
     gc: FsGc,

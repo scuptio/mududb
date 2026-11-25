@@ -25,7 +25,7 @@ npm install @mududb/mududb
 The package ships pure AssemblyScript source; consumers compile it with
 their own `asc`. This package is the **reference implementation** of the
 cross-language canonical facade surface — see
-[`doc/dev/binding_api_surface.md`](../../../../doc/dev/binding_api_surface.md)
+[`doc/en/binding_api_surface.md`](../../../../doc/en/binding_api_surface.md)
 for the operation-level contract shared with the C#, Rust, and (pending)
 Python bindings. The root entry re-exports the full public surface:
 
@@ -166,7 +166,7 @@ node run_mpack_test.mjs
 node run_mp_corpus_test.mjs
 node run_syscall_corpus_test.mjs
 node run_lenient_decode_test.mjs
-node run_record_bridge_test.mjs
+node run_struct_bridge_test.mjs
 ```
 
 `run_syscall_corpus_test.mjs` is the byte-exact pin: every frame of the

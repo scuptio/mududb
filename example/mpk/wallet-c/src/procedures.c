@@ -7,7 +7,7 @@
  * update_profile demonstrates a user-defined record type (wit/types.wit,
  * generated into gentypes/Types.h by mgen) as a procedure parameter and
  * return type, decoded/encoded through the binding's record bridge
- * (`mududb/codec/record_bridge.h`) composed with the generated codecs.
+ * (`mududb/codec/struct_bridge.h`) composed with the generated codecs.
  *
  * Convention (same as every guest): each `// mudu-proc` function reads the
  * bound session OID from `param->session` (injected by the mtp-generated
@@ -22,7 +22,7 @@
  * descriptor (see readme.md). Annotation types: `i64`, `f64`, `string`,
  * `option<T>` for nullable parameters, and the user-defined record/enum
  * type names registered via `mtp --type-wit wit/types.wit` — the
- * `mudu_datum` support surface of `mudu_sys.h` (`MUDU_DATUM_RECORD` for
+ * `mudu_datum` support surface of `mudu_sys.h` (`MUDU_DATUM_STRUCT` for
  * records, `MUDU_DATUM_I64` ordinals for enums).
  */
 #include "mudu_sys.h"
@@ -30,7 +30,7 @@
 #include <string.h>
 
 #include "gentypes/Types.h"
-#include "mududb/codec/record_bridge.h"
+#include "mududb/codec/struct_bridge.h"
 
 static int query_balance(mudu_oid session, int64_t user_id, int64_t *balance, mudu_error *err) {
     mudu_datum args[1];
@@ -404,9 +404,9 @@ static int query_profile(mudu_oid session, int64_t user_id, profile *out, mudu_e
  * stored record. The `profile` record type is declared in wit/types.wit and
  * generated into gentypes/Types.h by mgen; the procedure decodes the
  * positional record envelope through the binding record bridge
- * (mp_record_bridge_write) composed with the generated profile_decode, and
+ * (mp_struct_bridge_write) composed with the generated profile_decode, and
  * encodes the returned record symmetrically (profile_encode +
- * mp_record_bridge_read). See store_profile for the storage design. */
+ * mp_struct_bridge_read). See store_profile for the storage design. */
 // mudu-proc (user_id: i64, profile: Profile) -> Profile
 int update_profile(const mudu_proc_param *param, mudu_datum *result, mudu_error *err) {
     int64_t user_id = param->params[0].i64;
@@ -419,7 +419,7 @@ int update_profile(const mudu_proc_param *param, mudu_datum *result, mudu_error 
         mp_reader r;
         mp_arena a;
         mpw_init(&w);
-        if (mp_record_bridge_write(param->params[1].record, &w) != 0) {
+        if (mp_struct_bridge_write(param->params[1].struct_, &w) != 0) {
             mudu_error_set(err, MUDU_EC_INVALID_ARGUMENT, "profile record bridge failed");
             return -1;
         }
@@ -459,12 +459,12 @@ int update_profile(const mudu_proc_param *param, mudu_datum *result, mudu_error 
             mudu_error_set(err, MUDU_EC_INTERNAL, "out of memory");
             return -1;
         }
-        if (mp_record_bridge_read(&r, &a, envelope) != 0 || !mpr_done(&r)) {
+        if (mp_struct_bridge_read(&r, &a, envelope) != 0 || !mpr_done(&r)) {
             mudu_error_set(err, MUDU_EC_INTERNAL, "profile record bridge read failed");
             return -1;
         }
         mpw_free(&w);
-        *result = mudu_record(envelope);
+        *result = mudu_struct(envelope);
     }
     return 0;
 }

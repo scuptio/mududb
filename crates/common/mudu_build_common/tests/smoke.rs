@@ -123,7 +123,6 @@ fn generate_universal_mod_declares_modules() {
 #[test]
 fn generate_sdk_manifest_fills_versions() {
     let mut versions = BTreeMap::new();
-    versions.insert("rmp".to_string(), "0.9".to_string());
     versions.insert("rmp-serde".to_string(), "1.0".to_string());
     versions.insert("serde".to_string(), "1.1".to_string());
     versions.insert("serde_repr".to_string(), "1.2".to_string());
@@ -132,7 +131,6 @@ fn generate_sdk_manifest_fills_versions() {
     versions.insert("rusqlite".to_string(), "1.5".to_string());
 
     let manifest = generate_sdk_manifest(&versions);
-    assert!(manifest.contains("rmp = \"0.9\""));
     assert!(manifest.contains("rmp-serde = \"1.0\""));
     assert!(manifest.contains("version = \"1.1\""));
     assert!(manifest.contains("serde_repr = \"1.2\""));

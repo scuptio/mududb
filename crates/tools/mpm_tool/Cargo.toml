@@ -1,0 +1,19 @@
+[package]
+name = "mpm_tool"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+mudu_caf = { workspace = true }
+mudu_sys = { workspace = true }
+
+[[bin]]
+name = "mpm-tool"
+path = "src/main.rs"

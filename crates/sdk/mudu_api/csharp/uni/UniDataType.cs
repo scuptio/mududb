@@ -21,7 +21,7 @@ public enum UniDataTypeKind {
 
    Array = 1,
 
-   Record = 2,
+   Struct = 2,
 
    Option = 3,
 
@@ -103,31 +103,31 @@ public class UniDataTypeArray : UniDataType
     }
 }
 
-public class UniDataTypeRecord : UniDataType
+public class UniDataTypeStruct : UniDataType
 {
     
     [global::System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
-    public UniDataTypeRecord()
+    public UniDataTypeStruct()
     {
-        Inner = new UniRecordType();
+        Inner = new UniStructType();
     }
     
 
-    public required UniRecordType Inner  { get; set; }
+    public required UniStructType Inner  { get; set; }
 
     public UniDataTypeKind Kind() {
-        return UniDataTypeKind.Record;
+        return UniDataTypeKind.Struct;
     }
 
     public static UniDataTypeKind KindStatic() {
-        return UniDataTypeKind.Record;
+        return UniDataTypeKind.Struct;
     }
 
-    public static UniDataTypeRecord AsRecord(UniDataType value)
+    public static UniDataTypeStruct AsStruct(UniDataType value)
     {
         switch (value)
         {
-            case UniDataTypeRecord  v:
+            case UniDataTypeStruct  v:
                 return v;
             default:
                 throw new global::System.InvalidOperationException($"Unknown type: {value?.GetType()}");
@@ -331,7 +331,7 @@ public class UniDataTypeBox : UniDataType
 public class UniDataTypeFormatter : IMessagePackFormatter<UniDataType?>
 {
     /// The proto3-style default instance of the variant: the first declared
-    /// case carrying its own default payload. Record fields of this variant
+    /// case carrying its own default payload. Struct fields of this variant
     /// type initialize to this value, so a field missing from the wire map
     /// decodes to the default case instead of null.
     public static UniDataType DefaultInstance()
@@ -368,9 +368,9 @@ public class UniDataTypeFormatter : IMessagePackFormatter<UniDataType?>
                 
                 break;
             
-            case UniDataTypeKind.Record:
+            case UniDataTypeKind.Struct:
                 
-                new UniRecordTypeFormatter().Serialize(ref writer, ((UniDataTypeRecord)value).Inner, options);
+                new UniStructTypeFormatter().Serialize(ref writer, ((UniDataTypeStruct)value).Inner, options);
 
                 
                 break;
@@ -472,9 +472,9 @@ public class UniDataTypeFormatter : IMessagePackFormatter<UniDataType?>
             
             case 2:
                 
-                var recordInner = new UniRecordTypeFormatter().Deserialize(ref reader, options)!;
+                var structInner = new UniStructTypeFormatter().Deserialize(ref reader, options)!;
 
-                return new UniDataTypeRecord { Inner = recordInner };
+                return new UniDataTypeStruct { Inner = structInner };
                 
             
             case 3:

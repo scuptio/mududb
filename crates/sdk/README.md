@@ -32,5 +32,5 @@ of guest example applications. Per the layering rules in
 
 The shared source of truth for all bindings is
 [`../common/mudu_binding/wit/`](../common/mudu_binding/wit/); see
-[doc/dev/binding_api_surface.md](../../doc/dev/binding_api_surface.md) for
+[doc/en/binding_api_surface.md](../../doc/en/binding_api_surface.md) for
 the canonical cross-language API surface.

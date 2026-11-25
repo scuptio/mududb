@@ -1,5 +1,5 @@
 use mudu::common::id::{AttrIndex, DatumIndex, OID};
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 
 use crate::contract::fs_type::FsColumnBinding;
 

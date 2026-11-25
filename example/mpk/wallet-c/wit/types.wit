@@ -12,7 +12,7 @@
 // `uni-data-value` record case (declaration order, names dropped by the
 // host); the desc JSON keys are the WIT field names verbatim. The guest
 // decodes/encodes through the binding's record bridge
-// (`mududb/codec/record_bridge.h`) composed with the generated codecs.
+// (`mududb/codec/struct_bridge.h`) composed with the generated codecs.
 //
 // The `package` clause matches world.wit: one WIT directory is one package,
 // and the world build (`wasm-tools component embed wit/`) rejects

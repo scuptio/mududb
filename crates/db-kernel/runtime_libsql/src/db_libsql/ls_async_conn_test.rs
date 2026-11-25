@@ -125,7 +125,7 @@ fn begin_tx_fails_when_transaction_already_exists() {
     let conn = LSSyncConn::new(&path, &app_name, "").unwrap();
     conn.sync_begin_tx().unwrap();
     let err = conn.sync_begin_tx().unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityAlreadyExists);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectAlreadyExists);
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn commit_fails_without_active_transaction() {
     let (_dir, path, app_name) = temp_db();
     let conn = LSSyncConn::new(&path, &app_name, "").unwrap();
     let err = conn.sync_commit().unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn rollback_fails_without_active_transaction() {
     let (_dir, path, app_name) = temp_db();
     let conn = LSSyncConn::new(&path, &app_name, "").unwrap();
     let err = conn.sync_rollback().unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[test]

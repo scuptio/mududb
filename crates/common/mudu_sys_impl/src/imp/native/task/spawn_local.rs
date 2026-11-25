@@ -7,7 +7,7 @@ use tokio::task::LocalSet;
 use tokio::time::sleep as tokio_sleep;
 use tracing::trace;
 
-use super::async_::TASK_ID;
+use super::id::TASK_ID;
 use super::{id, TaskContext, TaskJoinHandle, TaskRuntime};
 
 /// Spawns a `!Send` future as a named task on the current thread's local
@@ -45,6 +45,56 @@ where
 {
     let (_cancel_notifier, cancel_waiter) = crate::imp::sync::async_::notify_wait();
     spawn_local_task(cancel_waiter, name, future)
+}
+
+/// Spawns a thread-confined (`!Send`) fire-and-forget task on the current
+/// worker thread's scheduler: the io_uring worker task registry when this
+/// thread has a worker ring installed, otherwise the active tokio
+/// `LocalSet` (panicking when there is none, same as
+/// `tokio::task::spawn_local`). The task's output is discarded; callers
+/// deliver results through their own channels. A `background` task idles for
+/// the worker's lifetime and never blocks the io_uring shutdown drain.
+pub fn spawn_thread_confined_task<F>(name: &str, future: F) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    spawn_thread_confined_task_as(name, future, false)
+}
+
+/// Like [`spawn_thread_confined_task`], but the task never blocks the
+/// worker's shutdown drain (for perpetual listeners that are dropped with
+/// the worker anyway).
+pub fn spawn_thread_confined_background_task<F>(name: &str, future: F) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    spawn_thread_confined_task_as(name, future, true)
+}
+
+fn spawn_thread_confined_task_as<F>(name: &str, future: F, background: bool) -> RS<()>
+where
+    F: Future<Output = ()> + 'static,
+{
+    if crate::imp::io::worker_ring::has_current_worker_ring() {
+        let task_id = id::new_task_id();
+        let _ = TaskContext::new_iouring_context(task_id, name.to_string());
+        let future = Box::pin(async move {
+            future.await;
+            Ok(())
+        });
+        return crate::imp::io::worker_ring::with_current_ring(|ring| {
+            let registry = ring.worker_task_registry();
+            if background {
+                registry.spawn_background_with_trace_id(task_id, future);
+            } else {
+                registry.spawn_with_trace_id(None, task_id, future);
+            }
+            Ok(())
+        });
+    }
+    let _ = background;
+    spawn_local_detached(name, future)?;
+    Ok(())
 }
 
 /// A set of `!Send` local tasks driven together on one thread (wraps
@@ -182,4 +232,102 @@ pub enum TaskFailed {
     Cancel,
     /// The deadline elapsed before the task completed.
     Timeout,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{__select_local_till_done_or_timeout, LocalTaskSet, TaskFailed};
+    use std::time::Duration;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn local_task_set_spawn_detached_and_run_until() {
+        let set = LocalTaskSet::default();
+        let handle = set.spawn_detached("answer", async { 40 + 2 }).unwrap();
+        let out = set.run_until(async move { handle.await.unwrap() }).await;
+        assert_eq!(out, Some(42));
+    }
+
+    #[test]
+    fn local_task_set_block_on_and_inner() {
+        let runtime = super::super::build_current_thread_runtime().unwrap();
+        let set = LocalTaskSet::new();
+        let _inner = set.inner();
+        let out = set.block_on(&runtime, async { 7 });
+        assert_eq!(out, 7);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn select_local_till_done_or_timeout_covers_all_outcomes() {
+        use crate::imp::sync::async_::notify_wait;
+
+        let (_notifier, waiter) = notify_wait();
+        let done =
+            __select_local_till_done_or_timeout(waiter, Duration::from_secs(60), async { 1 }).await;
+        assert!(matches!(done, Ok(1)));
+
+        let (_notifier, waiter) = notify_wait();
+        let timed_out =
+            __select_local_till_done_or_timeout(waiter, Duration::from_millis(1), async {
+                loop {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await;
+        assert!(matches!(timed_out, Err(TaskFailed::Timeout)));
+
+        let (notifier, waiter) = notify_wait();
+        notifier.notify_all();
+        let cancelled = __select_local_till_done_or_timeout(
+            waiter,
+            Duration::from_secs(60),
+            std::future::pending::<()>(),
+        )
+        .await;
+        assert!(matches!(cancelled, Err(TaskFailed::Cancel)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_local_task_drops_future_without_running_it() {
+        use crate::imp::sync::async_::notify_wait;
+        let set = LocalTaskSet::new();
+        let (notifier, waiter) = notify_wait();
+        notifier.notify_all();
+        let handle = set
+            .spawn(waiter, "cancelled", std::future::pending::<()>())
+            .unwrap();
+        assert_eq!(set.run_until(handle).await.unwrap(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[allow(clippy::arc_with_non_send_sync)]
+    fn thread_confined_tasks_use_worker_registry_and_background_does_not_block_drain() {
+        use crate::imp::io::worker_ring::{
+            set_current_worker_ring, unset_current_worker_ring, WorkerLocalRing,
+        };
+        use std::{cell::Cell, rc::Rc, sync::Arc};
+        struct ResetRing;
+        impl Drop for ResetRing {
+            fn drop(&mut self) {
+                unset_current_worker_ring();
+            }
+        }
+        let ring = Arc::new(WorkerLocalRing::new());
+        set_current_worker_ring(ring.clone());
+        let _reset = ResetRing;
+        let value = Rc::new(Cell::new(0));
+        let task_value = value.clone();
+        super::spawn_thread_confined_task("foreground", async move {
+            task_value.set(42);
+        })
+        .unwrap();
+        super::spawn_thread_confined_background_task("background", std::future::pending()).unwrap();
+        let registry = ring.worker_task_registry();
+        assert!(!registry.is_drained_of_blocking());
+        let completed = registry.poll_ready();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(value.get(), 42);
+        assert!(registry.is_drained_of_blocking());
+        assert!(!registry.is_empty());
+    }
 }

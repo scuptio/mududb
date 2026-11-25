@@ -25,8 +25,8 @@ development, Mudu Procedures run interactively, much like code built on top of a
 
 Mudu Procedures are compiled to WASM components, and the runtime hosts six guest languages: Rust, AssemblyScript,
 C#, Python, C, and Go. This guide uses the Rust facade, the reference implementation of the procedure API; the
-other languages are covered by the [binding API surface](../dev/binding_api_surface.md) and the
-[SDK distribution guide](../dev/sdk_distribution.md).
+other languages are covered by the [binding API surface](binding_api_surface.md) and the
+[SDK distribution guide](sdk_distribution.md).
 
 A Rust-based procedure uses the following function signature:
 
@@ -99,19 +99,19 @@ content="[Query API](../lang.common/mudu_query.md#L-L)"
 use sys_interface::sync_api::mudu_query;
 use sys_interface::async_api::mudu_query as mudu_query_async;
 
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     /* ... */
 }
 ```
@@ -119,7 +119,7 @@ pub async fn mudu_query_async<R: Entity>(
 <!--quote_end-->
 
 `query` automatically performs R2O (relation-to-object) mapping and returns a result set of objects that implement
-the `Entity` trait.
+the `Object` trait.
 
 #### 2. `command`
 
@@ -198,11 +198,11 @@ An SQL statement that uses `?` as parameter placeholders.
 The parameter list.
 For `batch`, the current libsql-backed implementation requires this list to be empty.
 
-#### Generated entity bindings (`mgen entity`)
+#### Generated object bindings (`mgen object`)
 
-For each table in `sql/ddl.sql`, `mgen entity` generates a Rust module containing:
+For each table in `sql/ddl.sql`, `mgen object` generates a Rust module containing:
 
-- the row struct (e.g. `Wallets`) implementing the `Entity` trait, plus `TABLE_NAME` and `columns::*` name
+- the row struct (e.g. `Wallets`) implementing the `Object` trait, plus `TABLE_NAME` and `columns::*` name
   constants;
 - pre-built SQL text constants `SQL_GET_BY_PK`, `SQL_INSERT`, and `SQL_DELETE_BY_PK` for tables with a primary
   key, and `insert_params()` returning the typed bind tuple for `SQL_INSERT`;
@@ -224,7 +224,7 @@ if let Some((sql, params)) = change.update_by_pk(user_id) {
 ```
 
 SQL literals in procedure sources can be checked against the DDL at build time with `mgen check-sql`;
-see [`../dev/sql_subset.md`](../dev/sql_subset.md).
+see [`sql_subset.md`](sql_subset.md).
 
 
 <!--
@@ -238,12 +238,12 @@ content="[KeyTrait](../lang.common/proc_key_traits.md#L-L)"
 
 <!--
 quote_begin
-content="[Entity](../../crates/common/mudu_contract/src/database/entity.rs#L23-L44)"
+content="[Object](../../crates/common/mudu_contract/src/database/object.rs#L23-L44)"
 lang="rust"
 -->
 
 ```rust
-pub trait Entity: Datum {
+pub trait Object: Datum {
     fn tuple_desc() -> &'static TupleFieldDesc;
 
     fn table_name() -> &'static str;
@@ -388,7 +388,7 @@ pub fn transfer_funds(oid: OID, from_user_id: i32, to_user_id: i32, amount: i32)
         return Err(mudu_error!(MuduError, "transfer fund failed"));
     }
 
-    // 3. Entity the transaction
+    // 3. Object the transaction
     let id = Uuid::new_v4().to_string();
     let insert_rows = mudu_command(
         oid,
@@ -440,7 +440,7 @@ commit(oid); // Explicit commit
 
 ## Development constraints
 
-`Entity` maps query results to Rust structs. The build's `mgen check-sql` step checks SQL against DDL, and the language compiler checks parameter and return types. These checks catch some errors but do not establish correct transaction logic, permissions or runtime behavior. Both handwritten and AI-generated procedures need tests.
+`Object` maps query results to Rust structs. The build's `mgen check-sql` step checks SQL against DDL, and the language compiler checks parameter and return types. These checks catch some errors but do not establish correct transaction logic, permissions or runtime behavior. Both handwritten and AI-generated procedures need tests.
 
 Moving several operations into a procedure can reduce client round trips. Performance still depends on query cost, data volume and procedure execution overhead; measure it with the intended workload.
 

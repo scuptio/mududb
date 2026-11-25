@@ -19,6 +19,10 @@ import xml.etree.ElementTree as ET
 from tooling import executable_name, npm_command, run, venv_python, write_text
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "script/lib"))
+from task_report import Report, add_options
+from cli import normalized_argv
+
 CONFIG = json.loads(Path(__file__).with_name('config.json').read_text(encoding='utf-8'))
 EXCLUDED = {'.git', 'node_modules', 'target', 'bin', 'obj', 'build',
             'dist', '__pycache__', '.venv'}
@@ -344,7 +348,7 @@ def missing_tool_message(missing, selected, requirements, dotnet_details=None):
         if available:
             lines += ['', 'Or build only the selected languages whose prerequisites are available:',
                       '  SDK_LANGS=' + ','.join(available) + ' cargo make build-sdk']
-    lines += ['', 'Installation details: doc/dev/sdk_distribution.md#prerequisites']
+    lines += ['', 'Installation details: doc/en/sdk_distribution.md#prerequisites']
     if sys.platform == 'win32':
         # Diagnostics are PowerShell commands; the build itself never invokes a shell.
         replacements = {
@@ -406,16 +410,16 @@ def preflight(selected):
     return tools
 
 
-def build(selected, output, with_adapter_runtime=False, with_examples=False, example_mode="both"):
+def build(selected, output, with_adapter_runtime=False, with_examples=False, example_mode="both", prepared=False, library=None):
     output.mkdir(parents=True, exist_ok=True)
     # A failed new batch must not leave a previous successful manifest publishable.
     (output / 'manifest.json').unlink(missing_ok=True)
     tools = preflight(selected)
-    run([sys.executable, ROOT / 'script/ci/check_bindings_regen.py'], ROOT)
+    if not prepared:
+        run([sys.executable, ROOT / 'script/ci/check_bindings_regen.py'], ROOT)
     commit = run(['git', 'rev-parse', 'HEAD'], ROOT, capture=True).strip()
     dirty = bool(run(['git', 'status', '--porcelain', '--untracked-files=normal'], ROOT, capture=True).strip())
-    library = None
-    if with_adapter_runtime or with_examples:
+    if not prepared and (with_adapter_runtime or with_examples):
         from adapter_runtime import build_runtime
         library = build_runtime(output / 'adapter-runtime')
     entries = []
@@ -462,6 +466,30 @@ def build(selected, output, with_adapter_runtime=False, with_examples=False, exa
     print(f'SDK build complete: {output}')
 
 
+def build_batch(selected, args):
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    (output / 'manifest.json').unlink(missing_ok=True)
+    report = Report(args, 'MuduDB SDK distributions')
+    report.run('bindings-regen', [sys.executable, ROOT / 'script/ci/check_bindings_regen.py'])
+    needs = ['bindings-regen']
+    base = [sys.executable, __file__, '--output', str(output)]
+    if args.with_adapter_runtime or args.with_examples:
+        report.run('adapter-runtime', base + ['--stage', 'runtime'])
+        needs.append('adapter-runtime')
+    with tempfile.TemporaryDirectory(prefix='sdk-batch-') as temporary:
+        staging = Path(temporary)
+        for lang in selected:
+            command = [sys.executable, __file__, '--stage', 'language', '--languages', lang,
+                       '--output', str(staging / lang), '--destination', str(output), '--example-mode', args.example_mode]
+            if args.with_examples:
+                command += ['--with-examples', '--runtime-root', str(output)]
+            report.run(lang, command, needs=needs)
+        report.run('distribution-manifest', base + ['--stage', 'merge', '--languages', ','.join(selected),
+                   '--staging', str(staging)], needs=selected)
+    return report.finish()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--languages', default=os.environ.get('SDK_LANGS', ','.join(CONFIG)))
@@ -469,9 +497,48 @@ def main():
     parser.add_argument('--with-adapter-runtime', action='store_true', help='Build the separate native adapter runtime for this host')
     parser.add_argument('--with-examples', action='store_true', help='Build and exercise selected Wallet examples (includes adapter runtime)')
     parser.add_argument('--example-mode', choices=['adapter', 'mpk', 'both'], default='both', help='Example verification mode; default both')
-    args = parser.parse_args()
+    parser.add_argument('--stage', choices=['runtime', 'language', 'merge'], help=argparse.SUPPRESS)
+    parser.add_argument('--staging', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--destination', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--runtime-root', type=Path, help=argparse.SUPPRESS)
+    add_options(parser, 'build-sdk')
+    parser.epilog = 'Languages continue independently; a failed batch never produces a publishable manifest.json.'
+    args = parser.parse_args(normalized_argv())
     try:
-        build(languages(args.languages), args.output.resolve(), args.with_adapter_runtime, args.with_examples, args.example_mode)
+        selected = languages(args.languages)
+        output = args.output.resolve()
+        if args.stage == 'runtime':
+            from adapter_runtime import build_runtime
+            library = build_runtime(output / 'adapter-runtime')
+            write_text(output / 'adapter-runtime/library-path.txt', str(library.resolve()))
+        elif args.stage == 'language':
+            library = Path((args.runtime_root / 'adapter-runtime/library-path.txt').read_text()) if args.with_examples else None
+            build(selected, output, with_examples=args.with_examples, example_mode=args.example_mode,
+                  prepared=True, library=library)
+            if args.destination:
+                for lang in selected:
+                    dest = args.destination / f'mududb-{lang}'
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(output / f'mududb-{lang}', dest)
+        elif args.stage == 'merge':
+            manifests = [json.loads((args.staging / lang / 'manifest.json').read_text()) for lang in selected]
+            commits = {m['source_commit'] for m in manifests}
+            current = run(['git', 'rev-parse', 'HEAD'], ROOT, capture=True).strip()
+            if commits != {current}:
+                raise RuntimeError('Source commit changed during the SDK batch; refusing to publish its manifest')
+            manifest = dict(manifests[0], sdks=[], tools={}, dirty=any(m['dirty'] for m in manifests))
+            for lang, part in zip(selected, manifests):
+                name = f'mududb-{lang}'
+                destination = output / name
+                if destination.exists():
+                    shutil.rmtree(destination)
+                shutil.copytree(args.staging / lang / name, destination)
+                manifest['sdks'].extend(part['sdks'])
+                manifest['tools'].update(part['tools'])
+            write_text(output / 'manifest.json', json.dumps(manifest, indent=2) + '\n')
+        else:
+            return build_batch(selected, args)
     except (ValueError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f'SDK build failed: {error}', file=sys.stderr)
         return 1

@@ -3,10 +3,12 @@ use mudu::common::result::RS;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
-use mudu_type::data_type_fn_param::DataType;
+use mudu::utils::msg_pack::{MsgPackUtf8String, MsgPackValue};
+use mudu_type::data_type::DataType;
 use mudu_type::data_typed::DataTyped;
 use mudu_type::datum::DatumDyn;
 use mudu_type::type_family::TypeFamily;
+use mudu_type::type_family_ext::TypeFamilyExt;
 use sql_parser::ast::expr_literal::ExprLiteral;
 
 pub(crate) struct ValueCodec;
@@ -114,6 +116,34 @@ impl ValueCodec {
                         e
                     )
                 })?)
+            }
+            // Temporal values share the same situation as NUMERIC: both SQL
+            // string literals and wire params carry the canonical text form
+            // (the msgpack input format). Parse through the target family's
+            // msgpack input so the column's precision parameter is applied;
+            // passing the string through unchanged would store the raw text
+            // bytes and read back as garbage.
+            (
+                TypeFamily::String,
+                TypeFamily::Date
+                | TypeFamily::Time
+                | TypeFamily::Timestamp
+                | TypeFamily::TimestampTz,
+            ) => {
+                let text = literal.data_internal().expect_string();
+                let trimmed = text.trim_matches('"');
+                let value = target.fn_input_msg_pack()(
+                    &MsgPackValue::String(MsgPackUtf8String::from(trimmed)),
+                    data_type,
+                )
+                .map_err(|e| {
+                    mudu_error!(
+                        ER::TypeConversionFailed,
+                        format!("string to {} literal cast: {text:?}", target.name()),
+                        e
+                    )
+                })?;
+                DataTyped::new(data_type.clone(), value)
             }
             (TypeFamily::Numeric, TypeFamily::F64) => DataTyped::from_f64(
                 literal

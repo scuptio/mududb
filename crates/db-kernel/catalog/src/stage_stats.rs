@@ -2,13 +2,13 @@
 //!
 //! When `MUDU_STAGE_STATS=1` is set in the environment, selected code spans
 //! (SQL parse/bind/plan/run, lock waits, commit path, partition RPC, frame
-//! handling) are timed with an RAII [`StageGuard`] and accumulated into
+//! handling) are timed with an RAII [`crate::stage_stats::StageGuard`] and accumulated into
 //! thread-local counters. Each worker event loop periodically calls
-//! [`dump_if_due`], which logs the aggregated numbers and resets them.
+//! [`crate::stage_stats::dump_if_due`], which logs the aggregated numbers and resets them.
 //!
 //! Besides wall-clock time, each span also accumulates the calling thread's
 //! CPU time (Linux `CLOCK_THREAD_CPUTIME_ID` via
-//! [`thread_cpu_time_now`]), so a stage dominated by lock/IO/scheduler waits
+//! `thread_cpu_time_now`), so a stage dominated by lock/IO/scheduler waits
 //! (high wall, low CPU) can be told apart from one burning CPU. On platforms
 //! without a per-thread CPU clock the CPU fields stay zero.
 //!
@@ -263,7 +263,7 @@ fn record(stage: Stage, wall_ns: u64, cpu_ns: u64) {
     });
 }
 
-/// Records a pre-computed value (not a guard-measured span) into a stage,
+/// Structs a pre-computed value (not a guard-measured span) into a stage,
 /// e.g. queueing delay derived from a stored timestamp. No-op when stats
 /// are disabled. CPU time is recorded as zero.
 pub fn record_value(stage: Stage, wall_ns: u64) {
@@ -274,7 +274,7 @@ pub fn record_value(stage: Stage, wall_ns: u64) {
 }
 
 /// Logs the aggregated stage counters (one line per worker thread) and
-/// resets them, at most once every [`DUMP_INTERVAL`]. Intended to be called
+/// resets them, at most once every `DUMP_INTERVAL`. Intended to be called
 /// from each worker's event-loop iteration; it is a no-op when stats are
 /// disabled or the interval has not elapsed.
 pub fn dump_if_due(worker_id: u128) {

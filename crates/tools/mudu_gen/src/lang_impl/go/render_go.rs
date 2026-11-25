@@ -1,20 +1,20 @@
 //! Go rendering back-end: message types (records/variants/enums plus the
-//! MSSP func codecs) and entity files.
+//! MSSP func codecs) and object files.
 
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_binding::table::table_def::TableDef;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
+use mudu_binding::table::class_def::ClassDef;
+use mudu_binding::universal::uni_def::{UniEnumDef, UniStructDef, UniVariantDef};
 use std::sync::Arc;
 
 use crate::lang_impl::go::go_codec::{GO_CODEC_IMPORT, go_package_name};
-use crate::lang_impl::go::template_entity_go::TemplateEntityGO;
 use crate::lang_impl::go::template_enum_go::TemplateEnumGo;
 use crate::lang_impl::go::template_file_go::TemplateFileGo;
 use crate::lang_impl::go::template_func_go::{TemplateFuncGo, TemplateFuncHeaderGo};
-use crate::lang_impl::go::template_record_go::TemplateRecordGo;
+use crate::lang_impl::go::template_object_go::TemplateObjectGO;
+use crate::lang_impl::go::template_struct_go::TemplateStructGo;
 use crate::lang_impl::go::template_variant_go::TemplateVariantGo;
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
 use crate::lang_impl::lang::render::Render;
@@ -31,11 +31,11 @@ struct RenderGO {}
 
 impl Render for RenderGO {
     fn render(&self, template: AbstractTemplate) -> RS<String> {
-        // An entity file is self-contained (`package main` with its own
+        // An object file is self-contained (`package main` with its own
         // imports for the mpm-crate Go guest), so it bypasses the message
         // file wrapper.
-        if let [TemplateKind::Entity(entity)] = template.elements.as_slice() {
-            return Self::render_entity_go(entity);
+        if let [TemplateKind::Object(object)] = template.elements.as_slice() {
+            return Self::render_object_go(object);
         }
         let blocks = self.render_inner(template.elements)?;
         // Go rejects unused imports, so the import block is derived from the
@@ -74,8 +74,8 @@ impl RenderGO {
             let s = match element {
                 TemplateKind::Enum((def, cfg)) => Self::render_enum_go(def, cfg)?,
                 TemplateKind::Variant((def, cfg)) => Self::render_variant_go(def, cfg)?,
-                TemplateKind::Record((def, cfg)) => Self::render_record_go(def, cfg)?,
-                TemplateKind::Entity(entity) => Self::render_entity_go(&entity)?,
+                TemplateKind::Struct((def, cfg)) => Self::render_record_go(def, cfg)?,
+                TemplateKind::Object(object) => Self::render_object_go(&object)?,
                 TemplateKind::Table(_) => {
                     return Err(mudu_error!(
                         ErrorCode::NotImplemented,
@@ -92,16 +92,16 @@ impl RenderGO {
         Ok(code_blocks)
     }
 
-    fn render_entity_go(table_schema: &TableDef) -> RS<String> {
-        let template = TemplateEntityGO::from_table_schema(table_schema)?;
+    fn render_object_go(table_schema: &ClassDef) -> RS<String> {
+        let template = TemplateObjectGO::from_table_schema(table_schema)?;
         let s = template
             .render()
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "render go entity template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render go object template error", e))?;
         Ok(s)
     }
 
-    fn render_record_go(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
-        let template = TemplateRecordGo::from(def, cfg)?;
+    fn render_record_go(def: UniStructDef, cfg: CodegenCfg) -> RS<String> {
+        let template = TemplateStructGo::from(def, cfg)?;
         let s = template
             .render()
             .map_err(|e| mudu_error!(ErrorCode::Decode, "render go record template error", e))?;

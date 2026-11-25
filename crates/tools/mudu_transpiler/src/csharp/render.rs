@@ -10,16 +10,16 @@
 //!
 //! - scalars: the `AsXxx` cast helpers over `p.Params[i]`.
 //! - WIT records: a per-type `As<Name>` helper composing the record bridge
-//!   (`MuduSys.RecordFieldValues`) with the generated `<Name>Formatter`.
+//!   (`MuduSys.StructFieldValues`) with the generated `<Name>Formatter`.
 //! - WIT enums: the ordinal integer casts to the enum type.
 //!
 //! Result shapes: `long` results keep the historical `Invoke` +
 //! `MuduSys.EncodeProcedureOk(long)` path; every other result type goes
 //! through `InvokeObj` with a per-type encode lambda (scalar overloads of
 //! `MuduSys.EncodeProcedureOk`, or the record bridge
-//! `MuduSys.EncodeProcedureOkRecord` over the generated formatter's output).
+//! `MuduSys.EncodeProcedureOkStruct` over the generated formatter's output).
 
-use crate::csharp::procedure::{CsProcedure, CsValueType};
+use crate::csharp::types::{CsProcedure, CsValueType};
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -39,7 +39,7 @@ struct AdapterTemplate<'a> {
     uses_invoke_obj: bool,
     procedures: &'a [AdapterProcedure],
     casts: &'a [CastHelper],
-    record_helpers: &'a [RecordHelper],
+    record_helpers: &'a [StructHelper],
 }
 
 struct AdapterProcedure {
@@ -54,7 +54,7 @@ struct AdapterArg {
     expr: String,
 }
 
-struct RecordHelper {
+struct StructHelper {
     helper_name: String,
     type_name: String,
     formatter_name: String,
@@ -73,7 +73,7 @@ struct CastHelper {
 /// `type_import` is the C# namespace of the project's mgen-generated types
 /// (`--type-import`, e.g. `"WalletCs.Types"`); it is required exactly when a
 /// procedure signature references a user-defined type from `--type-wit`.
-pub(super) fn render_adapter_source(
+pub fn render_adapter_source(
     procedures: &[CsProcedure],
     module_name: &str,
     type_import: Option<&str>,
@@ -104,8 +104,8 @@ pub(super) fn render_adapter_source(
         procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge())
-            || procedure.return_value_type.uses_record_bridge()
+            .any(|param| param.value_type.uses_struct_bridge())
+            || procedure.return_value_type.uses_struct_bridge()
     });
     let uses_invoke_obj = procedures
         .iter()
@@ -165,7 +165,7 @@ fn invalid_shape(what: &str) -> mudu::error::MuduError {
 /// The full C# expression decoding one wire parameter.
 fn decode_expr(value_type: &CsValueType, index: usize, type_namespace: &str) -> RS<String> {
     match value_type {
-        CsValueType::Record(custom) => Ok(format!("As{}(p.Params[{index}])", custom.name)),
+        CsValueType::Struct(custom) => Ok(format!("As{}(p.Params[{index}])", custom.name)),
         CsValueType::Enum(custom) => Ok(format!(
             "(global::{type_namespace}.{})AsI64(p.Params[{index}])",
             custom.name
@@ -192,8 +192,8 @@ fn result_encode_expr(value_type: &CsValueType, type_namespace: &str) -> RS<Stri
             "value => MuduSys.EncodeProcedureOk((int)(global::{type_namespace}.{})value!)",
             custom.name
         )),
-        CsValueType::Record(custom) => Ok(format!(
-            "value =>\n        {{\n            var buffer = new global::System.Buffers.ArrayBufferWriter<byte>();\n            var writer = new MessagePackWriter(buffer);\n            new global::{type_namespace}.{name}Formatter().Serialize(ref writer, (global::{type_namespace}.{name})value!, null!);\n            writer.Flush();\n            return MuduSys.EncodeProcedureOkRecord(buffer.WrittenMemory.ToArray());\n        }}",
+        CsValueType::Struct(custom) => Ok(format!(
+            "value =>\n        {{\n            var buffer = new global::System.Buffers.ArrayBufferWriter<byte>();\n            var writer = new MessagePackWriter(buffer);\n            new global::{type_namespace}.{name}Formatter().Serialize(ref writer, (global::{type_namespace}.{name})value!, null!);\n            writer.Flush();\n            return MuduSys.EncodeProcedureOkStruct(buffer.WrittenMemory.ToArray());\n        }}",
             name = custom.name
         )),
         // long results ride the legacy Invoke path; OID results are rejected
@@ -207,16 +207,16 @@ fn result_encode_expr(value_type: &CsValueType, type_namespace: &str) -> RS<Stri
 /// The per-record-type decode helpers the discovered procedures need, in
 /// first-use order: `As<Name>` composing the record bridge with the
 /// generated formatter.
-fn used_record_helpers(procedures: &[CsProcedure], type_namespace: &str) -> Vec<RecordHelper> {
-    let mut helpers: Vec<RecordHelper> = Vec::new();
+fn used_record_helpers(procedures: &[CsProcedure], type_namespace: &str) -> Vec<StructHelper> {
+    let mut helpers: Vec<StructHelper> = Vec::new();
     for procedure in procedures {
         for param in procedure.params.iter().skip(1) {
-            if let CsValueType::Record(custom) = &param.value_type
+            if let CsValueType::Struct(custom) = &param.value_type
                 && !helpers
                     .iter()
                     .any(|helper| helper.helper_name == format!("As{}", custom.name))
             {
-                helpers.push(RecordHelper {
+                helpers.push(StructHelper {
                     helper_name: format!("As{}", custom.name),
                     type_name: format!("global::{type_namespace}.{}", custom.name),
                     formatter_name: format!("global::{type_namespace}.{}Formatter", custom.name),

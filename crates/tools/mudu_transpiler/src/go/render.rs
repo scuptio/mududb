@@ -12,7 +12,7 @@
 //! project's mgen-generated types package):
 //!
 //! - scalars: `local, err := asXxx(p.Params[i])`.
-//! - WIT records: `types.RecordFieldValues(p.Params[i])` unwraps the
+//! - WIT records: `types.StructFieldValues(p.Params[i])` unwraps the
 //!   `uni-data-value` record-case envelope into the positional field map the
 //!   generated `XxxFromValue` codec decodes.
 //! - WIT enums: the generated `XxxFromValue` decodes the ordinal integer.
@@ -20,11 +20,11 @@
 //!   of the decoded value.
 //!
 //! A record-typed result encodes symmetrically: `XxxToValue` renders the
-//! positional field map and `types.RecordFromFieldValues` wraps it back into
+//! positional field map and `types.StructFromFieldValues` wraps it back into
 //! the record-case envelope; the `invoke` driver passes the resulting
 //! `types.UniDataValue` through to the wire.
 
-use crate::go::procedure::{GoProcedure, GoValueType};
+use crate::go::types::{GoProcedure, GoValueType};
 use askama::Template;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -38,7 +38,7 @@ struct AdapterTemplate<'a> {
     binding_import: String,
     types_import: Option<String>,
     types_alias: String,
-    uses_record_bridge: bool,
+    uses_struct_bridge: bool,
     world_kebab: String,
     procedures: &'a [AdapterProcedure],
 }
@@ -60,7 +60,7 @@ struct AdapterProcedure {
 /// `type_import` is the Go import path of the project's mgen-generated types
 /// package (`--type-import`); it is required exactly when a procedure
 /// signature references a user-defined type from `--type-wit`.
-pub(super) fn render_adapter_source(
+pub fn render_adapter_source(
     procedures: &[GoProcedure],
     module_name: &str,
     type_import: Option<&str>,
@@ -78,12 +78,12 @@ pub(super) fn render_adapter_source(
             "Go procedures reference user-defined types from --type-wit: pass --type-import with the Go import path of the mgen-generated types package (e.g. \"my_module/gentypes\")"
         ));
     }
-    let uses_record_bridge = procedures.iter().any(|procedure| {
+    let uses_struct_bridge = procedures.iter().any(|procedure| {
         procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge())
-            || procedure.return_value_type.uses_record_bridge()
+            .any(|param| param.value_type.uses_struct_bridge())
+            || procedure.return_value_type.uses_struct_bridge()
     });
     let types_alias = type_import.map(go_import_alias).unwrap_or_default();
     let world_kebab = to_kebab_case(module_name);
@@ -95,7 +95,7 @@ pub(super) fn render_adapter_source(
         binding_import: format!("{module_name}/binding/mududb/{world_kebab}/{world_kebab}"),
         types_import: type_import.map(|path| path.to_string()),
         types_alias,
-        uses_record_bridge,
+        uses_struct_bridge,
         world_kebab,
         procedures: &adapter_procedures,
     }
@@ -213,9 +213,9 @@ fn decode_param(
     lines: &mut Vec<String>,
 ) -> RS<()> {
     match value_type {
-        GoValueType::Record(custom) => {
+        GoValueType::Struct(custom) => {
             lines.push(format!(
-                "{ind}{local}Fields, err := types.RecordFieldValues(p.Params[{index}])"
+                "{ind}{local}Fields, err := types.StructFieldValues(p.Params[{index}])"
             ));
             err_check(lines, ind);
             lines.push(format!(
@@ -262,9 +262,9 @@ fn decode_option_inner(
     lines: &mut Vec<String>,
 ) -> RS<()> {
     match inner {
-        GoValueType::Record(custom) => {
+        GoValueType::Struct(custom) => {
             lines.push(format!(
-                "{ind}{local}Fields, err := types.RecordFieldValues(p.Params[{index}])"
+                "{ind}{local}Fields, err := types.StructFieldValues(p.Params[{index}])"
             ));
             err_check(lines, ind);
             lines.push(format!(
@@ -307,7 +307,7 @@ fn option_go_type(inner: &GoValueType, alias: &str) -> RS<String> {
         GoValueType::Int64 => "*int64".to_string(),
         GoValueType::Float64 => "*float64".to_string(),
         GoValueType::Text => "*string".to_string(),
-        GoValueType::Record(custom) | GoValueType::Enum(custom) => {
+        GoValueType::Struct(custom) | GoValueType::Enum(custom) => {
             format!("*{alias}.{}", custom.name)
         }
         GoValueType::Binary | GoValueType::ObjectId | GoValueType::Option(_) => {
@@ -323,7 +323,7 @@ fn option_go_type(inner: &GoValueType, alias: &str) -> RS<String> {
 /// succeeded (`result` holds the typed return value).
 fn encode_result(value_type: &GoValueType, alias: &str, ind: &str) -> RS<String> {
     match value_type {
-        GoValueType::Record(custom) => {
+        GoValueType::Struct(custom) => {
             let mut lines = Vec::new();
             lines.push(format!(
                 "{ind}resultWire, err := {alias}.{}ToValue(result)",
@@ -331,7 +331,7 @@ fn encode_result(value_type: &GoValueType, alias: &str, ind: &str) -> RS<String>
             ));
             err_check(&mut lines, ind);
             lines.push(format!(
-                "{ind}return types.RecordFromFieldValues(resultWire)"
+                "{ind}return types.StructFromFieldValues(resultWire)"
             ));
             Ok(lines.join("\n"))
         }

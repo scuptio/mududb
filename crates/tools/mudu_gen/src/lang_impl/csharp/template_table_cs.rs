@@ -3,7 +3,7 @@ use crate::lang_impl::lang::table_info::TableInfo;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu::common::result::RS;
-use mudu_binding::universal::uni_def::UniTableDef;
+use mudu_binding::universal::uni_def::UniClassDef;
 
 /// Askama template for a C# table.
 #[derive(Template)]
@@ -18,9 +18,9 @@ pub struct TemplateTableCS {
 
 impl TemplateTableCS {
     /// Build the template from a WIT table definition.
-    pub fn from(table_def: UniTableDef, cfg: CodegenCfg) -> RS<Self> {
+    pub fn from(class_def: UniClassDef, cfg: CodegenCfg) -> RS<Self> {
         Ok(Self {
-            table: TableInfo::from(table_def, LangKind::CSharp, &cfg.type_kinds)?,
+            table: TableInfo::from(class_def, LangKind::CSharp, &cfg.type_kinds)?,
             cfg,
         })
     }

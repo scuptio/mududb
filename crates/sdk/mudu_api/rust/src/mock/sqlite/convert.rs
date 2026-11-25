@@ -3,7 +3,7 @@
 
 use super::MockSqliteMuduSysCall;
 use crate::{
-    UniDataType, UniDataValue, UniRecordField, UniRecordType, UniScalar, UniScalarValue,
+    UniDataType, UniDataValue, UniStructField, UniStructType, UniScalar, UniScalarValue,
     UniTupleRow,
 };
 use rusqlite::types::{Value, ValueRef};
@@ -67,20 +67,20 @@ impl MockSqliteMuduSysCall {
     pub(super) fn build_tuple_desc(
         column_names: Vec<String>,
         inferred_types: Vec<Option<UniDataType>>,
-    ) -> UniRecordType {
-        let record_fields = column_names
+    ) -> UniStructType {
+        let struct_fields = column_names
             .into_iter()
             .zip(inferred_types)
-            .map(|(field_name, field_type)| UniRecordField {
+            .map(|(field_name, field_type)| UniStructField {
                 field_name,
                 field_type: field_type.unwrap_or(UniDataType::Scalar(UniScalar::String)),
                 field_attrs: Vec::new(),
             })
             .collect();
 
-        UniRecordType {
-            record_name: String::new(),
-            record_fields,
+        UniStructType {
+            struct_name: String::new(),
+            struct_fields,
         }
     }
 
@@ -130,7 +130,7 @@ impl MockSqliteMuduSysCall {
             UniDataValue::Binary(_) => UniDataType::Scalar(UniScalar::Blob),
             UniDataValue::Scalar(UniScalarValue::Null)
             | UniDataValue::Array(_)
-            | UniDataValue::Record(_) => UniDataType::Scalar(UniScalar::String),
+            | UniDataValue::Struct(_) => UniDataType::Scalar(UniScalar::String),
         }
     }
 }

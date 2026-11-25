@@ -1,4 +1,5 @@
 use crate::data_type::DataType;
+use crate::data_type_codec::TypeCodec;
 use crate::data_type_impl::data_type_create::{
     create_array_type, create_object_type, create_string_type,
 };
@@ -6,6 +7,7 @@ use crate::data_type_param_numeric::{
     DataTypeParamNumeric, NUMERIC_MAX_PRECISION, NUMERIC_MAX_SCALE,
 };
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use mudu::common::default_value::DT_CHAR_FIXED_LEN_DEFAULT;
 
 fn assert_param_input_roundtrip(id: TypeFamily, dt: DataType) {
@@ -73,7 +75,7 @@ fn object_param_input_parses_record_schema() {
             ("age".to_string(), DataType::new_no_param(TypeFamily::I32)),
         ],
     );
-    assert_param_input_roundtrip(TypeFamily::Record, dt);
+    assert_param_input_roundtrip(TypeFamily::Struct, dt);
 }
 
 #[test]
@@ -87,7 +89,7 @@ fn param_input_rejects_invalid_json() {
     let array_err = (TypeFamily::Array.opt_fn_param().as_ref().unwrap().input)("{");
     assert!(array_err.is_err());
 
-    let record_err = (TypeFamily::Record.opt_fn_param().as_ref().unwrap().input)("{");
+    let record_err = (TypeFamily::Struct.opt_fn_param().as_ref().unwrap().input)("{");
     assert!(record_err.is_err());
 }
 

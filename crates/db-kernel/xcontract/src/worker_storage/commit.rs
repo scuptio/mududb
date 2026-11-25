@@ -5,13 +5,9 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_utils::scoped_task_trace;
-use scc::HashMap as SccHashMap;
 
 #[cfg(test)]
 use crate::worker_tx_manager::WorkerTxManager;
-use ::catalog::contract::data_row::DataRow;
-use ::catalog::contract::timestamp::Timestamp;
-use ::catalog::contract::version_tuple::VersionTuple;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::index::index_key::key_tuple::KeyTuple;
 use ::storage::prepared_commit::PreparedWorkerCommit;
@@ -21,15 +17,25 @@ use ::wal::xl_entry::TxOp;
 use ::xengine::api::DeltaAssign;
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 
-use super::WorkerStorage;
+use super::version::{latest_version, write_version_to_kv_store_async};
+use super::{RecoveryWatermarks, WorkerStorage};
 
 impl WorkerStorage {
     #[cfg(test)]
     pub(crate) async fn commit_tx(&self, txm: &mut WorkerTxManager) -> RS<()> {
-        let prepared = self.prepare_commit_async(txm).await?;
-        self.apply_relation_rows_async(&prepared).await?;
-        self.apply_kv_rows_async(&prepared).await?;
-        Ok(())
+        let attempt = self.begin_snapshot_apply().await?;
+        let result = async {
+            let prepared = self.prepare_commit_async(txm).await?;
+            self.apply_relation_rows_async(&prepared).await?;
+            self.apply_kv_rows_async(&prepared).await?;
+            let mut water = RecoveryWatermarks::from_batch(&prepared.batch);
+            water.max_xid = water.max_xid.max(prepared.xid);
+            water.applied_epoch = water.applied_epoch.max(prepared.commit_epoch.unwrap_or(0));
+            self.observe_recovery_watermarks(water)?;
+            Ok(())
+        }
+        .await;
+        attempt.finish(result)
     }
 
     pub(crate) async fn prepare_commit_async(&self, txm: &dyn TxMgr) -> RS<PreparedWorkerCommit> {
@@ -75,6 +81,7 @@ impl WorkerStorage {
     ) -> PreparedWorkerCommit {
         PreparedWorkerCommit {
             xid,
+            commit_epoch: None,
             relation_rows: BTreeMap::new(),
             relation_deltas: BTreeMap::new(),
             kv_rows: BTreeMap::from([(key, value)]),
@@ -84,11 +91,47 @@ impl WorkerStorage {
 
     /// Apply a prepared commit: relation rows, deferred deltas, and KV rows.
     pub async fn apply_prepared_commit_async(&self, prepared: PreparedWorkerCommit) -> RS<()> {
+        self.apply_prepared_with_cut(prepared, None).await
+    }
+
+    /// Applies a serial, quorum-committed worker WAL batch and certifies its
+    /// exclusive end LSN only after all row effects succeed.
+    pub async fn apply_prepared_commit_at_async(
+        &self,
+        prepared: PreparedWorkerCommit,
+        wal_resume: u64,
+    ) -> RS<()> {
+        self.apply_prepared_with_cut(prepared, Some(wal_resume))
+            .await
+    }
+
+    async fn apply_prepared_with_cut(
+        &self,
+        prepared: PreparedWorkerCommit,
+        wal_resume: Option<u64>,
+    ) -> RS<()> {
         scoped_task_trace!();
-        self.apply_relation_rows_async(&prepared).await?;
-        self.apply_relation_deferred_deltas_async(&prepared).await?;
-        self.apply_kv_rows_async(&prepared).await?;
-        Ok(())
+        if prepared.batch.entries.iter().any(|entry| {
+            entry
+                .ops
+                .iter()
+                .any(|op| matches!(op, TxOp::Prepare(_) | TxOp::ParticipantDecision(_)))
+        }) {
+            return self.replay_batch_with_cut(prepared.batch, wal_resume).await;
+        }
+        let attempt = self.begin_snapshot_apply().await?;
+        let result = async {
+            self.apply_relation_rows_async(&prepared).await?;
+            self.apply_relation_deferred_deltas_async(&prepared).await?;
+            self.apply_kv_rows_async(&prepared).await?;
+            let mut water = RecoveryWatermarks::from_batch(&prepared.batch);
+            water.max_xid = water.max_xid.max(prepared.xid);
+            water.applied_epoch = water.applied_epoch.max(prepared.commit_epoch.unwrap_or(0));
+            self.observe_recovery_watermarks(water)?;
+            Ok(())
+        }
+        .await;
+        attempt.finish_at(result, wal_resume)
     }
 
     /// Resolves the staged deferred delta assignments of this commit against
@@ -123,81 +166,154 @@ impl WorkerStorage {
         &self,
         tx_id: OID,
         partition_write_set: &[XLWrite],
+        commit_epoch: Option<u64>,
     ) -> RS<()> {
-        // Group the write set by partition. The coordinator invokes this
-        // once per participant partition (local fan-out and per-partition
-        // RPC alike), so the idempotency guard is per (tx, partition): a
-        // repeated call for the same partition is skipped, while every
-        // distinct partition of the transaction gets its apply. Within one
-        // call all keys of a partition are applied together — the guard
-        // must not collapse them (a tx_id-only guard silently dropped every
-        // partition after the first hosted on this worker).
-        let mut by_partition: BTreeMap<OID, Vec<&XLWrite>> = BTreeMap::new();
-        for write in partition_write_set {
-            by_partition
-                .entry(write.partition_id())
-                .or_default()
-                .push(write);
-        }
-        for (partition_id, writes) in by_partition {
-            if self
-                .applied_cross_tx
-                .contains_async(&(tx_id, partition_id))
-                .await
-            {
-                continue;
+        let attempt = self.begin_snapshot_apply().await?;
+        let result = async {
+            // Group the write set by partition. The coordinator invokes this
+            // once per participant partition (local fan-out and per-partition
+            // RPC alike), so the idempotency guard is per (tx, partition): a
+            // repeated call for the same partition is skipped, while every
+            // distinct partition of the transaction gets its apply. Within one
+            // call all keys of a partition are applied together — the guard
+            // must not collapse them (a tx_id-only guard silently dropped every
+            // partition after the first hosted on this worker).
+            let mut by_partition: BTreeMap<OID, Vec<&XLWrite>> = BTreeMap::new();
+            for write in partition_write_set {
+                by_partition
+                    .entry(write.partition_id())
+                    .or_default()
+                    .push(write);
             }
-            for write in writes {
-                match write {
-                    XLWrite::Insert(insert) => {
-                        self.apply_relation_replay_insert_async(insert.clone(), tx_id as u64)
+            for (partition_id, writes) in by_partition {
+                self.ensure_partition_not_prepared(partition_id)?;
+                if self
+                    .applied_cross_tx
+                    .contains_async(&(tx_id, partition_id))
+                    .await
+                {
+                    continue;
+                }
+                for write in writes {
+                    match write {
+                        XLWrite::Insert(insert) => {
+                            self.apply_relation_replay_insert_async(
+                                insert.clone(),
+                                commit_epoch.unwrap_or(tx_id as u64),
+                            )
                             .await?;
-                    }
-                    XLWrite::Delete(delete) => {
-                        self.apply_relation_replay_delete_async(delete.clone(), tx_id as u64)
+                        }
+                        XLWrite::Delete(delete) => {
+                            self.apply_relation_replay_delete_async(
+                                delete.clone(),
+                                commit_epoch.unwrap_or(tx_id as u64),
+                            )
                             .await?;
-                    }
-                    XLWrite::Update(_) => {
-                        return Err(mudu_error!(
-                            ErrorCode::NotImplemented,
-                            "cross-partition update replay is not implemented"
-                        ));
+                        }
+                        XLWrite::Update(_) => {
+                            return Err(mudu_error!(
+                                ErrorCode::NotImplemented,
+                                "cross-partition update replay is not implemented"
+                            ));
+                        }
                     }
                 }
+                let _ = self
+                    .applied_cross_tx
+                    .insert_async((tx_id, partition_id), ())
+                    .await;
             }
-            let _ = self
-                .applied_cross_tx
-                .insert_async((tx_id, partition_id), ())
-                .await;
+            self.observe_recovery_watermarks(RecoveryWatermarks {
+                max_xid: tx_id as u64,
+                applied_epoch: commit_epoch.unwrap_or(0),
+            })?;
+            Ok(())
         }
-        Ok(())
+        .await;
+        attempt.finish(result)
     }
 
     pub(crate) async fn replay_batch(&self, batch: XLBatch) -> RS<()> {
+        self.replay_batch_with_cut(batch, None).await
+    }
+
+    pub(crate) async fn replay_batch_with_cut(
+        &self,
+        batch: XLBatch,
+        wal_resume: Option<u64>,
+    ) -> RS<()> {
+        let attempt = self.begin_snapshot_apply().await?;
+        let water = RecoveryWatermarks::from_batch(&batch);
+        let result = async {
+            for entry in batch.entries {
+                let participant = entry
+                    .ops
+                    .iter()
+                    .any(|op| matches!(op, TxOp::Prepare(_) | TxOp::ParticipantDecision(_)));
+                if participant {
+                    if entry.ops.len() != 1 {
+                        return Err(mudu_error!(
+                            ErrorCode::InvalidState,
+                            "participant WAL entry must be self-contained"
+                        ));
+                    }
+                    for op in entry.ops {
+                        self.apply_participant_op(op).await?;
+                    }
+                } else {
+                    self.replay_regular_batch(XLBatch::new(vec![entry])).await?;
+                }
+            }
+            self.observe_recovery_watermarks(water)?;
+            Ok(())
+        }
+        .await;
+        attempt.finish_at(result, wal_resume)
+    }
+
+    pub(super) async fn replay_regular_batch(&self, batch: XLBatch) -> RS<()> {
         for entry in batch.entries {
             for op in entry.ops {
                 match op {
                     TxOp::Write(XLWrite::Insert(insert))
                         if insert.table_id == 0 && insert.partition_id == 0 =>
                     {
-                        self.worker_put_local(insert.key, insert.value, entry.xid)?;
+                        self.worker_put_local(
+                            insert.key,
+                            insert.value,
+                            entry.commit_epoch.unwrap_or(entry.xid),
+                        )
+                        .await?;
                     }
                     TxOp::Write(XLWrite::Delete(delete))
                         if delete.table_id == 0 && delete.partition_id == 0 =>
                     {
-                        self.worker_delete_local(delete.key, entry.xid)?;
+                        self.worker_delete_local(
+                            delete.key,
+                            entry.commit_epoch.unwrap_or(entry.xid),
+                        )
+                        .await?;
                     }
                     TxOp::Write(XLWrite::Insert(insert)) => {
-                        self.apply_relation_replay_insert_async(insert, entry.xid)
-                            .await?;
+                        self.apply_relation_replay_insert_async(
+                            insert,
+                            entry.commit_epoch.unwrap_or(entry.xid),
+                        )
+                        .await?;
                     }
                     TxOp::Write(XLWrite::Update(update)) => {
-                        self.apply_relation_replay_update_async(update, entry.xid)
-                            .await?;
+                        self.apply_relation_replay_update_async(
+                            update,
+                            entry.commit_epoch.unwrap_or(entry.xid),
+                        )
+                        .await?;
                     }
                     TxOp::Write(XLWrite::Delete(delete)) => {
-                        self.apply_relation_replay_delete_async(delete, entry.xid)
-                            .await?;
+                        self.apply_relation_replay_delete_async(
+                            delete,
+                            entry.commit_epoch.unwrap_or(entry.xid),
+                        )
+                        .await?;
                     }
                     _ => {}
                 }
@@ -220,12 +336,24 @@ impl WorkerStorage {
         batch: XLBatch,
         conflict_skip: &BTreeSet<(PhysicalRelationId, Vec<u8>)>,
     ) -> RS<PreparedWorkerCommit> {
+        for relation in relation_rows.keys().chain(relation_deltas.keys()) {
+            self.ensure_partition_not_prepared(relation.partition_id)?;
+        }
+        if !kv_rows.is_empty() {
+            self.ensure_partition_not_prepared(0)?;
+        }
         self.ensure_no_relation_conflicts_async(snapshot, xid, &relation_rows, conflict_skip)
             .await?;
-        self.ensure_no_kv_conflicts(snapshot, xid, &kv_rows)?;
+        self.ensure_no_kv_conflicts(snapshot, xid, &kv_rows, conflict_skip)
+            .await?;
 
+        // The commit's versions stamp with the transaction's joined epoch
+        // when an epoch oracle drives commits; the same value travels in the
+        // WAL entry so replicas and recovery stamp identically.
+        let commit_epoch = snapshot.epoch();
         Ok(PreparedWorkerCommit {
             xid,
+            commit_epoch,
             relation_rows,
             relation_deltas,
             kv_rows,
@@ -269,17 +397,37 @@ impl WorkerStorage {
         Ok(())
     }
 
-    fn ensure_no_kv_conflicts(
+    async fn ensure_no_kv_conflicts(
         &self,
         snapshot: &WorkerSnapshot,
         xid: u64,
         kv_rows: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+        conflict_skip: &BTreeSet<(PhysicalRelationId, Vec<u8>)>,
     ) -> RS<()> {
         for key in kv_rows.keys() {
-            let conflict = self
+            // A queue watermark is read only after its pessimistic lock is
+            // held. Its latest committed value supersedes the begin snapshot.
+            if crate::queue_types::legacy_state_oid(key).is_some()
+                && conflict_skip.contains(&(
+                    PhysicalRelationId {
+                        table_id: 0,
+                        partition_id: 0,
+                    },
+                    key.clone(),
+                ))
+            {
+                continue;
+            }
+            let row = self
                 .kv_store
-                .get_sync(key)
-                .and_then(|entry| latest_version(entry.get()))
+                .get_async(key)
+                .await
+                .map(|entry| entry.get().clone());
+            let latest = match row {
+                Some(row) => latest_version(&row).await,
+                None => None,
+            };
+            let conflict = latest
                 .map(|latest| !snapshot.is_visible(latest.timestamp().c_min()))
                 .unwrap_or(false);
             if conflict {
@@ -310,7 +458,9 @@ impl WorkerStorage {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect();
-            relation.write_rows(&rows, prepared.xid).await?;
+            relation
+                .write_rows(&rows, prepared.commit_epoch.unwrap_or(prepared.xid))
+                .await?;
         }
         Ok(())
     }
@@ -322,7 +472,7 @@ impl WorkerStorage {
                 &self.kv_store,
                 key.clone(),
                 value.clone(),
-                prepared.xid,
+                prepared.commit_epoch.unwrap_or(prepared.xid),
             )
             .await?;
         }
@@ -363,51 +513,4 @@ impl WorkerStorage {
             .write_rows_delta(desc.as_ref(), &[(update.key, deltas)], xid)
             .await
     }
-}
-
-fn new_value_version(xid: u64, value: Vec<u8>) -> VersionTuple {
-    VersionTuple::new(Timestamp::new(xid, u64::MAX), value)
-}
-
-pub(super) fn write_version_to_kv_store(
-    kv_store: &SccHashMap<Vec<u8>, DataRow>,
-    key: Vec<u8>,
-    value: Option<Vec<u8>>,
-    xid: u64,
-) -> RS<()> {
-    let row = kv_store
-        .get_sync(&key)
-        .map(|entry| entry.get().clone())
-        .unwrap_or_else(|| DataRow::new(0));
-    let version = match value {
-        Some(value) => new_value_version(xid, value),
-        None => VersionTuple::new_delete(Timestamp::new(xid, u64::MAX)),
-    };
-    row.write_sync(version, None)?;
-    let _ = kv_store.insert_sync(key, row);
-    Ok(())
-}
-
-pub(super) async fn write_version_to_kv_store_async(
-    kv_store: &SccHashMap<Vec<u8>, DataRow>,
-    key: Vec<u8>,
-    value: Option<Vec<u8>>,
-    xid: u64,
-) -> RS<()> {
-    scoped_task_trace!();
-    let row = kv_store
-        .get_sync(&key)
-        .map(|entry| entry.get().clone())
-        .unwrap_or_else(|| DataRow::new(0));
-    let version = match value {
-        Some(value) => new_value_version(xid, value),
-        None => VersionTuple::new_delete(Timestamp::new(xid, u64::MAX)),
-    };
-    row.write(version, None).await?;
-    let _ = kv_store.insert_sync(key, row);
-    Ok(())
-}
-
-pub(super) fn latest_version(row: &DataRow) -> Option<VersionTuple> {
-    row.read_latest_sync().ok().flatten()
 }

@@ -18,13 +18,12 @@ mod tests {
     use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
     use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeKind};
     use ::catalog::contract::meta_mgr::MetaMgr;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use ::catalog_testing::test_meta_mgr::TestMetaMgr;
     use ::xengine::api::DeltaOp;
     use mudu_contract::database::sql_params::SQLParams;
     use mudu_type::data_type::DataType;
-    use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::data_type_param_numeric::DataTypeParamNumeric;
     use mudu_type::type_family::TypeFamily;
     use sql_parser::ast::parser::SQLParser;
@@ -35,7 +34,7 @@ mod tests {
         SchemaColumn::new(
             name.to_string(),
             family,
-            DataTypeInfo::from_opt_object(&DataType::default_for(family)),
+            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(family)),
         )
     }
 
@@ -44,12 +43,12 @@ mod tests {
         SchemaColumn::new(
             name.to_string(),
             TypeFamily::Numeric,
-            DataTypeInfo::from_opt_object(&ty),
+            mudu_type::data_type_codec::from_opt_object(&ty),
         )
     }
 
-    fn accounts_schema() -> SchemaTable {
-        SchemaTable::new(
+    fn accounts_schema() -> SchemaClass {
+        SchemaClass::new(
             "accounts".to_string(),
             vec![
                 column("tenant_id", TypeFamily::I32),
@@ -61,8 +60,8 @@ mod tests {
         )
     }
 
-    fn counters_schema() -> SchemaTable {
-        SchemaTable::new(
+    fn counters_schema() -> SchemaClass {
+        SchemaClass::new(
             "counters".to_string(),
             vec![
                 column("id", TypeFamily::I32),
@@ -74,8 +73,8 @@ mod tests {
         )
     }
 
-    fn numeric_counters_schema() -> SchemaTable {
-        SchemaTable::new(
+    fn numeric_counters_schema() -> SchemaClass {
+        SchemaClass::new(
             "numeric_counters".to_string(),
             vec![column("id", TypeFamily::I32), numeric_column("total")],
             vec![0],
@@ -83,8 +82,8 @@ mod tests {
         )
     }
 
-    fn ledger_schema() -> SchemaTable {
-        SchemaTable::new(
+    fn ledger_schema() -> SchemaClass {
+        SchemaClass::new(
             "ledger".to_string(),
             vec![numeric_column("amount"), column("note", TypeFamily::String)],
             vec![0],
@@ -92,10 +91,10 @@ mod tests {
         )
     }
 
-    fn fs_docs_schema() -> SchemaTable {
+    fn fs_docs_schema() -> SchemaClass {
         let mut doc = column("doc", TypeFamily::U128);
         doc.set_fs_binding(Some(FsColumnBinding::new(7, FsTypeKind::File)));
-        SchemaTable::new(
+        SchemaClass::new(
             "fs_docs".to_string(),
             vec![column("id", TypeFamily::I32), doc],
             vec![0],

@@ -86,13 +86,13 @@ impl PreparedStmt for MuduPreparedStmt {
 mod tests {
     use super::*;
     use crate::worker_local::{WorkerExecute, WorkerLocal};
-    use ::catalog::contract::message_bus_api::MessageBusRef;
     use ::catalog::contract::meta_mgr::MetaMgr;
     use ::catalog::contract::worker_snapshot::KvItem;
     use ::xengine::api::XContract;
     use async_trait::async_trait;
     use futures::executor::block_on;
     use mudu::common::result::RS;
+    use mudu_utils::channel::ChannelEndpointRef;
     use std::fmt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -169,7 +169,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn message_bus(&self) -> MessageBusRef {
+        fn worker_channel(&self) -> ChannelEndpointRef {
             unimplemented!()
         }
 

@@ -23,7 +23,7 @@ pub fn to_sqlite_values(params: &dyn SQLParams) -> RS<Vec<Value>> {
     for idx in 0..params.size() {
         let datum = params.get_idx(idx).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("sql param index {} does not exist", idx)
             )
         })?;
@@ -264,7 +264,7 @@ pub fn to_data_values(params: &dyn SQLParams) -> RS<Vec<DataValue>> {
     for idx in 0..params.size() {
         let datum = params.get_idx(idx).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("sql param index {} does not exist", idx)
             )
         })?;

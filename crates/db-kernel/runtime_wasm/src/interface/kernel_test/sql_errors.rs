@@ -21,7 +21,7 @@ fn query_internal_reports_missing_context_error() {
     assert!(!out.is_empty());
     let result = mudu_binding::system::query_invoke::deserialize_query_result(&out);
     match result {
-        Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound),
+        Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound),
         Ok(_) => panic!("expected error"),
     }
 }
@@ -37,7 +37,7 @@ fn command_internal_reports_missing_context_error() {
     let out = command_internal(&bytes);
     assert!(!out.is_empty());
     let err = mudu_binding::system::command_invoke::deserialize_command_result(&out).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn batch_internal_reports_missing_context_error() {
     let out = batch_internal(&bytes);
     assert!(!out.is_empty());
     let err = mudu_binding::system::command_invoke::deserialize_command_result(&out).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -68,7 +68,7 @@ async fn async_query_reports_missing_context_error() {
     let out = async_query_internal(bytes).await;
     let result = mudu_binding::system::query_invoke::deserialize_query_result(&out);
     match result {
-        Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound),
+        Err(err) => assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound),
         Ok(_) => panic!("expected error"),
     }
 }
@@ -83,7 +83,7 @@ async fn async_command_reports_missing_context_error() {
     .unwrap();
     let out = async_command_internal(bytes).await;
     let err = mudu_binding::system::command_invoke::deserialize_command_result(&out).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[tokio::test]
@@ -96,5 +96,5 @@ async fn async_batch_reports_missing_context_error() {
     .unwrap();
     let out = async_batch_internal(bytes).await;
     let err = mudu_binding::system::command_invoke::deserialize_command_result(&out).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }

@@ -21,14 +21,14 @@ use bigdecimal::ToPrimitive;
 use mududb::binding::universal::uni_relation::UniRelationDelta;
 use mududb::common::id::OID;
 use mududb::common::result::RS;
-use mududb::contract::database::entity::Entity;
+use mududb::contract::database::object::Object;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ErrorCode;
 use mududb::mudu::data_type::numeric::Numeric;
 use mududb::mudu_error;
 use mududb::sys_interface::sync_api::{mudu_command, mudu_query};
 
-fn query_one_entity<R: Entity>(
+fn query_one_object<R: Object>(
     xid: OID,
     sql: &str,
     params: &dyn mududb::contract::database::sql_params::SQLParams,
@@ -37,13 +37,13 @@ fn query_one_entity<R: Entity>(
         .next_record()?
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("query returned no rows: {sql}")
             )
         })
 }
 
-fn query_entities<R: Entity>(
+fn query_entities<R: Object>(
     xid: OID,
     sql: &str,
     params: &dyn mududb::contract::database::sql_params::SQLParams,
@@ -65,7 +65,7 @@ fn query_count_i32(
         .next_record()?
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("query returned no rows: {sql}")
             )
         })?;
@@ -81,7 +81,7 @@ fn query_one_i32(
         .next_record()?
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("query returned no rows: {sql}")
             )
         })
@@ -91,7 +91,7 @@ fn required_i32(value: &Option<i32>, field: &str) -> RS<i32> {
     value.as_ref().copied().ok_or_else(|| {
         mudu_error!(
             ErrorCode::InvalidState,
-            format!("entity field is null: {field}")
+            format!("object field is null: {field}")
         )
     })
 }
@@ -105,7 +105,7 @@ fn required_money_i32(value: &Option<Numeric>, field: &str) -> RS<i32> {
     let numeric = value.as_ref().ok_or_else(|| {
         mudu_error!(
             ErrorCode::InvalidState,
-            format!("entity field is null: {field}")
+            format!("object field is null: {field}")
         )
     })?;
     let decimal = numeric.as_bigdecimal();
@@ -726,13 +726,13 @@ pub fn tpcc_order_status(
     require_positive("warehouse_id", warehouse_id)?;
     require_positive("district_id", district_id)?;
     require_positive("customer_id", customer_id)?;
-    let customer = query_one_entity::<Customer>(
+    let customer = query_one_object::<Customer>(
         xid,
         "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
         sql_params!(&(warehouse_id, district_id, customer_id)),
     )?;
     let order_id = required_i32(&customer.c_last_order_id, "customer.c_last_order_id")?;
-    let order = query_one_entity::<Orders>(
+    let order = query_one_object::<Orders>(
         xid,
         "SELECT o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local, o_status FROM orders WHERE o_w_id = ? AND o_d_id = ? AND o_id = ?",
         sql_params!(&(warehouse_id, district_id, order_id)),
@@ -766,7 +766,7 @@ pub fn tpcc_delivery(xid: OID, warehouse_id: i32, district_id: i32, carrier_id: 
     .min()
     .ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             "delivery found no pending new_order rows"
         )
     })?;
@@ -793,13 +793,13 @@ pub fn tpcc_delivery(xid: OID, warehouse_id: i32, district_id: i32, carrier_id: 
             order_id
         )),
     )?;
-    let order = query_one_entity::<Orders>(
+    let order = query_one_object::<Orders>(
         xid,
         "SELECT o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local, o_status FROM orders WHERE o_w_id = ? AND o_d_id = ? AND o_id = ?",
         sql_params!(&(warehouse_id, district_id, order_id)),
     )?;
     let customer_id = order.o_c_id;
-    let customer = query_one_entity::<Customer>(
+    let customer = query_one_object::<Customer>(
         xid,
         "SELECT c_id, c_d_id, c_w_id, c_first, c_last, c_discount, c_credit, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_last_order_id FROM customer WHERE c_w_id = ? AND c_d_id = ? AND c_id = ?",
         sql_params!(&(warehouse_id, district_id, customer_id)),

@@ -1,0 +1,18 @@
+[package]
+name = "page_buffer"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Async format-independent byte-page buffer management"
+
+[lints]
+workspace = true
+
+[dependencies]
+mudu = { workspace = true }
+mudu_sys = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -69,5 +69,5 @@ cargo make test       # in crates/db-kernel/testing
   CPython cold start (tens of seconds in e2e) — the inherent cost of the
   interpreter-in-WASM route; fine for install-once, invoke-many procedures.
 - The Python facade is operation-aligned with the AssemblyScript, C#, and
-  Rust guests; see `doc/dev/binding_api_surface.md` for the canonical
+  Rust guests; see `doc/en/binding_api_surface.md` for the canonical
   surface and the behavioral consistency scenario.

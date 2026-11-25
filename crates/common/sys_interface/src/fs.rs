@@ -1,14 +1,14 @@
 //! Guest-side support for the `mudu_fs_*` filesystem syscall family.
 //!
 //! This module defines the public data types returned by the fs functions
-//! ([`FsStat`] and [`FsDirEntry`]) and holds the encode/decode glue shared by
+//! ([`crate::fs::FsStat`] and [`crate::fs::FsDirEntry`]) and holds the encode/decode glue shared by
 //! the synchronous and asynchronous implementations, keeping the wasm and
 //! standalone impls as thin one-line forwarders. All frames are SyscallPayload
 //! v1 (MSSP) frames produced by [`mudu_binding::codec::syscall_payload`].
 //!
 //! Errno mapping: the host reports argument errors with the application-level
-//! code [`ErrorCode::InvalidArgument`] (50029); the guest-facing POSIX surface
-//! maps it to `EINVAL` ([`ErrorCode::InvalidInput`], 22). The syscall frames
+//! code [`mudu::error::ErrorCode::InvalidArgument`] (50029); the guest-facing POSIX surface
+//! maps it to `EINVAL` ([`mudu::error::ErrorCode::InvalidInput`], 22). The syscall frames
 //! themselves still carry the host's original code.
 
 use mudu::common::id::OID;

@@ -12,6 +12,7 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::contract::file_options::FileOptions;
 use mudu_sys::sync::async_::AMutex;
 use mudu_type::type_family::TypeFamily;
+use mudu_type::type_family_ext::TypeFamilyExt;
 use mudu_utils::scoped_task_trace;
 use std::io::Cursor;
 use std::path::Path;

@@ -5,6 +5,7 @@ use crate::data_type_impl::fn_object::fn_object_out;
 use crate::data_value::DataValue;
 use crate::type_error::TyErr;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 
@@ -53,13 +54,13 @@ pub fn fn_object_arb_typed(
     u: &mut Unstructured,
     data_type: &DataType,
 ) -> arbitrary::Result<DataValue> {
-    let param = data_type.expect_record_param();
+    let param = data_type.expect_struct_param();
     let mut fields = Vec::with_capacity(param.fields().len());
     for (_, field_ty) in param.fields() {
         let value = field_ty.type_family().fn_arb_internal()(u, field_ty)?;
         fields.push(value);
     }
-    Ok(DataValue::from_record(fields))
+    Ok(DataValue::from_struct(fields))
 }
 
 pub fn fn_object_arb_printable(

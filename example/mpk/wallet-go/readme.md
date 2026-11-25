@@ -55,10 +55,10 @@ mpm-build ──► target/go-guest/wallet-go.mpk
   `UniProcedureParam`, run the procedure, encode the
   `UniResult<UniProcedureResult, UniError>` reply. A record-typed parameter
   decodes through the binding bridge
-  (`types.RecordFieldValues(p.Params[i])` unwraps the positional
+  (`types.StructFieldValues(p.Params[i])` unwraps the positional
   record-case envelope) composed with `gentypes.ProfileFromValue`; a
   record-typed result wraps `gentypes.ProfileToValue(result)` back with
-  `types.RecordFromFieldValues`. On the desc/JSON surface the record fields
+  `types.StructFromFieldValues`. On the desc/JSON surface the record fields
   keep their WIT names as JSON keys; booleans and 32-bit integers ride as
   i32 (a WIT `bool` is `0`/`1` in the invoke JSON — the host has no boolean
   data-type family).

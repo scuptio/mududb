@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -162,7 +162,7 @@ def _expect_seq(v, n):
 class UniDataValueKind(IntEnum):
     SCALAR = 0
     ARRAY = 1
-    RECORD = 2
+    STRUCT = 2
     BINARY = 3
 
 
@@ -190,8 +190,8 @@ class UniDataValueArray(UniDataValue):
     inner: list[UniDataValue] = field(default_factory=list)
 
 @dataclass
-class UniDataValueRecord(UniDataValue):
-    kind = UniDataValueKind.RECORD
+class UniDataValueStruct(UniDataValue):
+    kind = UniDataValueKind.STRUCT
     inner: list[UniDataValueField] = field(default_factory=list)
 
 @dataclass
@@ -208,7 +208,7 @@ def uni_data_value_to_value(x: UniDataValue) -> list:
         return [0, uni_scalar_value_to_value(x.inner)]
     elif isinstance(x, UniDataValueArray):
         return [1, [uni_data_value_to_value(_e0) for _e0 in x.inner]]
-    elif isinstance(x, UniDataValueRecord):
+    elif isinstance(x, UniDataValueStruct):
         return [2, [uni_data_value_field_to_value(_e0) for _e0 in x.inner]]
     elif isinstance(x, UniDataValueBinary):
         return [3, _blob_to_array_value(x.inner)]
@@ -224,7 +224,7 @@ def uni_data_value_from_value(v) -> UniDataValue:
     elif _tag == 1:
         return UniDataValueArray([uni_data_value_from_value(_e0) for _e0 in _expect_list(v[1])])
     elif _tag == 2:
-        return UniDataValueRecord([uni_data_value_field_from_value(_e0) for _e0 in _expect_list(v[1])])
+        return UniDataValueStruct([uni_data_value_field_from_value(_e0) for _e0 in _expect_list(v[1])])
     elif _tag == 3:
         return UniDataValueBinary(_blob_from_value(v[1]))
     else:
@@ -236,10 +236,10 @@ class UniDataValueField:
     field_value: UniDataValue = field(default_factory=lambda: UniDataValue.default())
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def uni_data_value_field_to_value(x: UniDataValueField) -> dict:
     return {
@@ -252,7 +252,7 @@ def uni_data_value_field_from_value(v) -> UniDataValueField:
     x = UniDataValueField()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.field_name = _str_checked(_val)
@@ -263,7 +263,7 @@ def uni_data_value_field_from_value(v) -> UniDataValueField:
 
 
 # Sibling-module imports live at the END of the module on purpose: WIT type
-# references can be mutually recursive across files (e.g. uni-record-type <
+# references can be mutually recursive across files (e.g. uni-struct-type <
 # -> uni-data-type), and bottom imports make every name resolvable once the
 # import graph settles. All uses are deferred (function bodies, default
 # factories, lazily-evaluated annotations), so this is safe.

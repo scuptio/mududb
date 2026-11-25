@@ -4,25 +4,25 @@ use super::TemplateTableCS;
 use crate::src_gen::codegen_cfg::CodegenCfg;
 use askama::Template;
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_def::{RecordField, UniTableDef};
+use mudu_binding::universal::uni_def::{StructField, UniClassDef};
 use mudu_binding::universal::uni_scalar::UniScalar;
 
-fn sample_table_def() -> UniTableDef {
-    UniTableDef {
+fn sample_class_def() -> UniClassDef {
+    UniClassDef {
         table_comments: "/// A user table.".to_string(),
-        table_name: "user-account".to_string(),
-        table_key: vec![RecordField::new(
+        class_name: "user-account".to_string(),
+        table_key: vec![StructField::new(
             "/// Primary key.".to_string(),
             "id".to_string(),
             UniDataType::Scalar(UniScalar::I64),
         )],
         table_value: vec![
-            RecordField::new(
+            StructField::new(
                 "/// User name.".to_string(),
                 "name".to_string(),
                 UniDataType::Scalar(UniScalar::String),
             ),
-            RecordField::new(
+            StructField::new(
                 String::new(),
                 "age".to_string(),
                 UniDataType::Scalar(UniScalar::I32),
@@ -33,7 +33,7 @@ fn sample_table_def() -> UniTableDef {
 
 #[test]
 fn renders_table_struct_with_key_and_value() {
-    let table = TemplateTableCS::from(sample_table_def(), CodegenCfg::new()).unwrap();
+    let table = TemplateTableCS::from(sample_class_def(), CodegenCfg::new()).unwrap();
     let rendered = table.render().unwrap();
 
     assert!(rendered.contains("public struct UserAccount"));
@@ -46,7 +46,7 @@ fn renders_table_struct_with_key_and_value() {
 
 #[test]
 fn renders_comments_when_present() {
-    let mut table = TemplateTableCS::from(sample_table_def(), CodegenCfg::new()).unwrap();
+    let mut table = TemplateTableCS::from(sample_class_def(), CodegenCfg::new()).unwrap();
     // TableInfo currently discards the top-level comment, so populate it directly
     // to exercise the template branch that emits it.
     table.table.table_comments = "/// A user table.".to_string();
@@ -62,7 +62,7 @@ fn renders_default_constructor_when_enabled() {
     let mut cfg = CodegenCfg::new();
     cfg.impl_default = true;
 
-    let table = TemplateTableCS::from(sample_table_def(), cfg).unwrap();
+    let table = TemplateTableCS::from(sample_class_def(), cfg).unwrap();
     let rendered = table.render().unwrap();
 
     assert!(rendered.contains("public UserAccountKey()"));
@@ -78,7 +78,7 @@ fn omits_default_constructor_when_disabled() {
     let mut cfg = CodegenCfg::new();
     cfg.impl_default = false;
 
-    let table = TemplateTableCS::from(sample_table_def(), cfg).unwrap();
+    let table = TemplateTableCS::from(sample_class_def(), cfg).unwrap();
     let rendered = table.render().unwrap();
 
     assert!(!rendered.contains("public UserAccountKey()"));
@@ -88,7 +88,7 @@ fn omits_default_constructor_when_disabled() {
 
 #[test]
 fn marks_reference_types_as_required() {
-    let table = TemplateTableCS::from(sample_table_def(), CodegenCfg::new()).unwrap();
+    let table = TemplateTableCS::from(sample_class_def(), CodegenCfg::new()).unwrap();
     let rendered = table.render().unwrap();
 
     assert!(rendered.contains("public required string Name { get; set; }"));

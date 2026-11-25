@@ -1,5 +1,36 @@
+use super::locks::acquire_statement_lock;
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::lifecycle_cluster::ensure_partition_write_open;
 use crate::utils::{build_key_tuple, ensure_supported_predicate};
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
+
+/// Delete on a locally owned (or unpartitioned) partition under the
+/// statement-level write lock.
+async fn delete_pinned_local(
+    tx_lock: &XLockMgr,
+    storage: &Arc<WorkerStorage>,
+    tx_mgr: Arc<dyn TxMgr>,
+    table_id: OID,
+    target_partition: Option<OID>,
+    key: Vec<u8>,
+) -> RS<usize> {
+    acquire_statement_lock(
+        tx_lock,
+        tx_mgr.as_ref(),
+        PhysicalRelationId {
+            table_id,
+            partition_id: storage.physical_partition_id(target_partition),
+        },
+        key.clone(),
+    )
+    .await?;
+    let deleted = storage
+        .remove_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
+        .await?;
+    Ok(usize::from(deleted.is_some()))
+}
 
 impl WorkerXContract {
     pub(crate) async fn _delete(
@@ -18,6 +49,7 @@ impl WorkerXContract {
             .route_exact_partition(table_id, desc.as_ref(), pred_key)
             .await?;
         if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
             match self.resolve_partition_worker(partition_id).await? {
                 Some(worker_id) if worker_id != self.worker_id => {
                     let relation_id = PhysicalRelationId {
@@ -49,19 +81,68 @@ impl WorkerXContract {
                 _ => {}
             }
         }
-        self.acquire_statement_lock(
-            tx_mgr.as_ref(),
-            PhysicalRelationId {
-                table_id,
-                partition_id: self.storage.physical_partition_id(target_partition),
-            },
-            key.clone(),
+        delete_pinned_local(
+            &self.tx_lock,
+            &self.storage,
+            tx_mgr,
+            table_id,
+            target_partition,
+            key,
         )
-        .await?;
-        let deleted = self
-            .storage
-            .remove_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
-            .await?;
-        Ok(usize::from(deleted.is_some()))
+        .await
+    }
+
+    /// Delete with explicit partition pinning: skips key-based routing and
+    /// targets `target_partition` directly. Queue rows route this way because
+    /// their `__seq` key does not carry the queue's partition-route column.
+    pub(crate) async fn delete_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        pred_key: &VecDatum,
+    ) -> RS<usize> {
+        let key = build_key_tuple(pred_key, &desc)?;
+        if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
+            match self.resolve_partition_worker(partition_id).await? {
+                Some(worker_id) if worker_id != self.worker_id => {
+                    let relation_id = PhysicalRelationId {
+                        table_id,
+                        partition_id,
+                    };
+                    let exists = match tx_mgr.get_relation(relation_id, &key) {
+                        Some(staged) => staged.is_some(),
+                        None => self
+                            .lock_remote_key_for_update(
+                                tx_mgr.as_ref(),
+                                worker_id,
+                                table_id,
+                                partition_id,
+                                key.clone(),
+                                vec![],
+                            )
+                            .await?
+                            .is_some(),
+                    };
+                    if !exists {
+                        return Ok(0);
+                    }
+                    tx_mgr.delete_relation(relation_id, key);
+                    return Ok(1);
+                }
+                _ => {}
+            }
+        }
+        delete_pinned_local(
+            &self.tx_lock,
+            &self.storage,
+            tx_mgr,
+            table_id,
+            target_partition,
+            key,
+        )
+        .await
     }
 }

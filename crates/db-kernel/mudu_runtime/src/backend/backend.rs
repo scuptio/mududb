@@ -47,10 +47,10 @@ impl Backend {
             tcp_listen_port = cfg.tcp_listen_port,
             "starting mudud backend"
         );
-        if cfg.replication.is_some() && !cfg.uses_mududb_kernel() {
+        if cfg.data_plane.is_some() && !cfg.uses_mududb_kernel() {
             return Err(mudu_error!(
                 ErrorCode::InvalidArgument,
-                "replication requires the mududb kernel (server_mode \"Tokio\"); the legacy backend does not support replication"
+                "cluster topology requires the mududb kernel (server_mode \"Tokio\"); the legacy backend does not support replication"
             ));
         }
         if cfg.server_mode == ServerMode::IOUring {

@@ -3,6 +3,7 @@ use crate::data_type::DataType;
 use crate::data_type_fn_arbitrary::FnArbitrary;
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::{Arbitrary, Unstructured};
 
 pub fn fn_binary_arb_object(u: &mut Unstructured, _: &DataType) -> arbitrary::Result<DataValue> {

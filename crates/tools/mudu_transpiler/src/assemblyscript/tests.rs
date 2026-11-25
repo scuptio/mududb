@@ -2,8 +2,8 @@
 #![allow(missing_docs)]
 
 use crate::assemblyscript::parser::discover_procedures;
-use crate::assemblyscript::procedure::{AsParam, AsProcedure, AsValueType};
 use crate::assemblyscript::render::{render_adapter_source, render_wit};
+use crate::assemblyscript::types::{AsParam, AsProcedure, AsValueType};
 use crate::mtp::main_inner;
 use std::error::Error;
 use std::path::Path;
@@ -440,9 +440,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
     });
     let i32_type = serde_json::json!({ "id": "I32", "param": null });
     let address_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Address",
                 "field": [
                     ["city", string_type],
@@ -452,9 +452,9 @@ fn shop_desc_type_jsons() -> (serde_json::Value, serde_json::Value, serde_json::
         }
     });
     let profile_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Profile",
                 "field": [
                     ["display-name", string_type],

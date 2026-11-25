@@ -129,7 +129,7 @@
       "direction": "response",
       "note": "query result whose record field omits the variant field_type (default case scalar(bool)) and field_attrs, and whose result_set is absent",
       "expect": {
-        "record_name": "t",
+        "struct_name": "t",
         "fields": [
           {
             "field_name": "a",

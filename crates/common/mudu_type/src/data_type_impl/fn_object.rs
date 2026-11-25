@@ -5,9 +5,10 @@ use crate::data_type::DataType;
 use crate::data_type_fn_convert::FnBase;
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use std::collections::HashMap;
 
-use crate::data_type_param_record::DataTypeParamRecord;
+use crate::data_type_param_struct::DataTypeParamStruct;
 use crate::type_error::{TyEC, TyErr};
 use mudu::utils::bin_size::BinSize;
 use mudu::utils::bin_slot::BinSlot;
@@ -56,12 +57,12 @@ pub fn fn_object_in_json(json: &JsonValue, ty: &DataType) -> Result<DataValue, T
         let dat_val = id.fn_input_json()(field_json, ty)?;
         object_fields.push(dat_val);
     }
-    Ok(DataValue::from_record(object_fields))
+    Ok(DataValue::from_struct(object_fields))
 }
 
 pub fn fn_object_out_json(v: &DataValue, dt: &DataType) -> Result<DataJson, TyErr> {
     let param = object_param(dt);
-    let datum_object: &Vec<DataValue> = v.expect_record();
+    let datum_object: &Vec<DataValue> = v.expect_struct();
     if datum_object.len() != param.fields().len() {
         return Err(TyErr::new(
             TyEC::TypeConvertFailed,
@@ -132,12 +133,12 @@ pub fn fn_object_in_msgpack(msg_pack: &MsgPackValue, ty: &DataType) -> Result<Da
             }
         }
     }
-    Ok(DataValue::from_record(vec))
+    Ok(DataValue::from_struct(vec))
 }
 
 pub fn fn_object_out_msgpack(v: &DataValue, ty: &DataType) -> Result<MsgPackValue, TyErr> {
     let param = object_param(ty);
-    let opt_object = v.as_record();
+    let opt_object = v.as_struct();
     let obj = match opt_object {
         Some(map) => map,
         None => {
@@ -180,7 +181,7 @@ pub fn fn_object_dat_output_len(
 ) -> Result<u32, TyErr> {
     let param = object_param(data_type);
     let mut size = header_size(param.fields().len()) as u32;
-    let datum_object: &Vec<DataValue> = data_value.expect_record();
+    let datum_object: &Vec<DataValue> = data_value.expect_struct();
     if datum_object.len() != param.fields().len() {
         return Err(TyErr::new(
             TyEC::TypeConvertFailed,
@@ -212,7 +213,7 @@ pub fn fn_object_send_to(
     buf: &mut [u8],
 ) -> Result<u32, TyErr> {
     let param = object_param(data_type);
-    let datum_object: &Vec<DataValue> = value.expect_record();
+    let datum_object: &Vec<DataValue> = value.expect_struct();
     if datum_object.len() != param.fields().len() {
         return Err(TyErr::new(
             TyEC::TypeConvertFailed,
@@ -249,6 +250,12 @@ pub fn fn_object_send_to(
 pub fn fn_object_recv(binary: &[u8], data_type: &DataType) -> Result<(DataValue, u32), TyErr> {
     let param = object_param(data_type);
     let hdr_size = header_size(param.fields().len());
+    if binary.len() < hdr_size {
+        return Err(TyErr::new(
+            TyEC::InsufficientSpace,
+            "truncated record header".to_string(),
+        ));
+    }
     let size = BinSize::from_slice(binary).size();
     if size as usize > binary.len() || hdr_size > binary.len() {
         return Err(TyErr::new(
@@ -267,11 +274,11 @@ pub fn fn_object_recv(binary: &[u8], data_type: &DataType) -> Result<(DataValue,
         )?;
         vec_fields.push(data_value);
     }
-    Ok((DataValue::from_record(vec_fields), size))
+    Ok((DataValue::from_struct(vec_fields), size))
 }
 
 pub fn fn_object_default(ty: &DataType) -> Result<DataValue, TyErr> {
-    if ty.type_family() != TypeFamily::Record {
+    if ty.type_family() != TypeFamily::Struct {
         return Err(TyErr::new(
             TyEC::TypeConvertFailed,
             "expected a object type".to_string(),
@@ -284,11 +291,11 @@ pub fn fn_object_default(ty: &DataType) -> Result<DataValue, TyErr> {
         fields.push(value);
     }
 
-    Ok(DataValue::from_record(fields))
+    Ok(DataValue::from_struct(fields))
 }
 
-fn object_param(data_type: &DataType) -> &DataTypeParamRecord {
-    data_type.expect_record_param()
+fn object_param(data_type: &DataType) -> &DataTypeParamStruct<DataType> {
+    data_type.expect_struct_param()
 }
 
 pub const FN_OBJECT_CONVERT: FnBase = FnBase {

@@ -66,6 +66,25 @@ pub fn build_multi_thread_runtime() -> RS<TaskRuntime> {
         .map_err(|e| mudu_error!(ErrorCode::Tokio, "create multi thread runtime error", e))
 }
 
+/// Builds one protocol owner executor with a bounded, shared blocking IO pool.
+/// Multiple serialized protocol tasks can share this runtime.
+pub fn build_serial_io_runtime(max_blocking_threads: usize) -> RS<TaskRuntime> {
+    if max_blocking_threads == 0 {
+        return Err(mudu_error!(
+            ErrorCode::InvalidArgument,
+            "blocking IO thread limit must be positive"
+        ));
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .max_blocking_threads(max_blocking_threads)
+        .thread_name("mudu-protocol")
+        .enable_all()
+        .build()
+        .map(TaskRuntime::new)
+        .map_err(|e| mudu_error!(ErrorCode::Tokio, "create serial IO runtime error", e))
+}
+
 /// A current-thread Tokio runtime paired with a [`LocalTaskSet`] for
 /// running `!Send` futures.
 pub struct CurrentThreadTaskRuntime {
@@ -78,6 +97,25 @@ impl CurrentThreadTaskRuntime {
     pub fn new() -> RS<Self> {
         Ok(Self {
             runtime: build_current_thread_runtime()?,
+            local: LocalTaskSet::new(),
+        })
+    }
+
+    /// Creates a local runtime with a bounded blocking IO pool.
+    pub fn with_max_blocking_threads(max_blocking_threads: usize) -> RS<Self> {
+        if max_blocking_threads == 0 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "blocking IO thread limit must be positive"
+            ));
+        }
+        let inner = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(max_blocking_threads)
+            .enable_all()
+            .build()
+            .map_err(|e| mudu_error!(ErrorCode::Tokio, "create local IO runtime error", e))?;
+        Ok(Self {
+            runtime: TaskRuntime::new(inner),
             local: LocalTaskSet::new(),
         })
     }
@@ -225,4 +263,64 @@ pub fn wait_for_shutdown_signal(stop: Notifier) {
 /// Returns `true` if called from within a Tokio runtime context.
 pub fn has_tokio_runtime() -> bool {
     tokio::runtime::Handle::try_current().is_ok()
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_block_on_enter_and_tokio_handle() {
+        let runtime = build_current_thread_runtime().unwrap();
+        assert_eq!(runtime.block_on(async { 2 }), 2);
+        let _tokio = runtime.as_tokio_runtime();
+        {
+            let _guard = runtime.enter();
+        }
+        let multi = build_multi_thread_runtime().unwrap();
+        assert_eq!(multi.block_on(async { 3 }), 3);
+    }
+
+    #[test]
+    fn current_thread_task_runtime_local_and_block_on() {
+        let crt = CurrentThreadTaskRuntime::new().unwrap();
+        let _local = crt.local();
+        assert_eq!(crt.block_on(async { 5 }), 5);
+    }
+
+    #[test]
+    fn bounded_local_runtime_supports_thread_confined_tasks() {
+        assert!(CurrentThreadTaskRuntime::with_max_blocking_threads(0).is_err());
+        let runtime = CurrentThreadTaskRuntime::with_max_blocking_threads(1).unwrap();
+        runtime.block_on(async {
+            let value = std::rc::Rc::new(17);
+            let task = spawn_local_detached("local-runtime-test", async move {
+                tokio::task::yield_now().await;
+                *value
+            })
+            .unwrap();
+            assert_eq!(task.await.unwrap(), Some(17));
+        });
+    }
+
+    #[test]
+    fn block_on_helpers_run_to_completion() {
+        assert_eq!(block_on_tokio_current_thread(async { 9 }).unwrap(), 9);
+        assert_eq!(block_on_async_current(async { 10 }), 10);
+    }
+
+    #[test]
+    fn has_tokio_runtime_reflects_context() {
+        assert!(!has_tokio_runtime());
+        let runtime = build_current_thread_runtime().unwrap();
+        runtime.block_on(async { assert!(has_tokio_runtime()) });
+    }
+
+    #[test]
+    fn wait_for_shutdown_signal_returns_immediately_when_notified() {
+        let (notifier, _waiter) = crate::imp::sync::async_::notify_wait();
+        notifier.notify_all();
+        wait_for_shutdown_signal(notifier);
+    }
 }

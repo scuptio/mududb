@@ -31,7 +31,7 @@ pub struct AsCodecStyle {
     pub bytes_as_array: bool,
 }
 
-/// Record/variant definition context: `list<u8>` is a MessagePack array.
+/// Struct/variant definition context: `list<u8>` is a MessagePack array.
 pub const AS_STYLE_RECORD: AsCodecStyle = AsCodecStyle {
     bytes_as_array: true,
 };
@@ -277,7 +277,7 @@ pub fn as_encode_stmts(
         UniDataType::Box(inner) => {
             return as_encode_stmts(style, inner, expr, indent, out);
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!(
@@ -349,7 +349,7 @@ pub fn as_decode_stmts(
         UniDataType::Box(inner) => {
             return as_decode_stmts(style, inner, target, indent, out, namer);
         }
-        UniDataType::Result(_) | UniDataType::Record { .. } => {
+        UniDataType::Result(_) | UniDataType::Struct { .. } => {
             return Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!(
@@ -550,7 +550,7 @@ mod tests {
     fn option_encoding_uses_narrowed_local_without_assertion() {
         for inner in [
             UniDataType::Array(Box::new(UniDataType::Scalar(UniScalar::String))),
-            UniDataType::Identifier("uni-record-type".to_string()),
+            UniDataType::Identifier("uni-struct-type".to_string()),
             UniDataType::Binary,
         ] {
             for style in [AS_STYLE_RECORD, AS_STYLE_FUNC] {

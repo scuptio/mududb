@@ -6,24 +6,24 @@
 use crate::raft_service::raft_frame_to_msg;
 use crate::{
     raft_for, read_next_frame, record_repl_ack, register_repl_subscriber, repl_worker,
-    unregister_repl_subscriber, ReplWorkerState,
+    unregister_repl_subscriber,
 };
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::repl_cfg::ReplNodeCfg;
 use ::wal::log_frame::frame_lsn;
 use ::wal::worker_log::{scan_valid_frame_prefix, ChunkedWorkerLogBackend, WorkerLogBackend};
 use ::worker::worker::adopt_worker_listener;
 use ::worker::worker::WorkerRuntime;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::protocol::{
-    decode_repl_ack_frame, decode_repl_heal_fetch_request, decode_repl_snapshot_fetch_request,
-    decode_repl_subscribe_request, encode_merror_response, encode_merror_response_with_leader_hint,
-    encode_repl_batch_frame, encode_repl_heal_response_frame, encode_repl_snapshot_offer_frame,
-    encode_repl_snapshot_resp_frame, encode_repl_subscribe_accept_frame, LeaderHint, MessageType,
-    ReplBatchFrame, ReplHealRespFrame, ReplSnapshotFetchReq, ReplSnapshotOfferFrame,
-    ReplSnapshotRespFrame, ReplSubscribeAcceptFrame, ReplSubscribeReq,
+    decode_repl_ack_frame, decode_repl_snapshot_fetch_request, decode_repl_subscribe_request,
+    encode_merror_response, encode_merror_response_with_leader_hint, encode_repl_batch_frame,
+    encode_repl_snapshot_offer_frame, encode_repl_snapshot_resp_frame,
+    encode_repl_subscribe_accept_frame, Frame, LeaderHint, MessageType, ReplBatchFrame,
+    ReplSnapshotFetchReq, ReplSnapshotOfferFrame, ReplSnapshotRespFrame, ReplSubscribeAcceptFrame,
+    ReplSubscribeReq,
 };
 use mudu_sys::contract::async_file::AsyncFile;
 use mudu_sys::contract::file_options::FileOptions;
@@ -36,7 +36,6 @@ use mudu_sys::tokio::io::AsyncWriteExt;
 use mudu_sys::tokio::sync::mpsc::unbounded_channel;
 use mudu_sys::tokio::sync::Notify;
 use mudu_utils::task_async::{spawn_local_detached, CurrentThreadTaskRuntime};
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -156,24 +155,6 @@ async fn handle_repl_conn(
                 // recorded. Followers never send standalone acks.
                 trace!("ignoring replication ack outside a subscription");
             }
-            MessageType::ReplHealFetch => {
-                let fetch = decode_repl_heal_fetch_request(&frame)?;
-                let handle = repl_worker(server_instance_id, fetch.worker_id())?;
-                let frames = gather_frames_for_heal(
-                    handle.worker(),
-                    handle.state(),
-                    fetch.lsn_lo(),
-                    fetch.lsn_hi(),
-                )
-                .await?;
-                let payload = encode_repl_heal_response_frame(
-                    frame.header().request_id(),
-                    &ReplHealRespFrame::new(fetch.worker_id(), frames),
-                )?;
-                stream.write_all(&payload).await.map_err(|e| {
-                    mudu_error!(ErrorCode::Network, "write repl heal response error", e)
-                })?;
-            }
             MessageType::ReplSnapshotFetch => {
                 let fetch = decode_repl_snapshot_fetch_request(&frame)?;
                 let payload =
@@ -181,6 +162,21 @@ async fn handle_repl_conn(
                         .await?;
                 stream.write_all(&payload).await.map_err(|e| {
                     mudu_error!(ErrorCode::Network, "write repl snapshot response error", e)
+                })?;
+            }
+            MessageType::ReplStreamPush
+            | MessageType::ReplStreamFetch
+            | MessageType::ReplStreamProgress => {
+                let request_id = frame.header().request_id();
+                let kind = frame.header().message_type();
+                let result =
+                    handle_stream_frame(server_instance_id, kind, frame.into_payload()).await;
+                let payload = match result {
+                    Ok(payload) => Frame::new(kind, request_id, payload).encode(),
+                    Err(err) => encode_merror_response(request_id, &err)?,
+                };
+                stream.write_all(&payload).await.map_err(|e| {
+                    mudu_error!(ErrorCode::Network, "write repl stream response error", e)
                 })?;
             }
             other => {
@@ -466,7 +462,7 @@ async fn run_subscription_stream(
     let flow = Arc::new(ReplFlowWindow::new(
         repl_cfg.repl_flow_window_segments().max(1),
     ));
-    let (out_tx, mut out_rx) = unbounded_channel::<Vec<u8>>();
+    let (_out_tx, mut out_rx) = unbounded_channel::<Vec<u8>>();
     let (conn_stop_tx, conn_stop_rx) = stop_channel();
 
     // Reader half: acks advance the flow window and are recorded; heal
@@ -476,9 +472,6 @@ async fn run_subscription_stream(
         worker_index,
         src_node_id,
         flow: flow.clone(),
-        out_tx,
-        worker: handle.worker().clone(),
-        state: handle.state().clone(),
     };
     let reader_join = spawn_local_detached("repl_stream_reader", async move {
         reader_ctx.run(reader, initial_buf, conn_stop_rx).await
@@ -521,9 +514,6 @@ struct StreamReaderCtx {
     worker_index: u32,
     src_node_id: u64,
     flow: Arc<ReplFlowWindow>,
-    out_tx: mudu_sys::tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-    worker: Arc<WorkerRuntime>,
-    state: Arc<ReplWorkerState>,
 }
 
 impl StreamReaderCtx {
@@ -553,26 +543,6 @@ impl StreamReaderCtx {
                         )?;
                         self.flow.ack_one();
                     }
-                }
-                MessageType::ReplHealFetch => {
-                    let fetch = decode_repl_heal_fetch_request(&frame)?;
-                    if fetch.worker_id() != self.worker_index {
-                        continue;
-                    }
-                    let frames = gather_frames_for_heal(
-                        &self.worker,
-                        &self.state,
-                        fetch.lsn_lo(),
-                        fetch.lsn_hi(),
-                    )
-                    .await?;
-                    let payload = encode_repl_heal_response_frame(
-                        frame.header().request_id(),
-                        &ReplHealRespFrame::new(self.worker_index, frames),
-                    )?;
-                    self.out_tx.send(payload).map_err(|_| {
-                        mudu_error!(ErrorCode::ChannelClosed, "repl outgoing queue closed")
-                    })?;
                 }
                 other => {
                     return Err(mudu_error!(
@@ -796,7 +766,7 @@ impl ChunkCursor {
                 let index = chunks.iter().position(|candidate| candidate == path);
                 if index.is_none() {
                     return Err(mudu_error!(
-                        ErrorCode::EntityNotFound,
+                        ErrorCode::ObjectNotFound,
                         format!("replicated worker log chunk {} disappeared", path.display())
                     ));
                 }
@@ -817,60 +787,101 @@ impl ChunkCursor {
     }
 }
 
-/// Collects all frames with `lsn_lo <= lsn < lsn_hi` across the worker log's
-/// chunks, in log order.
-async fn gather_frames_in_range(
-    log: &ChunkedWorkerLogBackend,
-    lsn_lo: u64,
-    lsn_hi: u64,
-) -> RS<Vec<Vec<u8>>> {
-    let fs = log.fs();
-    let mut frames = Vec::new();
-    for path in log.chunk_paths_sorted().await? {
-        let bytes = fs.read_all(&path).await?;
-        if bytes.is_empty() {
-            continue;
-        }
-        let prefix = scan_valid_frame_prefix(&bytes);
-        for frame in prefix.frames {
-            let lsn = frame_lsn(&frame)?.as_u64();
-            if lsn >= lsn_hi {
-                return Ok(frames);
-            }
-            if lsn >= lsn_lo {
-                frames.push(frame);
-            }
-        }
-    }
-    Ok(frames)
+#[cfg(test)]
+#[path = "source_test.rs"]
+mod tests;
+
+/// The receiver-side session table of the data-plane stream handlers.
+fn stream_receiver_sessions() -> &'static crate::log_stream::ReceiverSessions {
+    static SESSIONS: std::sync::OnceLock<crate::log_stream::ReceiverSessions> =
+        std::sync::OnceLock::new();
+    SESSIONS.get_or_init(crate::log_stream::ReceiverSessions::new)
 }
 
-/// Collects the frames `[lsn_lo, lsn_hi)` a voter can serve for healing:
-/// the union of the worker WAL and the staging store, in LSN order, with
-/// WAL content winning on overlap (the promoted prefix is the
-/// committed-trusted one).
-async fn gather_frames_for_heal(
-    worker: &Arc<WorkerRuntime>,
-    state: &Arc<ReplWorkerState>,
-    lsn_lo: u64,
-    lsn_hi: u64,
-) -> RS<Vec<Vec<u8>>> {
-    let Some(log) = worker.worker_log()? else {
-        return Err(mudu_error!(
-            ErrorCode::Internal,
-            "replication target worker has no worker log"
-        ));
+/// Handles one data-plane stream frame (push/fetch/progress) against the
+/// local data-plane service, returning the response payload.
+async fn handle_stream_frame(
+    server_instance_id: ServerInstanceId,
+    kind: MessageType,
+    payload: Vec<u8>,
+) -> RS<Vec<u8>> {
+    use catalog::contract::control_plane::{
+        StreamFetchRequest, StreamFetchResponse, StreamProgressRequest, StreamProgressResponse,
+        StreamPushRequest, StreamPushResponse,
     };
-    let mut by_lsn: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
-    if let Some(staging) = state.staging()? {
-        for frame in staging.frames_in_range(lsn_lo, lsn_hi).await? {
-            let lsn = frame_lsn(&frame)?.as_u64();
-            by_lsn.insert(lsn, frame);
+    let service = crate::data_plane::data_plane_for(server_instance_id).ok_or_else(|| {
+        mudu_error!(
+            ErrorCode::InvalidState,
+            "stream frame arrived but the data plane is not running"
+        )
+    })?;
+    match kind {
+        MessageType::ReplStreamPush => {
+            let request: StreamPushRequest = rmp_serde::from_slice(&payload)
+                .map_err(|e| mudu_error!(ErrorCode::Decode, "decode stream push", e))?;
+            let session =
+                stream_receiver_sessions().session_for(request.from_node, request.session_id)?;
+            let round = crate::log_stream::wire::round_from_wire(&request.round);
+            // The sink-pause test hook simulates a lagging replica: the frame
+            // is neither stored nor acked, so the leader's quorum gate stays
+            // closed for the segment that carries it.
+            let ack = if service.share().sink_paused() {
+                None
+            } else {
+                service
+                    .group()
+                    .receive(request.from_node, &session, &round, &request.frame)
+                    .await?
+            };
+            let response = StreamPushResponse {
+                ack: ack.map(|ack| crate::log_stream::wire::ack_to_wire(&ack)),
+            };
+            rmp_serde::to_vec(&response)
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode stream push response", e))
         }
+        MessageType::ReplStreamFetch => {
+            let request: StreamFetchRequest = rmp_serde::from_slice(&payload)
+                .map_err(|e| mudu_error!(ErrorCode::Decode, "decode stream fetch", e))?;
+            let frame = service
+                .group()
+                .fetch(crate::log_stream::StreamFetch {
+                    identity: mudu_raft::stream::GroupIdobject {
+                        cluster_id: request.cluster_id,
+                        group_id: mudu_raft::stream::GroupId(request.group_id),
+                        generation: request.group_generation,
+                    },
+                    stream_id: mudu_raft::stream::StreamId(request.stream_id),
+                    stream_generation: request.stream_generation,
+                    lsn: request.lsn,
+                })
+                .await?;
+            let response = StreamFetchResponse { frame };
+            rmp_serde::to_vec(&response)
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode stream fetch response", e))
+        }
+        MessageType::ReplStreamProgress => {
+            let request: StreamProgressRequest = rmp_serde::from_slice(&payload)
+                .map_err(|e| mudu_error!(ErrorCode::Decode, "decode stream progress", e))?;
+            let progress = service
+                .group()
+                .peer_progress_at(mudu_raft::stream::StreamId(request.stream_id), request.lsn)
+                .await?;
+            let response = StreamProgressResponse {
+                progress: progress.map(|progress| {
+                    catalog::contract::control_plane::StreamProgressWire {
+                        stream_id: progress.stream_id.0,
+                        stream_generation: progress.stream_generation,
+                        end_lsn: progress.end_lsn,
+                        segment_digest: progress.segment_digest,
+                    }
+                }),
+            };
+            rmp_serde::to_vec(&response)
+                .map_err(|e| mudu_error!(ErrorCode::Encode, "encode stream progress response", e))
+        }
+        _ => Err(mudu_error!(
+            ErrorCode::Parse,
+            format!("unexpected stream frame kind {kind:?}")
+        )),
     }
-    for frame in gather_frames_in_range(&log, lsn_lo, lsn_hi).await? {
-        let lsn = frame_lsn(&frame)?.as_u64();
-        by_lsn.insert(lsn, frame);
-    }
-    Ok(by_lsn.into_values().collect())
 }

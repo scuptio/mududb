@@ -106,7 +106,7 @@ fn gen_message_dir<I: AsRef<Path>, O: AsRef<Path>>(
         }
         for record_def in &wit_dat.records {
             cfg.type_kinds.insert(
-                to_pascal_case(&record_def.record_name),
+                to_pascal_case(&record_def.struct_name),
                 "record".to_string(),
             );
         }
@@ -245,7 +245,7 @@ fn write_module_index(output_dir: &Path, lang: LangKind, stems: &[String]) -> RS
             s
         }
         LangKind::C | LangKind::Go => {
-            // C/Go entity files are self-contained; no per-file index.
+            // C/Go object files are self-contained; no per-file index.
             String::new()
         }
     };

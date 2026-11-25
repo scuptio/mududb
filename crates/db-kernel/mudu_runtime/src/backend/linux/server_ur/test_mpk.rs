@@ -33,8 +33,23 @@ fn reserve_port() -> Option<u16> {
     }
 }
 
+// Boot budget for a full backend: 30 s on regular builds, 10 min under
+// sanitizer instrumentation (the CI sanitizer job exports ASAN_OPTIONS /
+// LSAN_OPTIONS), which slows wasmtime component compilation ~15-25x. Mirrors
+// `testing::support::backend_startup_timeout`, which this crate cannot import
+// (`testing` depends on `mudu_runtime`, so the reverse would be a cycle).
+fn server_ready_timeout() -> Duration {
+    if mudu_sys::env_var::var("ASAN_OPTIONS").is_some()
+        || mudu_sys::env_var::var("LSAN_OPTIONS").is_some()
+    {
+        Duration::from_secs(600)
+    } else {
+        Duration::from_secs(30)
+    }
+}
+
 fn wait_until_server_ready(port: u16) {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
+    let deadline = mudu_sys::time::instant_now() + server_ready_timeout();
     while mudu_sys::time::instant_now() < deadline {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
         if mudu_sys::net::sync::connect_tcp(addr).is_ok() {

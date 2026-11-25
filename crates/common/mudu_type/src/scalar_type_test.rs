@@ -59,7 +59,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "ScalarType id must be scalar type")]
     fn test_new_default_panics_for_record() {
-        ScalarType::new_default(TypeFamily::Record);
+        ScalarType::new_default(TypeFamily::Struct);
     }
 
     #[test]

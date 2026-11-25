@@ -19,7 +19,7 @@ DOTNET_NOLOGO = "1"
 # Transpile the `// mudu-proc` methods of src/Procedures.cs into the
 # componentize-dotnet exports class, the world WIT and the procedure
 # description — the three artifacts that used to be maintained by hand.
-# --type-wit registers the project record types (wit/types.wit) so procedure
+# --type-wit registers the project struct types (wit/types.wit) so procedure
 # signatures may use them; --type-import is the C# namespace of the
 # mgen-generated types (see the gentypes task).
 [tasks.transpile]
@@ -35,7 +35,7 @@ args = [
     "csharp",
 ]
 
-# Generate the C# message types of the project WIT records (item-info) with
+# Generate the C# message types of the project WIT structs (item-info) with
 # mgen: Types.cs carries the structs plus their XxxFormatter MessagePack
 # codecs (raw MessagePackReader/MessagePackWriter paths only — WASI-safe,
 # unlike the static MessagePackSerializer paths). --namespace sets the C#
@@ -63,12 +63,12 @@ args = [
     "${CARGO_MAKE_WORKING_DIRECTORY}/wit/world.wit",
 ]
 
-# Generate typed entity bindings from the DDL schema into src/ (one file per
+# Generate typed object bindings from the DDL schema into src/ (one file per
 # table, in the global namespace; e.g. `Items` from src/items.cs).
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/src",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",

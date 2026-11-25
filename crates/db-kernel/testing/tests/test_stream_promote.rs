@@ -2,7 +2,7 @@
 //! promotion, runtime follow, epoch monotonicity with zombie rejection,
 //! and stored-role restart behavior.
 //!
-//! Scenario: 3-node stream cluster — kill the primary → promote a replica
+//! Scenario: 3-node stream cluster — kill the primary → promote a StreamFollower
 //! (epoch advances) → the other replica follows the new primary and
 //! converges → the zombie old primary comes back still believing it is
 //! primary (stored role) with the old epoch: its stream is rejected by the
@@ -17,20 +17,18 @@
 
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
-use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{
-    MuduDBCfg, ReplicationCfg, ReplicationPeer, RoutingMode, ServerMode, StreamCfg,
+    DataGroupCfg, DataMemberCfg, DataPlaneCfg, DataReplicaCfg, MuduDBCfg, NODE_ID_FILE_NAME,
+    RoutingMode, ServerMode, StreamCfg,
 };
 use mudu_sys::fs::sync::{create_dir_all, read_to_string, remove_dir_all};
-use mudu_sys::net::sync::SStdTcpStream;
-use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
+use mudu_sys::task::sync::sleep_blocking;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
 use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
-use testing::{connect_sync_client_with_retry, reserve_port, wait_until_port_ready};
+use testing::{connect_sync_client_with_retry, reserve_port};
 
 const REPL_WAIT: Duration = Duration::from_secs(45);
 
@@ -48,6 +46,19 @@ fn stream_promote_failover_epoch_and_zombie_rejection() -> RS<()> {
         eprintln!("skip stream promote test: local TCP/HTTP bind is not permitted");
         return Ok(());
     };
+    // On an early failure, stop every node quietly first: a peer server that
+    // exits with its own error during teardown (e.g. its control-plane
+    // bootstrap timing out once the cluster has lost a member) must not mask
+    // the real cause — `RunningServer`'s drop panics on a server-thread
+    // error.
+    let result = run_stream_promote_scenario(&mut cluster);
+    if result.is_err() {
+        cluster.stop_all_quietly();
+    }
+    result
+}
+
+fn run_stream_promote_scenario(cluster: &mut Cluster) -> RS<()> {
     cluster.start_nodes(&[1, 2, 3])?;
 
     let batch_a = make_batch("pm-a", 6);
@@ -56,12 +67,10 @@ fn stream_promote_failover_epoch_and_zombie_rejection() -> RS<()> {
         cluster.wait_values(node_id, &batch_a)?;
     }
 
-    let mut committed = promote_replica_and_converge_follower(&mut cluster, &batch_a)?;
-    refused_promote_leaves_replica_role(&cluster)?;
-    zombie_old_primary_stays_isolated(&mut cluster, &committed)?;
-    restart_keeps_stored_roles(&mut cluster, &mut committed)?;
-
-    drop(cluster);
+    let mut committed = promote_replica_and_converge_follower(cluster, &batch_a)?;
+    refused_promote_leaves_replica_role(cluster)?;
+    zombie_old_primary_stays_isolated(cluster, &committed)?;
+    restart_keeps_stored_roles(cluster, &mut committed)?;
     Ok(())
 }
 
@@ -83,13 +92,8 @@ fn promote_replica_and_converge_follower(
     cluster.put_all(2, &batch_b)?;
 
     // Node 3 follows the new primary and converges.
-    follow(
-        cluster.node(3).http_port,
-        2,
-        "127.0.0.1",
-        cluster.node(2).repl_port,
-    )
-    .map_err(|e| mudu::mudu_error!(mudu::error::ErrorCode::Network, e))?;
+    follow(cluster.node(3).http_port, cluster.node(2))
+        .map_err(|e| mudu::mudu_error!(mudu::error::ErrorCode::Network, e))?;
     let mut committed = batch_a.to_vec();
     committed.extend(batch_b.clone());
     cluster.wait_values(3, &committed)?;
@@ -133,13 +137,8 @@ fn zombie_old_primary_stays_isolated(
 
     // Pointing the replica at the zombie is rejected by the zombie itself:
     // the replica knows epoch 2, the zombie is at epoch 1.
-    let err = follow(
-        cluster.node(3).http_port,
-        1,
-        "127.0.0.1",
-        cluster.node(1).repl_port,
-    )
-    .expect_err("following the zombie primary must be rejected");
+    let err = follow(cluster.node(3).http_port, cluster.node(1))
+        .expect_err("following the zombie primary must be rejected");
     assert!(
         err.contains("stale primary"),
         "unexpected stale-primary error text: {err}"
@@ -193,43 +192,21 @@ fn promote(http_port: u16, fencing_ok: bool) -> Result<serde_json::Value, String
     .map_err(|e| e.to_string())?
 }
 
-fn follow(
-    http_port: u16,
-    primary_node_id: u64,
-    primary_host: &str,
-    primary_port: u16,
-) -> Result<serde_json::Value, String> {
+fn follow(http_port: u16, primary: &ClusterNode) -> Result<serde_json::Value, String> {
+    // Fixture numbers identify node names, not their name-derived runtime IDs.
+    // Read the identity persisted by startup and keep it paired with its port.
+    let primary_node_id = read_to_string(primary.data_dir.join(NODE_ID_FILE_NAME))
+        .map_err(|e| e.to_string())?
+        .trim()
+        .parse::<u64>()
+        .map_err(|e| e.to_string())?;
+    let primary_port = primary.repl_port;
     let http_addr = format!("127.0.0.1:{http_port}");
-    let host = primary_host.to_string();
+    let host = "127.0.0.1".to_string();
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         mudu_client::management::repl_follow(&http_addr, primary_node_id, &host, primary_port).await
     })
     .map_err(|e| e.to_string())?
-}
-
-struct RunningServer {
-    stop: Notifier,
-    http_port: u16,
-    tcp_port: u16,
-    handle: Option<SJoinHandle<RS<()>>>,
-}
-
-impl Drop for RunningServer {
-    fn drop(&mut self) {
-        self.stop.notify_all();
-        if let Some(handle) = self.handle.take() {
-            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
-            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.http_port));
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.tcp_port));
-                sleep_blocking(Duration::from_millis(25));
-            }
-            let join_result = handle.join().expect("join server thread");
-            if let Err(err) = join_result {
-                panic!("server stopped with error: {err}");
-            }
-        }
-    }
 }
 
 struct ClusterNode {
@@ -238,9 +215,10 @@ struct ClusterNode {
     pg_port: u16,
     tcp_port: u16,
     repl_port: u16,
+    channel_port: u16,
     mpk_dir: PathBuf,
     data_dir: PathBuf,
-    server: Option<RunningServer>,
+    server: Option<InProcessServer>,
 }
 
 struct Cluster {
@@ -250,8 +228,8 @@ struct Cluster {
 
 impl Cluster {
     fn new(node_count: usize) -> RS<Option<Self>> {
-        let mut ports = Vec::with_capacity(node_count * 4);
-        for _ in 0..node_count * 4 {
+        let mut ports = Vec::with_capacity(node_count * 5);
+        for _ in 0..node_count * 5 {
             let Some(port) = reserve_port()? else {
                 return Ok(None);
             };
@@ -268,10 +246,11 @@ impl Cluster {
             create_dir_all(&data_dir)?;
             nodes.push(ClusterNode {
                 node_id,
-                http_port: ports[index * 4],
-                pg_port: ports[index * 4 + 1],
-                tcp_port: ports[index * 4 + 2],
-                repl_port: ports[index * 4 + 3],
+                http_port: ports[index * 5],
+                pg_port: ports[index * 5 + 1],
+                tcp_port: ports[index * 5 + 2],
+                repl_port: ports[index * 5 + 3],
+                channel_port: ports[index * 5 + 4],
                 mpk_dir,
                 data_dir,
                 server: None,
@@ -315,25 +294,33 @@ impl Cluster {
         Ok(())
     }
 
-    fn start_server(node: &ClusterNode, nodes: &[ClusterNode]) -> RS<RunningServer> {
-        let cfg = Self::build_cfg(node, nodes);
-        let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
-        let handle = spawn_thread(move || {
-            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        })?;
-        wait_until_port_ready(node.http_port, "HTTP")?;
-        wait_until_worker_port_ready(node.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
-        Ok(RunningServer {
-            stop,
-            http_port: node.http_port,
-            tcp_port: node.tcp_port,
-            handle: Some(handle),
-        })
+    /// Stops every running node without propagating server errors; used on a
+    /// test-failure path where the original error is the one to report.
+    fn stop_all_quietly(&mut self) {
+        for node in &mut self.nodes {
+            if let Some(mut server) = node.server.take()
+                && let Err(err) = server.stop_and_join()
+            {
+                eprintln!(
+                    "node {} server stopped with error during failure teardown: {err}",
+                    node.node_id
+                );
+            }
+        }
+    }
+
+    fn start_server(node: &ClusterNode, nodes: &[ClusterNode]) -> RS<InProcessServer> {
+        InProcessServer::start(Self::build_cfg(node, nodes))
     }
 
     fn build_cfg(node: &ClusterNode, nodes: &[ClusterNode]) -> MuduDBCfg {
+        let member = |peer: &ClusterNode| DataMemberCfg {
+            name: format!("node-{}", peer.node_id),
+            host: "127.0.0.1".to_string(),
+            channel_port: peer.channel_port,
+            client_port: peer.pg_port,
+            replication_port: peer.repl_port,
+        };
         MuduDBCfg {
             listen_ip: "127.0.0.1".to_string(),
             http_listen_port: node.http_port,
@@ -347,27 +334,28 @@ impl Cluster {
             component_target: Some(ComponentTarget::P2),
             mpk_path: node.mpk_dir.to_string_lossy().into_owned(),
             db_path: node.data_dir.to_string_lossy().into_owned(),
-            replication: Some(ReplicationCfg {
-                node_id: node.node_id,
-                listen_port: node.repl_port,
-                repl_flow_window_segments: 64,
-                snapshot_wal_threshold_bytes: 1024 * 1024 * 1024,
-                gc_check_interval_secs: 60,
-                stream: Some(StreamCfg {
-                    primary: node.node_id == 1,
-                    sync: false,
-                    sync_timeout_ms: 10000,
-                }),
-                raft: None,
-                peers: nodes
-                    .iter()
-                    .map(|peer| ReplicationPeer {
-                        node_id: peer.node_id,
-                        host: "127.0.0.1".to_string(),
-                        port: peer.repl_port,
-                    })
-                    .collect(),
+            name: Some(format!("node-{}", node.node_id)),
+            cluster: Some("cluster".to_string()),
+            channel_listen_port: Some(node.channel_port),
+            topology_version: Some(1),
+            data_plane: Some(DataPlaneCfg {
+                group: vec![DataGroupCfg {
+                    name: "grp-1".to_string(),
+                    worker_count: 1,
+                    replica: DataReplicaCfg {
+                        raft: None,
+                        stream: Some(StreamCfg {
+                            bootstrap_primary: "node-1".to_string(),
+                            sync: false,
+                            sync_timeout_ms: 10000,
+                        }),
+                        member: nodes.iter().map(member).collect(),
+                    },
+                }],
+                placements: vec![],
+                rebalance_interval_ms: 0,
             }),
+            control_plane: None,
             ..Default::default()
         }
     }

@@ -11,7 +11,7 @@ use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use std::any::Any;
 use std::sync::Arc;
 
-pub fn create_ls_conn(db_path: &str, app_name: &str, ddl_path: &str) -> RS<DBConn> {
+pub(crate) fn create_ls_conn(db_path: &str, app_name: &str, ddl_path: &str) -> RS<DBConn> {
     Ok(DBConn::Sync(Arc::new(LSConn::new(
         db_path, app_name, ddl_path,
     )?)))
@@ -21,7 +21,7 @@ struct LSConn {
     inner: Arc<LSSyncConn>,
 }
 
-pub fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection> {
+pub(crate) fn db_conn_get_libsql_connection(conn: &dyn DBConnSync) -> Option<Connection> {
     let inner = conn as &dyn Any;
     let opt_ls_conn = inner.downcast_ref::<LSConn>();
     opt_ls_conn.map(|ls_conn| ls_conn.inner.libsql_connection())

@@ -13,12 +13,12 @@ use crate::universal::uni_oid::UniOid;
 use crate::universal::uni_query_argv::UniQueryArgv;
 use crate::universal::uni_query_result::UniQueryResult;
 use crate::universal::uni_query_return::UniQueryReturn;
-use crate::universal::uni_record_type::{UniRecordField, UniRecordType};
 use crate::universal::uni_result_set::UniResultSet;
 use crate::universal::uni_scalar::UniScalar;
 use crate::universal::uni_scalar_value::UniScalarValue;
 use crate::universal::uni_sql_param::UniSqlParam;
 use crate::universal::uni_sql_stmt::UniSqlStmt;
+use crate::universal::uni_struct_type::{UniStructField, UniStructType};
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -89,9 +89,9 @@ fn sample_command_argv() -> UniCommandArgv {
 
 fn sample_query_result() -> UniQueryResult {
     UniQueryResult {
-        tuple_desc: UniRecordType {
-            record_name: "row".to_string(),
-            record_fields: vec![UniRecordField {
+        tuple_desc: UniStructType {
+            struct_name: "row".to_string(),
+            struct_fields: vec![UniStructField {
                 field_name: "c1".to_string(),
                 field_type: UniDataType::from_scalar(UniScalar::I32),
                 field_attrs: vec![],

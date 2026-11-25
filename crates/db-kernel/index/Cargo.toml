@@ -9,7 +9,20 @@ description = "B-tree index implementation and key encodings"
 workspace = true
 
 [dependencies]
+crc32c = { workspace = true }
+page_buffer = { workspace = true }
 mudu = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
+futures = { workspace = true }
+
+[features]
+# Instrumentation is compiled only into the unit-test benchmark executable.
+bench-alloc = []
+bench-profile = []
+
+[dev-dependencies]
+libc = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }

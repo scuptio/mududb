@@ -4,7 +4,7 @@
 #![allow(clippy::panic)]
 
 use crate::tuple::datum_desc::DatumDesc;
-use crate::tuple::nullable_tuple::{NullableValue, TupleBuilder, read_value};
+use crate::tuple::nullable_tuple::{NullableValue, TupleBuilder, is_null, read_value};
 use crate::tuple::tuple_binary_desc::TupleBinaryDesc;
 use crate::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu::error::ErrorCode;
@@ -29,6 +29,42 @@ fn physical_index(mapping: &[usize], logical_index: usize) -> usize {
         .iter()
         .position(|index| *index == logical_index)
         .unwrap()
+}
+
+#[test]
+fn null_probe_checks_bounds_and_ignores_value_payload() {
+    let (schema, mapping) = desc(vec![
+        DatumDesc::new("id".into(), i32_type()),
+        DatumDesc::new_nullable("name".into(), string_type(), true),
+    ]);
+    let id = physical_index(&mapping, 0);
+    let name = physical_index(&mapping, 1);
+    for value in [
+        NullableValue::Null,
+        NullableValue::Value(DataValue::from_string("value".into())),
+    ] {
+        let expected = matches!(value, NullableValue::Null);
+        let mut values = vec![NullableValue::Null; 2];
+        values[id] = NullableValue::Value(DataValue::from_i32(7));
+        values[name] = value;
+        let mut tuple = TupleBuilder::new(&schema).build(&values).unwrap();
+        assert!(!is_null(&tuple, &schema, id).unwrap());
+        assert_eq!(is_null(&tuple, &schema, name).unwrap(), expected);
+        // A null probe must not decode even a corrupt variable-length slot.
+        let offset = schema.get_field_desc(name).slot().offset();
+        tuple[offset..offset + crate::tuple::slot::Slot::size_of()].fill(255);
+        assert_eq!(is_null(&tuple, &schema, name).unwrap(), expected);
+        assert_eq!(
+            is_null(&tuple, &schema, 2).unwrap_err().ec(),
+            ErrorCode::IndexOutOfRange
+        );
+        assert_eq!(
+            is_null(&tuple[..schema.min_tuple_size() - 1], &schema, name)
+                .unwrap_err()
+                .ec(),
+            ErrorCode::Decode
+        );
+    }
 }
 
 #[test]

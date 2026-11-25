@@ -2,7 +2,7 @@
 
 mod enum_variant;
 mod func;
-mod record;
+mod struct_type;
 mod table;
 mod ty;
 
@@ -295,7 +295,7 @@ impl WitParser {
     /// field numbers, first field = 1).
     fn assign_wit_field_numbers(wit_dat: &mut WitDef) {
         for record in &mut wit_dat.records {
-            assign_field_numbers(&mut record.record_fields);
+            assign_field_numbers(&mut record.struct_fields);
         }
         for table in &mut wit_dat.tables {
             assign_field_numbers(&mut table.table_key);
@@ -409,6 +409,6 @@ mod test {
         let str = mudu_sys::fs::sync::sync_read_to_string(path).unwrap();
         let parser = WitParser {};
         let wit_dat = parser.parse_text(&str).unwrap();
-        println!("{:#?}", wit_dat);
+        assert_eq!(wit_dat.interface, vec!["binding"]);
     }
 }

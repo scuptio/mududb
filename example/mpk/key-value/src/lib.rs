@@ -24,3 +24,11 @@ pub mod rust;
 #[allow(unused, missing_docs)]
 #[cfg(target_arch = "wasm32")]
 pub mod generated;
+
+/// Process-wide lock serializing the adapter-backed tests, which share the
+/// global database-path override.
+#[cfg(test)]
+pub(crate) fn test_lock() -> &'static mududb::sys::sync::SMutex<()> {
+    static LOCK: std::sync::OnceLock<mududb::sys::sync::SMutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| mududb::sys::sync::SMutex::new(()))
+}

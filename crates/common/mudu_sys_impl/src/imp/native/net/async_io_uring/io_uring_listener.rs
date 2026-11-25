@@ -52,9 +52,10 @@ impl IoUringListener {
     pub(crate) async fn accept(&self) -> RS<(IoUringStream, SocketAddr)> {
         #[cfg(target_os = "linux")]
         if crate::imp::io::worker_ring::has_current_worker_ring() {
+            // `IoSocket::from_raw_fd` is a non-owning view: the listening fd
+            // stays owned by `self.inner` and must survive further accepts.
             let fd = self.inner.as_raw_fd();
             let (sock, addr) = socket::accept(&IoSocket::from_raw_fd(fd)).await?;
-            let _ = crate::imp::sync::blocking::close_fd(fd);
             socket_opt::set_nodelay_fd(sock.fd())?;
             Ok((IoUringStream::new(sock), addr))
         } else {
@@ -75,5 +76,33 @@ impl IoUringListener {
             .try_clone()
             .map_err(|e| mudu_error!(ErrorCode::Network, "clone io_uring tcp listener error", e))?;
         Ok(IoUringListener::new(cloned))
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::IoUringListener;
+
+    #[test]
+    fn bind_ipv6_and_rebind_error() {
+        let v6 = IoUringListener::bind_listener("[::1]:0".parse().unwrap()).unwrap();
+        assert!(v6.local_addr().unwrap().is_ipv6());
+
+        let v4 = IoUringListener::bind_listener("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = v4.local_addr().unwrap();
+        // A second bind on an already-listening address fails with EADDRINUSE.
+        assert!(IoUringListener::bind_listener(addr).is_err());
+    }
+
+    #[test]
+    fn accept_without_worker_ring_returns_error() {
+        let listener = IoUringListener::bind_listener("127.0.0.1:0".parse().unwrap()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(listener.accept());
+        assert!(result.is_err());
     }
 }

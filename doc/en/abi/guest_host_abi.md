@@ -6,7 +6,7 @@ syscall ABI, and how to integrate a new guest language with it.
 
 The normative, versioned specification of the wire format is the contract
 document [`../contract/syscall_payload_v1.md`](../contract/syscall_payload_v1.md)
-(中文: [`../../cn/contract/syscall_payload_v1.md`](../../cn/contract/syscall_payload_v1.md)).
+(中文: [`../../zh-CN/contract/syscall_payload_v1.md`](../../zh-CN/contract/syscall_payload_v1.md)).
 This guide is the practical companion: architecture, per-language entry
 points, and how to verify a new implementation.
 
@@ -22,7 +22,7 @@ another MSSP frame.
 +---------------------+        +----------------------+        +-------------------+
 | Guest language      |        | Component boundary   |        | Host              |
 |                     |        |                      |        |                   |
-|  workspace Rust     |        |  WIT functions in    |        |  mudu_runtime     |
+|  workspace Rust     |        |  WIT functions in    |        |  runtime_wasm     |
 |  standalone Rust    | MSSP   |  uni-syscall.wit     | MSSP   |  kernel_sync /    |
 |  C#                 | frame  |  (opaque list<u8>    | frame  |  kernel_async     |
 |  AssemblyScript     |=======>|  in / list<u8> out)  |=======>|        |          |
@@ -40,7 +40,7 @@ another MSSP frame.
 - The WIT boundary is defined in
   [`uni-syscall.wit`](../../../crates/common/mudu_binding/wit/uni-syscall.wit)
   (23 functions); the runtime world that imports it is
-  [`mudu_runtime/wit/api.wit`](../../../crates/db-kernel/mudu_runtime/wit/api.wit).
+  [`runtime_wasm/wit/api.wit`](../../../crates/db-kernel/runtime_wasm/wit/api.wit).
 - The host-side framed codec (authoritative implementation) lives in
   [`mudu_binding/src/codec/syscall_payload/`](../../../crates/common/mudu_binding/src/codec/syscall_payload/)
   (`mod.rs` for framing, `router.rs` for per-kind encode/decode).
@@ -145,14 +145,14 @@ Request shapes for every kind are tabulated in the
 [contract document](../contract/syscall_payload_v1.md#message-kinds).
 
 **Exception: `fetch`.** `fetch(query-result: list<u8>) -> list<u8>` is
-declared in the runtime world (`mudu_runtime/wit/api.wit`) as a host
+declared in the runtime world (`runtime_wasm/wit/api.wit`) as a host
 function that exchanges raw `mp_wire` bytes directly. It does **not** go
 through MSSP framing; see [The `fetch` protocol](#the-fetch-protocol) below.
 
 ## The `fetch` protocol
 
 `fetch` is implemented on the host
-(`mudu_runtime::interface::kernel_sync::fetch_internal`) and mirrors
+(`runtime_wasm::interface::kernel_sync::fetch_internal`) and mirrors
 [`sys_interface::api_impl`](../../../crates/common/sys_interface/src/api_impl/mod.rs),
 which remains the wire-shape source of truth. The wire format is raw
 `mp_wire` with no MSSP header:
@@ -279,7 +279,7 @@ them casually:
   WIT `box<T>` types, so it must stay even though no syscall payload carries
   it.
 - Consistency between the generated codecs and the WIT schema is enforced by
-  `script/ci/check_bindings_regen.sh`, which regenerates all binding code into
+  `script/ci/check_bindings_regen.py`, which regenerates all binding code into
   a temporary directory and requires a byte-clean match against the checkout.
 
 ### Verification gates
@@ -508,7 +508,7 @@ go test ./...   # 44 primitive vectors (132 checks), 47 MSSP frames (188 checks)
 Checklist for a new guest-language implementation (the wire side — for the
 toolchain side: `mpm-crate` template, `mtp` front-end, `mgen` backends,
 golden corpus and e2e wiring, see
-[`dev/new_guest_language.md`](../../dev/new_guest_language.md)):
+[`../new_guest_language.md`](../new_guest_language.md)):
 
 1. **Frame header.** 16 bytes, all big-endian: magic `0x4D535350`,
    version `1`, flags `0`, message kind `u32`. Reject (on decode) bad magic,
@@ -718,7 +718,7 @@ str8, matching rmp_serde on all 44 vectors.
 - Every MPK package pins the same version: `package.manifest.json` carries
   `syscall_abi_version: u32`. `mpm_build` always emits
   `SYSCALL_PAYLOAD_CURRENT_VERSION` (`1`); the loader
-  (`mudu_runtime/src/service/app_package.rs`) defaults a missing field to
+  (`runtime_wasm/src/service/app_package.rs`) defaults a missing field to
   `1` and rejects any mismatch with `ErrorCode::UnsupportedFormatVersion`
   ("unsupported syscall ABI version {found}, expected {expected}").
   `FormatKind::SyscallPayload` is registered in the global
@@ -737,7 +737,7 @@ str8, matching rmp_serde on all 44 vectors.
 
 - Contract: [`doc/en/contract/syscall_payload_v1.md`](../contract/syscall_payload_v1.md)
 - WIT syscall interface: [`uni-syscall.wit`](../../../crates/common/mudu_binding/wit/uni-syscall.wit)
-- Runtime world: [`mudu_runtime/wit/api.wit`](../../../crates/db-kernel/mudu_runtime/wit/api.wit)
+- Runtime world: [`runtime_wasm/wit/api.wit`](../../../crates/db-kernel/runtime_wasm/wit/api.wit)
 - Host codec: [`mudu_binding/src/codec/syscall_payload/`](../../../crates/common/mudu_binding/src/codec/syscall_payload/)
   (regen: [`REGENERATE.md`](../../../crates/common/mudu_binding/src/codec/syscall_payload/REGENERATE.md))
 - Compat registry: [`mudu/src/compat/mod.rs`](../../../crates/common/mudu/src/compat/mod.rs)

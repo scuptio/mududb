@@ -7,7 +7,7 @@ namespace {{pascal_name}};
 /// from the procedure parameter. SQL goes through
 /// <see cref="MuduSys"/>, which frames SyscallPayload v1 (MSSP) messages
 /// over the <c>mududb:api/system</c> byte pipe. Table rows travel as
-/// mgen-generated entity records (e.g. <c>Items</c> from src/items.cs,
+/// mgen-generated object structs (e.g. <c>Items</c> from src/items.cs,
 /// regenerated from sql/ddl.sql by the `generate` build task).
 ///
 /// To add a procedure: write a <c>public static</c> method with a
@@ -15,7 +15,7 @@ namespace {{pascal_name}};
 /// <c>MuduOid</c> session) and rebuild — mtp regenerates the byte-pipe
 /// exports class, the world WIT and the procedure descriptor (see
 /// readme.md). Parameter and result types: the scalar table plus the
-/// user-defined record types of wit/types.wit (generated into the
+/// user-defined struct types of wit/types.wit (generated into the
 /// <see cref="{{pascal_name}}Types.ItemInfo"/> namespace by the `gentypes`
 /// build task).
 /// </summary>
@@ -34,7 +34,7 @@ internal static class Procedures
         return itemId;
     }
 
-    // The record type is used namespace-qualified: the mgen entity of the
+    // The struct type is used namespace-qualified: the mgen object of the
     // item_info table is a global-namespace class also named `ItemInfo`,
     // which would shadow an imported `{{pascal_name}}Types.ItemInfo`.
 
@@ -99,7 +99,7 @@ internal static class Procedures
         return QueryItemInfo(session, itemId);
     }
 
-    /// Rebuilds the stored item-info record: the flat columns plus the
+    /// Rebuilds the stored item-info struct: the flat columns plus the
     /// side-table labels re-sorted by idx (the engine has no ORDER BY).
     private static {{pascal_name}}Types.ItemInfo QueryItemInfo(MuduOid session, long itemId)
     {
@@ -107,7 +107,7 @@ internal static class Procedures
             session, "SELECT name, price, in_stock FROM item_info WHERE item_id = ?", itemId);
         if (rows.Count == 0)
         {
-            throw new {{pascal_name}}Exception(ErrorCodes.EntityNotFound, "item info not found");
+            throw new {{pascal_name}}Exception(ErrorCodes.ObjectNotFound, "item info not found");
         }
 
         var row = rows[0];
@@ -136,7 +136,7 @@ internal static class Procedures
 /// </summary>
 internal static class ErrorCodes
 {
-    public const uint EntityNotFound = 50009;
+    public const uint ObjectNotFound = 50009;
     public const uint DomainViolation = 50017;
     public const uint InvalidArgument = 50029;
     public const uint Internal = 50000;

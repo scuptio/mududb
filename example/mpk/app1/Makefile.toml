@@ -7,15 +7,15 @@ WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/${TARGET}/${PROFILE
 PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
 WORKSPACE_ROOT = "${CARGO_MAKE_WORKING_DIRECTORY}/../../.."
 
-# Regenerate the wallet entity's type descriptor used by the transpiler.
+# Regenerate the wallet object's type descriptor used by the transpiler.
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files",
     "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder",
-    "${CARGO_MAKE_WORKING_DIRECTORY}/src/entity_scratch",
+    "${CARGO_MAKE_WORKING_DIRECTORY}/src/object_scratch",
     "--type-desc",
     "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",
     "--lang",
@@ -49,7 +49,7 @@ command = "cargo"
 args = ["build", "--target", "${TARGET}", "--${PROFILE}"]
 
 # Statically check every SQL string literal in src/rust against the DDL
-# schema (see doc/dev/sql_subset.md). ddl_dynamic.sql describes the
+# schema (see doc/en/sql_subset.md). ddl_dynamic.sql describes the
 # wallets table the procedure itself creates at runtime.
 [tasks.check-sql]
 dependencies = ["generate"]

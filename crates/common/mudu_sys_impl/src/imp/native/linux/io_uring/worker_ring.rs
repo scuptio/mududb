@@ -14,7 +14,7 @@ use mudu::mudu_error;
 use crate::imp::native::linux::io_uring::file::{
     complete_file_io, submit_file_io, FileInflightOp, FileIoRequest,
 };
-use crate::imp::native::linux::io_uring::path::{
+use crate::imp::native::linux::io_uring::path_io::{
     complete_path_io, submit_path_io, PathInflightOp, PathIoRequest,
 };
 use crate::imp::native::linux::io_uring::socket::{
@@ -294,7 +294,7 @@ pub fn has_current_worker_ring() -> bool {
 }
 
 /// Calls `f` with the current thread's worker ring; fails with
-/// `EntityNotFound` if none is installed.
+/// `ObjectNotFound` if none is installed.
 pub fn with_current_ring<F, R>(f: F) -> RS<R>
 where
     F: FnOnce(&Arc<WorkerLocalRing>) -> RS<R>,
@@ -303,7 +303,7 @@ where
         // Safety: shared reads are confined to the current thread-local slot.
         let ring = unsafe { &*slot.get() };
         let ring = ring.as_ref().ok_or_else(|| {
-            mudu_error!(ErrorCode::EntityNotFound, "current worker ring is not set")
+            mudu_error!(ErrorCode::ObjectNotFound, "current worker ring is not set")
         })?;
         f(ring)
     })
@@ -337,7 +337,7 @@ pub fn submit_user_ring_op(
 pub fn complete_user_ring_op(op: UserIoInflight, result: i32, ring: &WorkerLocalRing) -> RS<()> {
     let (op_id, done) = match op {
         UserIoInflight::File { op_id, op } => (op_id, complete_file_io(op_id, op, result, ring)?),
-        UserIoInflight::Path { op_id, op } => (op_id, complete_path_io(op_id, op, result, ring)?),
+        UserIoInflight::Path { op_id, op } => (op_id, complete_path_io(op_id, op, result)?),
         UserIoInflight::Socket { op_id, op } => {
             (op_id, complete_socket_io(op_id, op, result, ring)?)
         }
@@ -381,3 +381,6 @@ mod tests {
         ring.remove_timeout(late_deadline, late_id).unwrap();
     }
 }
+
+#[cfg(test)]
+mod error_tests;

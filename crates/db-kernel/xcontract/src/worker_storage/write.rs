@@ -8,7 +8,7 @@ use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::index::index_key::key_tuple::KeyTuple;
 use ::xengine::tx_mgr::TxMgr;
 
-use super::commit::write_version_to_kv_store;
+use super::version::write_version_to_kv_store_async;
 use super::WorkerStorage;
 
 impl WorkerStorage {
@@ -87,12 +87,12 @@ impl WorkerStorage {
         Ok(current)
     }
 
-    pub(crate) fn worker_put_local(&self, key: Vec<u8>, value: Vec<u8>, xid: u64) -> RS<()> {
-        write_version_to_kv_store(&self.kv_store, key, Some(value), xid)
+    pub(crate) async fn worker_put_local(&self, key: Vec<u8>, value: Vec<u8>, xid: u64) -> RS<()> {
+        write_version_to_kv_store_async(&self.kv_store, key, Some(value), xid).await
     }
 
-    pub(crate) fn worker_delete_local(&self, key: Vec<u8>, xid: u64) -> RS<()> {
-        write_version_to_kv_store(&self.kv_store, key, None, xid)
+    pub(crate) async fn worker_delete_local(&self, key: Vec<u8>, xid: u64) -> RS<()> {
+        write_version_to_kv_store_async(&self.kv_store, key, None, xid).await
     }
 
     async fn ensure_no_relation_write_conflict(

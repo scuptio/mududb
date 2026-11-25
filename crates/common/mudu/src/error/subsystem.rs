@@ -48,7 +48,7 @@ impl std::error::Error for CatalogError {}
 
 impl From<CatalogError> for MuduError {
     fn from(err: CatalogError) -> Self {
-        MuduError::new_with_ec_msg(ErrorCode::EntityNotFound, err.to_string())
+        MuduError::new_with_ec_msg(ErrorCode::ObjectNotFound, err.to_string())
     }
 }
 
@@ -62,7 +62,7 @@ mod tests {
             name: "users".to_string(),
         };
         let merr: MuduError = err.into();
-        assert_eq!(merr.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(merr.ec(), ErrorCode::ObjectNotFound);
         assert!(merr.message().contains("users"));
     }
 
@@ -85,7 +85,7 @@ mod tests {
         ];
         for (err, expected) in cases {
             let merr: MuduError = err.into();
-            assert_eq!(merr.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(merr.ec(), ErrorCode::ObjectNotFound);
             assert!(merr.message().contains(expected));
         }
     }

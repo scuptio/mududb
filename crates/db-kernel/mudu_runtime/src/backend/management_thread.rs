@@ -8,22 +8,26 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_sys::task::sync::spawn_thread_named;
+use mudu_sys::task::sync::{SJoinHandle, spawn_thread_named};
 use mudu_utils::notifier::Waiter;
 use mudu_utils::task_async::build_current_thread_runtime;
 use std::sync::Arc;
 use std::sync::mpsc;
 use tracing::{error, info};
 
+/// Spawns the management HTTP service thread, returning its join handle so
+/// the backend can join it during teardown: the thread outlives the kernel
+/// serve call otherwise, and its listener port stays bound past the server's
+/// return from `sync_serve`.
 pub fn spawn_management_thread(
     cfg: MuduDBCfg,
     app_mgr: Arc<dyn AppMgr>,
     worker_registry: Arc<WorkerRegistry>,
     server_instance_id: OID,
     stop: Waiter,
-) -> RS<()> {
+) -> RS<SJoinHandle<RS<()>>> {
     let (startup_tx, startup_rx) = mpsc::channel();
-    spawn_thread_named("manager-service", move || {
+    let handle = spawn_thread_named("manager-service", move || {
         let addr: std::net::SocketAddr =
             match format!("{}:{}", cfg.listen_ip, cfg.http_listen_port).parse() {
                 Ok(addr) => addr,
@@ -33,14 +37,14 @@ pub fn spawn_management_thread(
                         "invalid management server address",
                         e
                     )));
-                    return;
+                    return Ok(());
                 }
             };
         let listener = match mudu_sys::net::sync::bind_tcp(addr) {
             Ok(listener) => listener,
             Err(e) => {
                 let _ = startup_tx.send(Err(e));
-                return;
+                return Ok(());
             }
         };
         let runtime = match build_current_thread_runtime() {
@@ -51,10 +55,12 @@ pub fn spawn_management_thread(
                     "create runtime for kernel management thread error",
                     e
                 )));
-                return;
+                return Ok(());
             }
         };
-        runtime.block_on(async move {
+        // Run under a LocalSet: the management service opens relations whose
+        // thread-confined page buffers spawn local driver tasks.
+        mudu_sys::task::async_::LocalTaskSet::new().block_on(&runtime, async move {
             let api = match KernelHttpApi::new(app_mgr, &cfg, worker_registry, server_instance_id)
                 .await
             {
@@ -79,6 +85,9 @@ pub fn spawn_management_thread(
                 io_uring_enable_fixed_files = cfg.io_uring_enable_fixed_files,
                 "kernel management service listening"
             );
+            // A serve error after a successful startup stays log-only: the
+            // join at teardown exists to release the port deterministically,
+            // not to change shutdown error semantics.
             if let Err(e) = serve_http_api_on_listener_with_stop(
                 api,
                 listener,
@@ -91,15 +100,44 @@ pub fn spawn_management_thread(
                 error!("kernel app management service terminated: {}", e);
             }
         });
+        Ok(())
     })
     .map_err(|e| mudu_error!(ErrorCode::Thread, "spawn kernel management thread error", e))?;
-    startup_rx.recv().map_err(|e| {
+    let startup = startup_rx.recv().map_err(|e| {
         mudu_error!(
             ErrorCode::Thread,
             "wait kernel management thread startup error",
             e
         )
-    })?
+    })?;
+    startup?;
+    Ok(handle)
+}
+
+/// Joins a backend auxiliary thread (management service, initdb drain) during
+/// teardown, flattening the join and thread results into the thread's own
+/// error.
+pub(crate) fn join_aux_thread(name: &str, handle: SJoinHandle<RS<()>>) -> RS<()> {
+    handle
+        .join()
+        .map_err(|_| mudu_error!(ErrorCode::Thread, format!("join {name} thread error")))?
+}
+
+/// Joins the auxiliary threads (management service when present, initdb
+/// drain) after the kernel serve call returns, folding their results into the
+/// serve result.
+pub(crate) fn join_aux_threads(
+    management: Option<SJoinHandle<RS<()>>>,
+    drain: SJoinHandle<RS<()>>,
+    serve_result: RS<()>,
+) -> RS<()> {
+    let management_result = match management {
+        Some(handle) => join_aux_thread("kernel management", handle),
+        None => Ok(()),
+    };
+    management_result
+        .and(join_aux_thread("initdb drain", drain))
+        .and(serve_result)
 }
 
 #[cfg(test)]

@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 /// enums and functions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UniSchemaDesc {
-    pub records: Vec<UniSchemaRecord>,
-    pub tables: Vec<UniSchemaTable>,
+    pub records: Vec<UniSchemaStruct>,
+    pub tables: Vec<UniSchemaClass>,
     pub variants: Vec<UniSchemaVariant>,
     pub enums: Vec<UniSchemaEnum>,
     pub functions: Vec<UniSchemaFunc>,
@@ -32,14 +32,14 @@ pub struct UniSchemaField {
 
 /// A WIT record definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UniSchemaRecord {
+pub struct UniSchemaStruct {
     pub name: String,
     pub fields: Vec<UniSchemaField>,
 }
 
 /// A WIT table definition; key and value bodies are encoded like records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UniSchemaTable {
+pub struct UniSchemaClass {
     pub name: String,
     pub key: Vec<UniSchemaField>,
     pub value: Vec<UniSchemaField>,

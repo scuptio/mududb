@@ -5,6 +5,7 @@ Called from cargo-make for Pre Processing Stage .
 """
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -13,8 +14,6 @@ import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Set, Any
-
-import tomli_w
 
 
 def run_command(command, timeout=60, verbose=False):
@@ -202,12 +201,13 @@ class Transpiler:
         return False
 
     def create_transpiler_config(self):
-        """Save the transpiler configuration for reference."""
-        config_file = self.artifact_dir / "cfg" / "transpiler-cfg.toml"
+        """Save the effective configuration as a stdlib-only diagnostic snapshot."""
+        config_file = self.artifact_dir / "cfg" / "transpiler-cfg.json"
         config_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(config_file, 'wb') as f:
-            tomli_w.dump(self.config, f)
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False, default=str)
+            f.write('\n')
 
         if self.verbose:
             print(f"Saved transpiler configuration: {config_file}")
@@ -294,8 +294,6 @@ class Transpiler:
 
     def generate_manifest(self):
         """Generate manifest of transpiled files."""
-        import json
-
         manifest = {
             "timestamp": datetime.now(),
             "source_directory": str(self.source_dir),

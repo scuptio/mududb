@@ -67,7 +67,7 @@ impl ServerPerfDigest {
         }
     }
 
-    /// Records the duration in nanoseconds of a transaction stage.
+    /// Structs the duration in nanoseconds of a transaction stage.
     pub fn set(&mut self, stage: mudu_sys_contract::perf::TxnStage, ns: u64) {
         self.durations_ns[stage.as_index()] = Some(ns);
     }

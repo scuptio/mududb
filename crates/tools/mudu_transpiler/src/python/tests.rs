@@ -578,11 +578,11 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
     // The generated types module and the record bridge are imported.
     assert!(adapter.contains("\nimport shop_types\n"));
     assert!(adapter.contains("from mududb.codec.bridge import ("));
-    assert!(adapter.contains("record_field_values as _record_fields,"));
+    assert!(adapter.contains("struct_field_values as _struct_fields,"));
     assert!(adapter.contains("record_from_field_values as _record_from_fields,"));
     // record parameter: the record bridge feeds the generated codec
     assert!(adapter.contains(
-        "profile = shop_types.profile_from_value(_record_fields(proc_param.param_list[1]))"
+        "profile = shop_types.profile_from_value(_struct_fields(proc_param.param_list[1]))"
     ));
     // option scalar parameter: the generic unwrap (Null already maps to None)
     assert!(adapter.contains("note = _from_uni(proc_param.param_list[2])"));
@@ -592,7 +592,7 @@ fn renders_custom_type_wiring() -> Result<(), Box<dyn Error>> {
     );
     // option record parameter: None guard around the bridge decode
     assert!(adapter.contains(
-        "home = None if _from_uni(proc_param.param_list[4]) is None else shop_types.address_from_value(_record_fields(proc_param.param_list[4]))"
+        "home = None if _from_uni(proc_param.param_list[4]) is None else shop_types.address_from_value(_struct_fields(proc_param.param_list[4]))"
     ));
     assert!(adapter.contains(
         "result = procedures.update_profile(proc_param.session, user_id, profile, note, mode, home)"
@@ -617,7 +617,7 @@ fn renders_dotted_type_import_under_an_alias() -> Result<(), Box<dyn Error>> {
     )?;
     assert!(adapter.contains("\nimport shop_types.types as shop_types_types\n"));
     assert!(adapter.contains(
-        "profile = shop_types_types.profile_from_value(_record_fields(proc_param.param_list[1]))"
+        "profile = shop_types_types.profile_from_value(_struct_fields(proc_param.param_list[1]))"
     ));
     assert_python_syntax(&adapter)?;
     Ok(())
@@ -705,9 +705,9 @@ fn shop_desc_type_jsons() -> (
     });
     let i32_type = serde_json::json!({ "id": "I32", "param": null });
     let address_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Address",
                 "field": [
                     ["city", string_type],
@@ -717,9 +717,9 @@ fn shop_desc_type_jsons() -> (
         }
     });
     let profile_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Profile",
                 "field": [
                     ["display-name", string_type],
@@ -854,7 +854,7 @@ def update_profile(session: UniOid, user_id: int, profile: Profile) -> Profile:
 const CUSTOM_DRIVER: &str = r#"
 import procedures_gen
 
-from mududb.codec.bridge import record_field_values, record_from_field_values
+from mududb.codec.bridge import struct_field_values, record_from_field_values
 from mududb.codec.mpack import MpackReader, MpackWriter
 from mududb.generated.uni_data_value import (
     UniDataValueScalar,
@@ -893,7 +893,7 @@ ok = world.mp2_update_profile(
 result = MpackReader(ok).read_value()
 assert set(result.keys()) == {0}, result
 record_uv = uni_data_value_from_value(result[0][1][0])
-stored = profile_from_value(record_field_values(record_uv))
+stored = profile_from_value(struct_field_values(record_uv))
 assert stored.display_name == "Ada#1", stored
 assert stored.level == 7 and stored.vip is True and stored.tags == ["a", "b"], stored
 assert stored.home is not None and stored.home.city == "sh" and stored.home.zip == "200", stored.home

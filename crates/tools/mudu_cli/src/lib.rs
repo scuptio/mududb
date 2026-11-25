@@ -7,10 +7,10 @@
 #![warn(clippy::unimplemented)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Terminal UI helpers for the `mcli` command-line client of MuduDB.
+//! The `mcli` command-line client of MuduDB.
 //!
 //! The wire-protocol client and management HTTP API live in the
-//! `mudu_client` crate; this crate only keeps the ratatui/crossterm table
-//! rendering used by the `mcli` binary.
+//! `mudu_client` crate; the interactive ratatui/crossterm query-table
+//! rendering lives in the `mudu_tui` crate and is re-exported here as `tui`.
 
-pub mod tui;
+pub use mudu_tui as tui;

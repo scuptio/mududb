@@ -15,3 +15,9 @@ pub use sys_file::SysFile;
 #[cfg(target_os = "linux")]
 pub(crate) use async_io_uring::async_io_uring_fs::AsyncIoUringFs;
 pub(crate) use async_tokio::async_tokio_fs::AsyncTokioFs;
+
+/// Creates a Tokio-backed filesystem independent of the worker's IO provider.
+/// File operations use Tokio's blocking pool and never block their caller's executor.
+pub fn tokio_fs() -> std::sync::Arc<dyn crate::contract::async_fs::AsyncFs> {
+    std::sync::Arc::new(AsyncTokioFs::new())
+}

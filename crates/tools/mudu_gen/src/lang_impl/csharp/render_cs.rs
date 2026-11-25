@@ -1,8 +1,8 @@
-use crate::lang_impl::csharp::template_entity_cs::TemplateEntityCS;
 use crate::lang_impl::csharp::template_enum_cs::TemplateEnumCS;
 use crate::lang_impl::csharp::template_file_cs::{FileInfo, TemplateFileCS};
 use crate::lang_impl::csharp::template_func_cs::{TemplateFuncCS, TemplateFuncHeaderCS};
-use crate::lang_impl::csharp::template_record_cs::TemplateRecordCS;
+use crate::lang_impl::csharp::template_object_cs::TemplateObjectCS;
+use crate::lang_impl::csharp::template_struct_cs::TemplateStructCS;
 use crate::lang_impl::csharp::template_table_cs::TemplateTableCS;
 use crate::lang_impl::csharp::template_variant_cs::TemplateVariantCS;
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
@@ -16,8 +16,8 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
-use mudu_binding::table::table_def::TableDef;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef};
+use mudu_binding::table::class_def::ClassDef;
+use mudu_binding::universal::uni_def::{UniClassDef, UniEnumDef, UniStructDef, UniVariantDef};
 use std::sync::Arc;
 
 /// Create a C# renderer.
@@ -29,11 +29,11 @@ struct RenderCS {}
 
 impl Render for RenderCS {
     fn render(&self, template: AbstractTemplate) -> RS<String> {
-        // An entity file is self-contained in the global namespace (mgen
+        // An object file is self-contained in the global namespace (mgen
         // does not know the project namespace), so it bypasses the
         // namespace/MessagePack file wrapper.
-        if let [TemplateKind::Entity(entity)] = template.elements.as_slice() {
-            return Self::render_entity_cs(entity.clone());
+        if let [TemplateKind::Object(object)] = template.elements.as_slice() {
+            return Self::render_object_cs(object.clone());
         }
         let has_func_codec = template
             .elements
@@ -89,8 +89,8 @@ impl RenderCS {
             let s = match element {
                 TemplateKind::Enum((def, cfg)) => Self::render_enum_cs(def, cfg)?,
                 TemplateKind::Variant((def, cfg)) => Self::render_variant_cs(def, cfg)?,
-                TemplateKind::Record((def, cfg)) => Self::render_record_cs(def, cfg)?,
-                TemplateKind::Entity(entity) => Self::render_entity_cs(entity)?,
+                TemplateKind::Struct((def, cfg)) => Self::render_record_cs(def, cfg)?,
+                TemplateKind::Object(object) => Self::render_object_cs(object)?,
                 TemplateKind::Table((def, cfg)) => Self::render_table_cs(def, cfg)?,
                 TemplateKind::FuncHeader((funcs, cfg)) => Self::render_func_header_cs(funcs, cfg)?,
                 TemplateKind::Func((func, cfg)) => Self::render_func_cs(func, cfg)?,
@@ -100,15 +100,15 @@ impl RenderCS {
         Ok(code_blocks)
     }
 
-    fn render_record_cs(def: UniRecordDef, cfg: CodegenCfg) -> RS<String> {
-        let template = TemplateRecordCS::from(def, cfg)?;
+    fn render_record_cs(def: UniStructDef, cfg: CodegenCfg) -> RS<String> {
+        let template = TemplateStructCS::from(def, cfg)?;
         let s = template.render().map_err(|e| {
             mudu_error!(ErrorCode::Decode, "render csharp record template error", e)
         })?;
         Ok(s)
     }
 
-    fn render_table_cs(def: UniTableDef, cfg: CodegenCfg) -> RS<String> {
+    fn render_table_cs(def: UniClassDef, cfg: CodegenCfg) -> RS<String> {
         let template = TemplateTableCS::from(def, cfg)?;
         let s = template
             .render()
@@ -132,10 +132,10 @@ impl RenderCS {
         Ok(s)
     }
 
-    fn render_entity_cs(table_schema: TableDef) -> RS<String> {
-        let template = TemplateEntityCS::from_table_schema(&table_schema)?;
+    fn render_object_cs(table_schema: ClassDef) -> RS<String> {
+        let template = TemplateObjectCS::from_table_schema(&table_schema)?;
         let s = template.render().map_err(|e| {
-            mudu_error!(ErrorCode::Decode, "render csharp entity template error", e)
+            mudu_error!(ErrorCode::Decode, "render csharp object template error", e)
         })?;
         Ok(s)
     }

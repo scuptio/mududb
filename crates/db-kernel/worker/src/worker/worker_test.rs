@@ -11,8 +11,8 @@ use super::*;
 use crate::async_func_runtime::AsyncFuncInvoker;
 use crate::worker::new_session_bound_worker_runtime;
 use crate::worker_registry::{load_or_create_worker_registry, WorkerRegistry};
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use ::conn::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
@@ -29,12 +29,12 @@ use mudu_utils::oid::gen_oid;
 use std::sync::Arc;
 
 #[derive(Default)]
-struct RecordingProcedureRuntime {
+struct StructingProcedureRuntime {
     calls: SMutex<Vec<(OID, String, Vec<u8>)>>,
 }
 
 #[async_trait]
-impl AsyncFuncInvoker for RecordingProcedureRuntime {
+impl AsyncFuncInvoker for StructingProcedureRuntime {
     async fn invoke(
         &self,
         session_id: OID,
@@ -51,7 +51,7 @@ impl AsyncFuncInvoker for RecordingProcedureRuntime {
     }
 }
 
-fn test_registry(worker_count: usize) -> (String, Arc<WorkerRegistry>) {
+pub(super) fn test_registry(worker_count: usize) -> (String, Arc<WorkerRegistry>) {
     let dir = temp_dir()
         .join(format!("worker_test_{}", gen_oid()))
         .to_string_lossy()
@@ -60,7 +60,7 @@ fn test_registry(worker_count: usize) -> (String, Arc<WorkerRegistry>) {
     (dir, registry)
 }
 
-async fn test_worker(
+pub(super) async fn test_worker(
     worker_index: usize,
     worker_count: usize,
     log_dir: &str,
@@ -77,6 +77,7 @@ async fn test_worker(
         log_chunk_size: 4096,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime,
         registry,
         async_runtime: None,
@@ -85,13 +86,15 @@ async fn test_worker(
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap()
 }
 
-fn test_schema() -> SchemaTable {
-    SchemaTable::new(
+fn test_schema() -> SchemaClass {
+    SchemaClass::new(
         "t".to_string(),
         vec![
             SchemaColumn::new(
@@ -114,7 +117,7 @@ fn test_schema() -> SchemaTable {
 #[cfg_attr(miri, ignore)]
 fn worker_invokes_configured_procedure_runtime() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-        let runtime = Arc::new(RecordingProcedureRuntime::default());
+        let runtime = Arc::new(StructingProcedureRuntime::default());
         let (log_dir, registry) = test_registry(1);
         let worker = test_worker(0, 1, &log_dir, &log_dir, registry, Some(runtime.clone())).await;
 
@@ -302,6 +305,7 @@ async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() 
         log_chunk_size: 4096,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime: None,
         registry,
         async_runtime: None,
@@ -310,6 +314,8 @@ async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() 
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();
@@ -324,6 +330,8 @@ async fn _worker_storage_uses_partition_zero_for_unpartitioned_relation_files() 
         data_dir: log_dir.clone(),
         async_runtime: None,
         server_instance_id: 0,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .unwrap();
     let schema = test_schema();
@@ -582,7 +590,7 @@ fn tx_control_stmt_recognition() {
     assert_eq!(parse_tx_control_stmt("BEGIN; COMMIT;"), None);
 }
 
-async fn sql_execute(worker: &WorkerRuntime, session_id: OID, sql: &str) -> RS<u64> {
+pub(super) async fn sql_execute(worker: &WorkerRuntime, session_id: OID, sql: &str) -> RS<u64> {
     worker
         .execute(session_id, None, Box::new(sql.to_string()), Box::new(()))
         .await
@@ -687,7 +695,7 @@ fn tx_control_nested_begin_fails() {
         let session_id = worker.create_session(1).unwrap();
         sql_execute(&worker, session_id, "BEGIN").await.unwrap();
         let err = sql_execute(&worker, session_id, "BEGIN").await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityAlreadyExists);
+        assert_eq!(err.ec(), ErrorCode::ObjectAlreadyExists);
 
         // The failed nested BEGIN leaves the original transaction usable.
         sql_execute(&worker, session_id, "insert into t values (1, 10);")
@@ -727,11 +735,108 @@ fn tx_control_autocommit_unchanged() {
 
         // COMMIT/ROLLBACK without an active transaction fails.
         let err = sql_execute(&worker, session_a, "COMMIT").await.unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         let err = sql_execute(&worker, session_a, "ROLLBACK")
             .await
             .unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
+    })
+    .unwrap()
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn receive_wait_requires_autocommit() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+        worker.initialize().await.unwrap();
+        sql_execute(&worker, 0, "CREATE QUEUE q (body varchar(100));")
+            .await
+            .unwrap();
+
+        let session_id = worker.create_session(1).unwrap();
+        // Autocommit WAIT on an empty queue parks briefly and returns an
+        // empty batch on its timeout.
+        let rows = sql_query_values(&worker, session_id, "receive 1 from q wait 30;")
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+
+        // The same statement inside an explicit transaction is rejected.
+        sql_execute(&worker, session_id, "BEGIN;").await.unwrap();
+        let err = sql_query_values(&worker, session_id, "receive 1 from q wait 30;")
+            .await
+            .unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::InvalidState);
+        let err = sql_query_values(&worker, session_id, "receive 1 from q wait forever;")
+            .await
+            .unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::InvalidState);
+        // A plain RECEIVE without WAIT stays legal inside the transaction.
+        let rows = sql_query_values(&worker, session_id, "receive 1 from q;")
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+        sql_execute(&worker, session_id, "COMMIT;").await.unwrap();
+
+        // Autocommit works again afterwards.
+        let rows = sql_query_values(&worker, session_id, "receive 1 from q wait 30;")
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+    })
+    .unwrap()
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn receive_wait_wakes_on_enqueue_commit() {
+    mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+        let (log_dir, registry) = test_registry(1);
+        let worker = test_worker(0, 1, &log_dir, &log_dir, registry, None).await;
+        worker.initialize().await.unwrap();
+        sql_execute(&worker, 0, "CREATE QUEUE q (body varchar(100));")
+            .await
+            .unwrap();
+        let queue_id = worker
+            .meta_mgr()
+            .get_queue("mududb", "q")
+            .await
+            .unwrap()
+            .unwrap()
+            .id();
+
+        // The receiver runs on its own task: it finds the queue empty and
+        // parks on the queue wait registry.
+        let worker_recv = worker.clone();
+        let receiver = mudu_sys::task::async_::spawn_local_detached("queue-receiver", async move {
+            sql_query_values(&worker_recv, 0, "receive 1 from q wait 5000;").await
+        })
+        .unwrap();
+        // Wait until the receiver parked, then enqueue a message; its commit
+        // wakes the parked receive.
+        let mut parked = false;
+        for _ in 0..1000 {
+            let parked_now = worker
+                .queue_runtime_snapshot()
+                .unwrap()
+                .iter()
+                .any(|snapshot| snapshot.table_id() == queue_id && snapshot.waiters() > 0);
+            if parked_now {
+                parked = true;
+                break;
+            }
+            mudu_sys::task::async_::sleep(std::time::Duration::from_millis(1))
+                .await
+                .unwrap();
+        }
+        assert!(parked, "the receive did not park on the wait registry");
+        sql_execute(&worker, 0, "insert into q values ('hello');")
+            .await
+            .unwrap();
+        let rows = receiver.await.unwrap().expect("receiver task").unwrap();
+        assert_eq!(rows.len(), 1);
     })
     .unwrap()
 }

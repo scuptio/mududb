@@ -73,7 +73,7 @@ class ResultSet:
 
     def __init__(self, result: UniQueryResult):
         self._rows = result.result_set.row_set
-        self._columns = [f.field_name for f in result.tuple_desc.record_fields]
+        self._columns = [f.field_name for f in result.tuple_desc.struct_fields]
         # 0 means "before the first row"; after a successful next() it holds
         # the 1-based index of the current row.
         self._cursor = 0

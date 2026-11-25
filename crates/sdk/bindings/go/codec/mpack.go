@@ -12,7 +12,7 @@
 //   - Binary uses bin8 (0xC4) / bin16 (0xC5) / bin32 (0xC6).
 //   - Arrays use fixarray / array16 (0xDC) / array32 (0xDD). Maps use
 //     fixmap / map16 (0xDE) / map32 (0xDF); the wire maps of this package
-//     are integer-keyed (record field and request parameter numbers), so
+//     are integer-keyed (struct field and request parameter numbers), so
 //     map[uint64]any keys are written in ASCENDING order — the field
 //     declaration order the canonical host encoder uses (Go map iteration
 //     order is random and would not be byte-stable).
@@ -283,7 +283,7 @@ func (w *MpackWriter) WriteValue(v any) error {
 }
 
 // sortedKeys returns the map keys in ascending order. The wire maps of this
-// package are integer-keyed record field / request parameter maps whose keys
+// package are integer-keyed struct field / request parameter maps whose keys
 // are the 1-based declaration numbers, so ascending order matches the
 // canonical host encoder. Insertion sort keeps this free of the `sort`
 // import (TinyGo-friendly) and is linear for the already-ordered bodies the

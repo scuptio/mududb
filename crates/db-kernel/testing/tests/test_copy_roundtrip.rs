@@ -21,8 +21,6 @@ use std::time::Duration;
 use testing::support::*;
 use tracing::{debug, info};
 
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-
 // These integration tests start a full mudud backend server (actix-web, TCP,
 // SQLite/libsql) which performs foreign-function calls and network I/O that
 // Miri cannot emulate. They are ignored under Miri and run only on native
@@ -320,13 +318,13 @@ impl TestContext {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
         #[cfg(not(feature = "ds"))]
-        wait_until_port_ready(self.http_port, "HTTP", BACKEND_STARTUP_TIMEOUT)?;
+        testing::wait_until_port_ready(self.http_port, "HTTP")?;
         #[cfg(feature = "ds")]
         let _ = self.http_port;
         if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
             wait_until_worker_port_ready(self.tcp_port)?;
         }
-        wait_until_backend_ready(ready_waiter, "backend", BACKEND_STARTUP_TIMEOUT)?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         debug!("backend server ready");
         Ok(RunningServer {
             stop,
@@ -415,22 +413,4 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
         }
     }
     Ok(None)
-}
-
-#[cfg(not(feature = "ds"))]
-fn wait_until_port_ready(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + timeout;
-    while mudu_sys::time::instant_now() < deadline {
-        if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
-        }
-        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!(
-            "{} server did not become ready on port {} within {:?}",
-            service_name, port, timeout
-        )
-    ))
 }

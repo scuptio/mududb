@@ -1,3 +1,4 @@
+use super::membership_gate::protocol_only_change;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_raft::RaftHandle;
@@ -89,7 +90,7 @@ pub fn raft_membership_update(
         ),
         leader_hint: None,
     })?;
-    let (_committed, new) = raft.conf().map_err(|error| ReplMembershipError {
+    let (committed, new) = raft.conf().map_err(|error| ReplMembershipError {
         error,
         leader_hint: None,
     })?;
@@ -125,9 +126,9 @@ pub fn raft_membership_update(
             });
         }
     }
-    let waiter = raft
-        .update_conf(conf_value, nid_vote, nid_log)
-        .map_err(|err| membership_error(err, http_port))?;
+    let expected = mudu_raft::stream::MembershipVersion::from_conf(&committed, &new);
+    let waiter =
+        begin_membership_change(&raft, expected, conf_value, nid_vote, nid_log, http_port)?;
     let deadline = *mudu_sys::time::instant_now() + MEMBERSHIP_COMMIT_TIMEOUT;
     loop {
         match waiter.recv_timeout(Duration::from_secs(1)) {
@@ -163,7 +164,48 @@ pub fn raft_membership_update(
     }
 }
 
-/// Reads the current committed conf into the endpoint's member view.
+/// Routes stream-bearing groups through the durable catch-up gate.
+fn begin_membership_change(
+    raft: &RaftHandle,
+    expected: mudu_raft::stream::MembershipVersion,
+    conf_value: mudu_raft::ConfValue,
+    nid_vote: Vec<u64>,
+    nid_log: Vec<u64>,
+    http_port: u16,
+) -> Result<mudu_raft::UpdateConfWaiter, ReplMembershipError> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime().map_err(|error| {
+        ReplMembershipError {
+            error,
+            leader_hint: None,
+        }
+    })?;
+    runtime
+        .block_on(async {
+            mudu_sys::timeout(MEMBERSHIP_COMMIT_TIMEOUT, async {
+                if let Some(service) = crate::data_plane::data_plane_for_node(raft.node_id()) {
+                    service
+                        .group()
+                        .update_membership(expected, conf_value, nid_vote, nid_log)
+                        .await
+                } else {
+                    protocol_only_change(raft, expected, conf_value, nid_vote, nid_log).await
+                }
+            })
+            .await
+            .ok_or_else(|| {
+                mudu_error!(
+                    ErrorCode::TimedOut,
+                    "membership proof/admission timed out; an admitted change may still complete"
+                )
+            })?
+        })
+        .map_err(|error| ReplMembershipError {
+            error,
+            leader_hint: leader_hint(raft, http_port),
+        })
+}
+
+/// Reads the current committed configuration into the endpoint member view.
 fn conf_members(raft: &Arc<RaftHandle>) -> Vec<ReplMembershipMember> {
     let mut members = raft
         .conf()
@@ -188,6 +230,16 @@ fn conf_members(raft: &Arc<RaftHandle>) -> Vec<ReplMembershipMember> {
     members
 }
 
+fn leader_hint(raft: &RaftHandle, http_port: u16) -> Option<ReplLeaderHttpHint> {
+    let node_id = raft.status().leader_id?;
+    let (host, _) = crate::repl_member_addr(node_id)?;
+    Some(ReplLeaderHttpHint {
+        node_id,
+        host,
+        http_port,
+    })
+}
+
 /// Maps an [`UpdateConfError`] to the endpoint error, resolving the leader
 /// hint to an HTTP redirect target when the leader's address is known.
 fn membership_error(err: mudu_raft::UpdateConfError, http_port: u16) -> ReplMembershipError {
@@ -201,5 +253,246 @@ fn membership_error(err: mudu_raft::UpdateConfError, http_port: u16) -> ReplMemb
     ReplMembershipError {
         error: err.into_mudu_error(),
         leader_hint,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use mudu_raft::core::role::RaftRole;
+    use mudu_raft::{InMemoryNetwork, RaftCfg, ReplEntry};
+    use mudu_sys::env_var::temp_dir;
+    use mudu_sys::task::sync::spawn_thread;
+    use std::path::PathBuf;
+
+    /// A two-node in-memory raft cluster with manual ticks on both nodes:
+    /// the same deterministic driving style as the vendored raft's own
+    /// cluster tests. Node 1 boots as the single voter; node 2 joins later
+    /// with the full peer list, the way a fresh joiner does.
+    struct TestCluster {
+        network: InMemoryNetwork,
+        dir1: PathBuf,
+        dir2: PathBuf,
+        handle1: Arc<RaftHandle>,
+        handle2: Option<Arc<RaftHandle>>,
+    }
+
+    const NODE1: u64 = 101;
+    const NODE2: u64 = 102;
+    const TICKS: u64 = 5;
+
+    impl TestCluster {
+        fn new() -> Self {
+            let network = InMemoryNetwork::new();
+            let dir1 = temp_dir().join(format!(
+                "repl_membership_{}_{}",
+                NODE1,
+                mudu_utils::oid::gen_oid()
+            ));
+            let dir2 = temp_dir().join(format!(
+                "repl_membership_{}_{}",
+                NODE2,
+                mudu_utils::oid::gen_oid()
+            ));
+            let mut cfg1 = RaftCfg::new(NODE1, vec![NODE1], 20, TICKS, dir1.clone());
+            cfg1.manual_ticks = true;
+            let handle1 = RaftHandle::start(cfg1, network.transport(NODE1)).unwrap();
+            network.register(NODE1, handle1.input_sender()).unwrap();
+            Self {
+                network,
+                dir1,
+                dir2,
+                handle1: Arc::new(handle1),
+                handle2: None,
+            }
+        }
+
+        fn tick(&self, n: u64) {
+            for _ in 0..n {
+                self.handle1.inject_tick().unwrap();
+            }
+        }
+
+        fn elect_leader(&self) {
+            // Tick processing is asynchronous: alternate tick bursts with
+            // short sleeps so the event loop can work through the queue.
+            for _ in 0..100 {
+                self.tick(TICKS + 2);
+                for _ in 0..50 {
+                    if self.handle1.role() == RaftRole::Leader {
+                        return;
+                    }
+                    mudu_sys::task::sync::sleep_blocking(Duration::from_millis(10));
+                }
+            }
+            panic!(
+                "node did not elect itself leader; status {:?}",
+                self.handle1.status()
+            );
+        }
+
+        fn commit_barrier(&self) {
+            let waiter = self
+                .handle1
+                .propose(ReplEntry::Barrier {
+                    term: self.handle1.term(),
+                })
+                .unwrap();
+            for _ in 0..50 {
+                self.tick(1);
+                match waiter.recv_timeout(Duration::from_millis(100)) {
+                    Ok(Some(result)) => {
+                        result.unwrap();
+                        return;
+                    }
+                    _ => continue,
+                }
+            }
+            panic!("barrier did not commit in time");
+        }
+
+        fn start_joiner(&mut self) {
+            let mut cfg2 = RaftCfg::new(NODE2, vec![NODE1, NODE2], 20, TICKS, self.dir2.clone());
+            cfg2.manual_ticks = true;
+            let handle2 = RaftHandle::start(cfg2, self.network.transport(NODE2)).unwrap();
+            self.network
+                .register(NODE2, handle2.input_sender())
+                .unwrap();
+            self.handle2 = Some(Arc::new(handle2));
+        }
+
+        /// Runs a blocking membership update on a helper thread while this
+        /// thread ticks the leader until the update resolves.
+        fn drive_update(
+            &self,
+            action: ReplMembershipAction,
+            member: u64,
+            host: Option<String>,
+            port: Option<u16>,
+        ) -> Result<ReplMembershipView, ReplMembershipError> {
+            let worker = spawn_thread(move || {
+                raft_membership_update(NODE1, action, member, host, port, 8080)
+            })
+            .unwrap();
+            // Poll the helper thread by probing its result through a shared
+            // slot: SJoinHandle has no try-join, so park on the join with a
+            // ticking outer loop.
+            let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+            let waiter = spawn_thread(move || {
+                let r = worker.join().unwrap();
+                let _ = done_tx.send(r);
+            })
+            .unwrap();
+            loop {
+                self.tick(1);
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(5));
+                match done_rx.try_recv() {
+                    Ok(result) => {
+                        waiter.join().unwrap();
+                        return result;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        panic!("membership helper thread vanished")
+                    }
+                }
+            }
+        }
+    }
+
+    impl Drop for TestCluster {
+        fn drop(&mut self) {
+            let _ = crate::raft_handle_by_node_unregister(NODE1);
+            let _ = crate::repl_member_addr_unregister(NODE2);
+            if let Some(handle2) = &self.handle2 {
+                let _ = handle2.stop();
+            }
+            let _ = self.handle1.stop();
+            let _ = mudu_sys::fs::sync::remove_dir_all(&self.dir1);
+            let _ = mudu_sys::fs::sync::remove_dir_all(&self.dir2);
+        }
+    }
+
+    #[test]
+    fn membership_update_requires_a_running_raft_group() {
+        // No handle registered under this node id.
+        let err = raft_membership_update(103, ReplMembershipAction::AddVoter, 2, None, None, 8080)
+            .unwrap_err();
+        assert_eq!(err.error.ec(), ErrorCode::InvalidState);
+        assert!(err.leader_hint.is_none());
+    }
+
+    #[test]
+    fn membership_update_learner_lifecycle() {
+        let mut cluster = TestCluster::new();
+        cluster.elect_leader();
+        cluster.commit_barrier();
+        crate::raft_handle_by_node_register(NODE1, cluster.handle1.clone()).unwrap();
+
+        // A member add without its replication address is rejected before
+        // any raft traffic.
+        let err = cluster
+            .drive_update(ReplMembershipAction::AddVoter, NODE2, None, None)
+            .unwrap_err();
+        assert_eq!(err.error.ec(), ErrorCode::InvalidArgument);
+
+        // Removing a node that is not a member fails in the derive step.
+        let err = cluster
+            .drive_update(ReplMembershipAction::Remove, 99, None, None)
+            .unwrap_err();
+        assert!(err.leader_hint.is_none());
+
+        cluster.start_joiner();
+
+        // Add node 2 as a learner: the committed view lists it as
+        // non-voting and its replication address is registered for the
+        // conf-sync reconcile.
+        let view = cluster
+            .drive_update(
+                ReplMembershipAction::AddLearner,
+                NODE2,
+                Some("127.0.0.1".to_string()),
+                Some(19_102),
+            )
+            .unwrap();
+        let learner = view
+            .members
+            .iter()
+            .find(|member| member.node_id == NODE2)
+            .expect("learner in view")
+            .clone();
+        assert!(!learner.can_vote);
+        assert_eq!(learner.host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(learner.port, Some(19_102));
+        assert_eq!(
+            crate::repl_member_addr(NODE2),
+            Some(("127.0.0.1".to_string(), 19_102))
+        );
+
+        // Promote the learner to voter, then remove it entirely.
+        let promote = cluster.drive_update(ReplMembershipAction::PromoteLearner, NODE2, None, None);
+        if let Err(e) = &promote {
+            eprintln!("PROMOTE FAILED: {:?}", e.error);
+            eprintln!("node1 status: {:?}", cluster.handle1.status());
+            eprintln!("node1 conf: {:?}", cluster.handle1.conf());
+            if let Some(h2) = &cluster.handle2 {
+                eprintln!("node2 status: {:?}", h2.status());
+            }
+            panic!("promote failed");
+        }
+        let view = promote.unwrap();
+        assert!(
+            view.members
+                .iter()
+                .find(|member| member.node_id == NODE2)
+                .expect("promoted member")
+                .can_vote
+        );
+        let view = cluster
+            .drive_update(ReplMembershipAction::Remove, NODE2, None, None)
+            .unwrap();
+        assert_eq!(view.members.len(), 1);
+        assert_eq!(view.members[0].node_id, NODE1);
     }
 }

@@ -110,7 +110,7 @@ def balance(session: UniOid, user_id: int) -> int:
 # stored record. The `profile` record type is declared in wit/types.wit and
 # generated into `gentypes.py` by mgen; the mtp adapter decodes the
 # positional record envelope through the binding record bridge
-# (mududb.codec.bridge.record_field_values) composed with
+# (mududb.codec.bridge.struct_field_values) composed with
 # gentypes.profile_from_value, and encodes the returned record
 # symmetrically.
 #

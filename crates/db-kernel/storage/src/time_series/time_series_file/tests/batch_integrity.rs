@@ -1,6 +1,6 @@
 use super::{payload, temp_relation_base, temp_ts_path};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 
 #[test]
 fn insert_batch_equivalent_to_single_row_inserts() {
@@ -41,7 +41,10 @@ fn insert_batch_equivalent_to_single_row_inserts() {
             batch.insert_batch(rows).await.unwrap();
         }
 
-        assert_eq!(single.page_count(), batch.page_count());
+        assert_eq!(
+            single.page_count().await.unwrap(),
+            batch.page_count().await.unwrap()
+        );
         let single_rows = single.scan_range(0, u64::MAX).await.unwrap();
         let batch_rows = batch.scan_range(0, u64::MAX).await.unwrap();
         assert_eq!(
@@ -72,7 +75,7 @@ fn insert_batch_equivalent_to_single_row_inserts() {
 fn insert_batch_wal_recovers_after_data_loss() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-batch");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 53,
             table_id: 59,
             file_index: 0,
@@ -246,7 +249,7 @@ async fn write_mixed_batches(
 fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-mixed");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 61,
             table_id: 67,
             file_index: 0,
@@ -257,11 +260,11 @@ fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
             .await
             .unwrap();
         write_mixed_batches(&file, &mut expected, 0x30, 0).await;
-        assert!(file.page_count() > 1);
-        assert!(file.dirty_page_count() > 0);
-        let page_count = file.page_count();
-        let head_page_id = file.head_page_id();
-        let tail_page_id = file.tail_page_id();
+        assert!(file.page_count().await.unwrap() > 1);
+        assert!(file.dirty_page_count().await.unwrap() > 0);
+        let page_count = file.page_count().await.unwrap();
+        let head_page_id = file.head_page_id().await.unwrap();
+        let tail_page_id = file.tail_page_id().await.unwrap();
         // Crash: no flush, no close. Recovery must rebuild every unflushed
         // page from the record-level WAL deltas. The PL frames sit in the
         // group-commit queue until it is driven, so drain it first
@@ -272,27 +275,27 @@ fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
         let file = TimeSeriesFile::open_relation_file(&base, identity.clone(), 0xd1a7_0001, false)
             .await
             .unwrap();
-        assert_eq!(file.page_count(), page_count);
-        assert_eq!(file.head_page_id(), head_page_id);
-        assert_eq!(file.tail_page_id(), tail_page_id);
+        assert_eq!(file.page_count().await.unwrap(), page_count);
+        assert_eq!(file.head_page_id().await.unwrap(), head_page_id);
+        assert_eq!(file.tail_page_id().await.unwrap(), tail_page_id);
         verify_file_contents(&file, &expected).await;
 
         // Continue writing after recovery: the same mixed sequence again
         // (splits now hit pages rebuilt by recovery), then crash and
         // recover once more.
         write_mixed_batches(&file, &mut expected, 0x70, 1000).await;
-        let page_count = file.page_count();
-        let head_page_id = file.head_page_id();
-        let tail_page_id = file.tail_page_id();
+        let page_count = file.page_count().await.unwrap();
+        let head_page_id = file.head_page_id().await.unwrap();
+        let tail_page_id = file.tail_page_id().await.unwrap();
         file.flush_wal_async().await.unwrap();
         drop(file);
 
         let file = TimeSeriesFile::open_relation_file(&base, identity, 0xd1a7_0001, false)
             .await
             .unwrap();
-        assert_eq!(file.page_count(), page_count);
-        assert_eq!(file.head_page_id(), head_page_id);
-        assert_eq!(file.tail_page_id(), tail_page_id);
+        assert_eq!(file.page_count().await.unwrap(), page_count);
+        assert_eq!(file.head_page_id().await.unwrap(), head_page_id);
+        assert_eq!(file.tail_page_id().await.unwrap(), tail_page_id);
         verify_file_contents(&file, &expected).await;
         file.close().await.unwrap();
         mudu_sys::fs::sync::remove_dir_all(base).unwrap();
@@ -304,7 +307,7 @@ fn wal_recovers_unflushed_mixed_batches_and_continued_writes() {
 fn wal_replay_after_full_flush_leaves_data_file_byte_stable() {
     mudu_sys::task::async_::block_on_tokio_current_thread(async move {
         let base = temp_relation_base("recover-stable");
-        let identity = TimeSeriesFileIdentity {
+        let identity = TimeSeriesFileIdobject {
             partition_id: 71,
             table_id: 73,
             file_index: 0,
@@ -323,7 +326,7 @@ fn wal_replay_after_full_flush_leaves_data_file_byte_stable() {
         write_mixed_batches(&file, &mut expected, 0x40, 0).await;
         verify_file_contents(&file, &expected).await;
         file.flush().await.unwrap();
-        assert_eq!(file.dirty_page_count(), 0);
+        assert_eq!(file.dirty_page_count().await.unwrap(), 0);
         let bytes_before = mudu_sys::fs::sync::read(&path).unwrap();
         assert!(!bytes_before.is_empty());
         drop(file);
@@ -355,7 +358,7 @@ fn persisted_pages_carry_valid_checksums_after_flush() {
             let data = payload((idx % 251) as u8, 500);
             file.insert(ts, idx, &data).await.unwrap();
         }
-        assert!(file.page_count() > 1);
+        assert!(file.page_count().await.unwrap() > 1);
         file.flush().await.unwrap();
         file.close().await.unwrap();
 

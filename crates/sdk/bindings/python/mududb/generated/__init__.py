@@ -13,12 +13,12 @@ from . import uni_procedure_param
 from . import uni_procedure_result
 from . import uni_query_argv
 from . import uni_query_result
-from . import uni_record_type
 from . import uni_result_set
 from . import uni_result_type
 from . import uni_scalar
 from . import uni_scalar_value
 from . import uni_sql_param
 from . import uni_sql_stmt
+from . import uni_struct_type
 from . import uni_syscall
 from . import uni_tuple_row

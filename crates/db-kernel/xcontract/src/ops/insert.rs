@@ -1,7 +1,105 @@
+use super::locks::acquire_statement_lock;
 use super::*;
+use crate::contract::WorkerXContract;
+use crate::lifecycle_cluster::ensure_partition_write_open;
 use crate::utils::{build_key_tuple, build_value_tuple};
+use crate::worker_storage::WorkerStorage;
+use crate::x_lock_mgr::XLockMgr;
+
+/// Insert into a locally owned (or unpartitioned) partition under the
+/// statement-level write lock.
+#[allow(clippy::too_many_arguments)]
+async fn insert_local(
+    tx_lock: &XLockMgr,
+    storage: &Arc<WorkerStorage>,
+    worker_id: OID,
+    tx_mgr: &Arc<dyn TxMgr>,
+    table_id: OID,
+    target_partition: Option<OID>,
+    key: Vec<u8>,
+    value: Vec<u8>,
+) -> RS<()> {
+    debug!(
+        worker_id,
+        table_id,
+        target_partition = ?target_partition,
+        "insert checking existing key locally"
+    );
+    acquire_statement_lock(
+        tx_lock,
+        tx_mgr.as_ref(),
+        PhysicalRelationId {
+            table_id,
+            partition_id: storage.physical_partition_id(target_partition),
+        },
+        key.clone(),
+    )
+    .await?;
+    let contain_key = {
+        let _stage =
+            ::catalog::stage_stats::StageGuard::new(::catalog::stage_stats::Stage::WriteStmtRead);
+        storage
+            .get_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
+            .await?
+    };
+    if contain_key.is_some() {
+        Err(mudu_error!(ErrorCode::ObjectAlreadyExists, "existing key"))
+    } else {
+        debug!(
+            worker_id,
+            table_id,
+            target_partition = ?target_partition,
+            "insert writing key locally"
+        );
+        let _stage = ::catalog::stage_stats::StageGuard::new(
+            ::catalog::stage_stats::Stage::WriteStmtStaging,
+        );
+        storage
+            .put_on_partition(table_id, target_partition, key, value, tx_mgr.as_ref())
+            .await
+    }
+}
 
 impl WorkerXContract {
+    /// Insert with explicit partition pinning: skips key-based routing and
+    /// targets `target_partition` directly (`None`/`Some(0)` is the
+    /// unpartitioned default). Used by the queue executors, whose row keys
+    /// (`__seq`) do not carry the queue's partition-route column.
+    pub(crate) async fn insert_pinned(
+        &self,
+        desc: Arc<TableDesc>,
+        tx_mgr: Arc<dyn TxMgr>,
+        table_id: OID,
+        target_partition: Option<OID>,
+        keys: &VecDatum,
+        values: &VecDatum,
+    ) -> RS<()> {
+        let key = build_key_tuple(keys, &desc)?;
+        let value = build_value_tuple(values, &desc)?;
+        if let Some(partition_id) = target_partition {
+            ensure_partition_write_open(&self.cluster_router, &self.meta_mgr, partition_id).await?;
+            match self.resolve_partition_worker(partition_id).await? {
+                Some(worker_id) if worker_id != self.worker_id => {
+                    return self
+                        .insert_remote_owned(&tx_mgr, table_id, partition_id, worker_id, key, value)
+                        .await;
+                }
+                _ => {}
+            }
+        }
+        insert_local(
+            &self.tx_lock,
+            &self.storage,
+            self.worker_id,
+            &tx_mgr,
+            table_id,
+            target_partition,
+            key,
+            value,
+        )
+        .await
+    }
+
     pub(crate) async fn _insert(
         &self,
         desc: Arc<TableDesc>,
@@ -18,8 +116,6 @@ impl WorkerXContract {
             value_cols = values.data().len(),
             "insert begin"
         );
-        let key = build_key_tuple(keys, &desc)?;
-        let value = build_value_tuple(values, &desc)?;
         let target_partition = self
             .partition_router
             .route_exact_partition(table_id, desc.as_ref(), keys)
@@ -30,17 +126,7 @@ impl WorkerXContract {
             target_partition = ?target_partition,
             "insert routed partition"
         );
-        if let Some(partition_id) = target_partition {
-            match self.resolve_partition_worker(partition_id).await? {
-                Some(worker_id) if worker_id != self.worker_id => {
-                    return self
-                        .insert_remote_owned(&tx_mgr, table_id, partition_id, worker_id, key, value)
-                        .await;
-                }
-                _ => {}
-            }
-        }
-        self.insert_local(&tx_mgr, table_id, target_partition, key, value)
+        self.insert_pinned(desc, tx_mgr, table_id, target_partition, keys, values)
             .await
     }
 
@@ -74,7 +160,7 @@ impl WorkerXContract {
             // when that earlier write was staged.
             Some(staged) => {
                 if staged.is_some() {
-                    return Err(mudu_error!(ErrorCode::EntityAlreadyExists, "existing key"));
+                    return Err(mudu_error!(ErrorCode::ObjectAlreadyExists, "existing key"));
                 }
             }
             // Take the statement-level write lock on the owner
@@ -97,7 +183,7 @@ impl WorkerXContract {
                     .await?
                 };
                 if existing.is_some() {
-                    return Err(mudu_error!(ErrorCode::EntityAlreadyExists, "existing key"));
+                    return Err(mudu_error!(ErrorCode::ObjectAlreadyExists, "existing key"));
                 }
             }
         }
@@ -108,56 +194,5 @@ impl WorkerXContract {
             tx_mgr.put_relation(relation_id, key, value);
         }
         Ok(())
-    }
-
-    /// Insert into a locally owned (or unpartitioned) partition under the
-    /// statement-level write lock, failing when the key already exists.
-    async fn insert_local(
-        &self,
-        tx_mgr: &Arc<dyn TxMgr>,
-        table_id: OID,
-        target_partition: Option<OID>,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> RS<()> {
-        debug!(
-            worker_id = self.worker_id,
-            table_id,
-            target_partition = ?target_partition,
-            "insert checking existing key locally"
-        );
-        self.acquire_statement_lock(
-            tx_mgr.as_ref(),
-            PhysicalRelationId {
-                table_id,
-                partition_id: self.storage.physical_partition_id(target_partition),
-            },
-            key.clone(),
-        )
-        .await?;
-        let contain_key = {
-            let _stage = ::catalog::stage_stats::StageGuard::new(
-                ::catalog::stage_stats::Stage::WriteStmtRead,
-            );
-            self.storage
-                .get_on_partition(table_id, target_partition, &key, tx_mgr.as_ref())
-                .await?
-        };
-        if contain_key.is_some() {
-            Err(mudu_error!(ErrorCode::EntityAlreadyExists, "existing key"))
-        } else {
-            debug!(
-                worker_id = self.worker_id,
-                table_id,
-                target_partition = ?target_partition,
-                "insert writing key locally"
-            );
-            let _stage = ::catalog::stage_stats::StageGuard::new(
-                ::catalog::stage_stats::Stage::WriteStmtStaging,
-            );
-            self.storage
-                .put_on_partition(table_id, target_partition, key, value, tx_mgr.as_ref())
-                .await
-        }
     }
 }

@@ -28,9 +28,9 @@ tree-sitter-go = "0.25.0"
 clap = { workspace = true, features = ["derive"] }
 askama = {workspace = true}
 serde = { workspace = true }
-prettyplease = "0.2"
+prettyplease = "0.3"
 proc-macro2 = { version = "1", features = ["span-locations"] }
-syn = { version = "2", features = ["full", "visit"] }
+syn = { version = "3", features = ["full", "visit"] }
 paste = { workspace = true }
 mudu_binding = {workspace = true}
 [build-dependencies]

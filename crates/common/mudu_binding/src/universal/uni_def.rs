@@ -3,15 +3,15 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 
 #[derive(Debug, Clone)]
-pub struct UniTableDef {
+pub struct UniClassDef {
     pub table_comments: String,
-    pub table_name: String,
-    pub table_key: Vec<RecordField>,
-    pub table_value: Vec<RecordField>,
+    pub class_name: String,
+    pub table_key: Vec<StructField>,
+    pub table_value: Vec<StructField>,
 }
 
 #[derive(Debug, Clone)]
-pub struct RecordField {
+pub struct StructField {
     pub rf_comments: String,
     pub rf_name: String,
     pub rf_type: UniDataType,
@@ -21,7 +21,7 @@ pub struct RecordField {
     pub rf_number: u32,
 }
 
-impl RecordField {
+impl StructField {
     /// Create a field with an unassigned (0) field number.
     pub fn new(rf_comments: String, rf_name: String, rf_type: UniDataType) -> Self {
         Self {
@@ -34,17 +34,17 @@ impl RecordField {
 }
 
 /// Assign 1-based field numbers in declaration order.
-pub fn assign_field_numbers(fields: &mut [RecordField]) {
+pub fn assign_field_numbers(fields: &mut [StructField]) {
     for (i, field) in fields.iter_mut().enumerate() {
         field.rf_number = (i + 1) as u32;
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct UniRecordDef {
-    pub record_comments: String,
-    pub record_name: String,
-    pub record_fields: Vec<RecordField>,
+pub struct UniStructDef {
+    pub struct_comments: String,
+    pub struct_name: String,
+    pub struct_fields: Vec<StructField>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,14 +75,14 @@ pub struct EnumCase {
     pub ec_number: u32,
 }
 
-impl Display for UniRecordDef {
+impl Display for UniStructDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UniRecordDef: {:?}", self)
+        write!(f, "UniStructDef: {:?}", self)
     }
 }
 
-impl Display for UniTableDef {
+impl Display for UniClassDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UniTableDef: {:?}", self)
+        write!(f, "UniClassDef: {:?}", self)
     }
 }

@@ -53,7 +53,7 @@ impl FsTypeDesc {
         &self.name
     }
 
-    /// Return the allocated filesystem id.
+    /// Return the name-derived filesystem id.
     pub fn fs_id(&self) -> u64 {
         self.fs_id
     }

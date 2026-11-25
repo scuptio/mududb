@@ -54,13 +54,13 @@ impl _UpdateKeyValue {
     async fn prepare(&self) -> RS<()> {
         let _ = self.meta_mgr.get_table_by_id(self.param.table_id).await?;
         if self.param.key.data().is_empty() {
-            return Err(mudu_error!(ER::EntityNotFound, "update key is empty"));
+            return Err(mudu_error!(ER::ObjectNotFound, "update key is empty"));
         }
         if self.param.value.data().is_empty()
             && self.param.delta_assignments.is_empty()
             && self.param.null_assignments.is_empty()
         {
-            return Err(mudu_error!(ER::EntityNotFound, "update value is empty"));
+            return Err(mudu_error!(ER::ObjectNotFound, "update value is empty"));
         }
         Ok(())
     }

@@ -1,6 +1,6 @@
 //! C rendering back-end.
 //!
-//! Entity path (`mgen entity`): one self-contained freestanding header per
+//! Object path (`mgen object`): one self-contained freestanding header per
 //! table over the guest `mudu_sys.h` layer.
 //!
 //! Message path (`mgen message`): one self-contained header per WIT file in
@@ -29,18 +29,18 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::{to_pascal_case, to_snake_case_upper};
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_def::UniEnumDef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::lang_impl::c::c_codec::{c_const_name, c_type_name};
-use crate::lang_impl::c::template_entity_c::TemplateEntityC;
 use crate::lang_impl::c::template_enum_c::TemplateEnumC;
 use crate::lang_impl::c::template_file_c::{CFileInfo, TemplateFileC};
 use crate::lang_impl::c::template_func_c::{TemplateFuncC, TemplateFuncHeaderC};
-use crate::lang_impl::c::template_record_c::{TemplateRecordC, TemplateRecordCodecC};
+use crate::lang_impl::c::template_object_c::TemplateObjectC;
+use crate::lang_impl::c::template_struct_c::{TemplateStructC, TemplateStructCodecC};
 use crate::lang_impl::c::template_variant_c::{TemplateVariantC, TemplateVariantCodecC};
 use crate::lang_impl::lang::abstract_template::AbstractTemplate;
 use crate::lang_impl::lang::render::Render;
@@ -57,10 +57,10 @@ struct RenderC {}
 
 impl Render for RenderC {
     fn render(&self, template: AbstractTemplate) -> RS<String> {
-        // An entity header is self-contained (it includes the guest facade
+        // An object header is self-contained (it includes the guest facade
         // directly), so it bypasses the message file wrapper.
-        if let [TemplateKind::Entity(entity)] = template.elements.as_slice() {
-            return Self::render_entity_c(entity.clone());
+        if let [TemplateKind::Object(object)] = template.elements.as_slice() {
+            return Self::render_object_c(object.clone());
         }
         let guard = format!(
             "MUDUD_TYPES_{}_H",
@@ -111,11 +111,11 @@ fn elements_type_kinds(elements: &[TemplateKind]) -> HashMap<String, String> {
         let cfg = match element {
             TemplateKind::Enum((_, cfg))
             | TemplateKind::Variant((_, cfg))
-            | TemplateKind::Record((_, cfg))
+            | TemplateKind::Struct((_, cfg))
             | TemplateKind::Table((_, cfg))
             | TemplateKind::FuncHeader((_, cfg))
             | TemplateKind::Func((_, cfg)) => cfg,
-            TemplateKind::Entity(_) => continue,
+            TemplateKind::Object(_) => continue,
         };
         return cfg.type_kinds.clone();
     }
@@ -131,11 +131,11 @@ fn guard_base(elements: &[TemplateKind]) -> String {
         let cfg = match element {
             TemplateKind::Enum((_, cfg))
             | TemplateKind::Variant((_, cfg))
-            | TemplateKind::Record((_, cfg))
+            | TemplateKind::Struct((_, cfg))
             | TemplateKind::Table((_, cfg))
             | TemplateKind::FuncHeader((_, cfg))
             | TemplateKind::Func((_, cfg)) => cfg,
-            TemplateKind::Entity(_) => continue,
+            TemplateKind::Object(_) => continue,
         };
         if !cfg.func_module_name.is_empty() {
             return cfg.func_module_name.clone();
@@ -145,7 +145,7 @@ fn guard_base(elements: &[TemplateKind]) -> String {
         match element {
             TemplateKind::Enum((def, _)) => return to_pascal_case(&def.enum_name),
             TemplateKind::Variant((def, _)) => return to_pascal_case(&def.variant_name),
-            TemplateKind::Record((def, _)) => return to_pascal_case(&def.record_name),
+            TemplateKind::Struct((def, _)) => return to_pascal_case(&def.struct_name),
             _ => continue,
         }
     }
@@ -158,7 +158,7 @@ fn block_type_name(element: &TemplateKind) -> Option<String> {
     match element {
         TemplateKind::Enum((def, _)) => Some(to_pascal_case(&def.enum_name)),
         TemplateKind::Variant((def, _)) => Some(to_pascal_case(&def.variant_name)),
-        TemplateKind::Record((def, _)) => Some(to_pascal_case(&def.record_name)),
+        TemplateKind::Struct((def, _)) => Some(to_pascal_case(&def.struct_name)),
         _ => None,
     }
 }
@@ -198,8 +198,8 @@ fn complete_references(
     let mut idents = Vec::new();
     for element in elements {
         match element {
-            TemplateKind::Record((def, _)) => {
-                for field in &def.record_fields {
+            TemplateKind::Struct((def, _)) => {
+                for field in &def.struct_fields {
                     complete_idents(&field.rf_type, &mut idents);
                 }
             }
@@ -262,8 +262,8 @@ fn block_by_value_deps(
 ) -> Vec<String> {
     let mut idents = Vec::new();
     match element {
-        TemplateKind::Record((def, _)) => {
-            for field in &def.record_fields {
+        TemplateKind::Struct((def, _)) => {
+            for field in &def.struct_fields {
                 by_value_idents(&field.rf_type, &mut idents);
             }
         }
@@ -359,7 +359,7 @@ fn forward_section(
     for &i in order {
         let element = &blocks[i].1;
         let name = match element {
-            TemplateKind::Record((def, _)) => def.record_name.clone(),
+            TemplateKind::Struct((def, _)) => def.struct_name.clone(),
             TemplateKind::Variant((def, _)) => def.variant_name.clone(),
             _ => continue,
         };
@@ -377,8 +377,8 @@ fn forward_section(
 
 /// A built record/variant template kept alive for the codec pass.
 enum TypeTemplate {
-    /// Record template data (struct part already rendered).
-    Record(TemplateRecordC),
+    /// Struct template data (struct part already rendered).
+    Struct(TemplateStructC),
     /// Variant template data (struct part already rendered).
     Variant(TemplateVariantC),
 }
@@ -433,13 +433,13 @@ impl RenderC {
                     code_blocks.push(s);
                     built.push(Some(TypeTemplate::Variant(template)));
                 }
-                TemplateKind::Record((def, cfg)) => {
-                    let template = TemplateRecordC::from(def, cfg)?;
+                TemplateKind::Struct((def, cfg)) => {
+                    let template = TemplateStructC::from(def, cfg)?;
                     let s = template.render().map_err(|e| {
                         mudu_error!(ErrorCode::Decode, "render c record template error", e)
                     })?;
                     code_blocks.push(s);
-                    built.push(Some(TypeTemplate::Record(template)));
+                    built.push(Some(TypeTemplate::Struct(template)));
                 }
                 _ => {
                     return Err(mudu_error!(
@@ -461,8 +461,8 @@ impl RenderC {
                         )
                     })?
                 }
-                TypeTemplate::Record(t) => {
-                    let codec = TemplateRecordCodecC { data: t };
+                TypeTemplate::Struct(t) => {
+                    let codec = TemplateStructCodecC { data: t };
                     codec.render().map_err(|e| {
                         mudu_error!(ErrorCode::Decode, "render c record codec template error", e)
                     })?
@@ -478,9 +478,9 @@ impl RenderC {
 
     fn render_func_block(element: TemplateKind) -> RS<String> {
         match element {
-            TemplateKind::Entity(_) => Err(mudu_error!(
+            TemplateKind::Object(_) => Err(mudu_error!(
                 ErrorCode::Internal,
-                "entity template mixed into a C message file"
+                "object template mixed into a C message file"
             )),
             TemplateKind::Table(_) => Err(mudu_error!(
                 ErrorCode::NotImplemented,
@@ -503,11 +503,11 @@ impl RenderC {
         Ok(s)
     }
 
-    fn render_entity_c(table_schema: TableDef) -> RS<String> {
-        let template = TemplateEntityC::from_table_schema(&table_schema)?;
+    fn render_object_c(table_schema: ClassDef) -> RS<String> {
+        let template = TemplateObjectC::from_table_schema(&table_schema)?;
         let s = template
             .render()
-            .map_err(|e| mudu_error!(ErrorCode::Decode, "render c entity template error", e))?;
+            .map_err(|e| mudu_error!(ErrorCode::Decode, "render c object template error", e))?;
         Ok(s)
     }
 
@@ -539,16 +539,16 @@ mod tests {
     use crate::src_gen::gen_message::gen_message_with_cfg;
     use mudu::common::result::RS;
     use mudu_binding::universal::uni_data_type::UniDataType;
-    use mudu_binding::universal::uni_def::{RecordField, UniRecordDef};
+    use mudu_binding::universal::uni_def::{StructField, UniStructDef};
     use mudu_binding::universal::uni_scalar::UniScalar;
 
     /// A record-only WIT file renders as a guarded self-contained header.
     #[test]
     fn render_wraps_message_blocks_in_a_file() -> RS<()> {
-        let def = UniRecordDef {
-            record_comments: String::new(),
-            record_name: "uni-oid".to_string(),
-            record_fields: vec![RecordField::new(
+        let def = UniStructDef {
+            struct_comments: String::new(),
+            struct_name: "uni-oid".to_string(),
+            struct_fields: vec![StructField::new(
                 String::new(),
                 "h".to_string(),
                 UniDataType::Scalar(UniScalar::U64),
@@ -557,7 +557,7 @@ mod tests {
         let mut cfg = CodegenCfg::new();
         cfg.func_module_name = "UniOid".to_string();
         let mut template = AbstractTemplate::new();
-        template.elements.push(TemplateKind::Record((def, cfg)));
+        template.elements.push(TemplateKind::Struct((def, cfg)));
         let out = create_render_c().render(template)?;
         assert!(out.contains("#ifndef MUDUD_TYPES_UNI_OID_H"));
         assert!(out.contains("#define MUDUD_TYPES_UNI_OID_H"));

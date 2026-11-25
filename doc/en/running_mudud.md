@@ -39,6 +39,9 @@ mudud serve --cfg /path/to/mudud.cfg
 ### Example `mudud.cfg`
 
 ```toml
+# Configuration-format version. Currently 1.
+version = 1
+
 # Directory containing .mpk application packages.
 mpk_path = "./mpk"
 
@@ -86,19 +89,61 @@ enable_async = true
 # Use multiple consecutive TCP ports for workers.
 tcp_multi_port = false
 
-# log chunk size in bytes.
+# WAL log chunk size in bytes.
 log_chunk_size = 67108864
+
+# Queue capacity limits.
+queue_max_msgs = 65536
+queue_max_bytes = 67108864
 
 # Database page size in bytes. Persistent: changing it requires re-initialization.
 page_size = 4096
+
+# WAL durability mode: "commit" fsyncs the WAL before acknowledging every
+# commit; "periodic" acknowledges once the WAL write lands in the OS page cache
+# and fsyncs at most once per wal_sync_interval_ms (a power loss may lose
+# acknowledged commits from the last interval).
+wal_sync_mode = "commit"
+wal_sync_interval_ms = 10
+
+# Cluster topology: top-level identity plus the control/data planes. Uncomment
+# to enable; absent means a single self-contained node. See cluster_configuration.md.
+# name = "g1-node-1"
+# cluster = "prod"
+# channel_listen_port = 29527
+# topology_version = 1
+#
+# [control_plane.replica.raft]
+# [[control_plane.replica.member]]
+# name = "ctl-1"
+# host = "127.0.0.1"
+# channel_port = 29527
+# client_port = 5432
+#
+# [data_plane]
+# rebalance_interval_ms = 0
+#
+# [[data_plane.group]]
+# name = "grp-1"
+# worker_count = 2
+# [data_plane.group.replica.raft]
+# tick_ms = 50
+# election_timeout_ticks = 500
+# [[data_plane.group.replica.member]]
+# name = "g1-node-1"
+# host = "127.0.0.1"
+# channel_port = 29527
+# client_port = 5432
+# replication_port = 19527
 ```
 
 ### Configuration reference
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `mpk_path` | temp dir | Directory where `.mpk` application packages are stored. |
-| `db_path` | temp dir | Directory for database storage files. |
+| `version` | `1` | Configuration-format version. Unknown versions are an error. |
+| `mpk_path` | `./mpk` | Directory where `.mpk` application packages are stored. |
+| `db_path` | `./data` | Directory for database storage files. |
 | `listen_ip` | `127.0.0.1` | IP address the server listens on. |
 | `http_listen_port` | `8300` | HTTP management API port. |
 | `http_worker_threads` | `1` | Number of HTTP worker threads. |
@@ -115,7 +160,21 @@ page_size = 4096
 | `enable_async` | `true` | Enable async runtime support for WASM procedures. |
 | `tcp_multi_port` | `false` | Use multiple consecutive TCP ports for workers. |
 | `log_chunk_size` | `67108864` | io_uring log chunk size in bytes. |
+| `queue_max_msgs` | `65536` | Maximum retained messages per queue. |
+| `queue_max_bytes` | `67108864` | Maximum encoded payload bytes per queue. |
 | `page_size` | `4096` | Database page size. Persistent: changing it for an existing database requires re-initialization. |
+| `wal_flush_max_wait_us` | `200` | Group-commit batching window in microseconds. |
+| `wal_sync_mode` | `commit` | WAL durability mode: `commit` or `periodic`. |
+| `wal_sync_interval_ms` | `10` | WAL fsync interval for `wal_sync_mode = "periodic"`. |
+| `name` | (absent) | This node's unique name (cluster mode). |
+| `cluster` | (absent) | Cluster name, identical across all nodes (cluster mode). |
+| `channel_listen_port` | (absent) | Local inter-node channel listener (cluster mode). |
+| `topology_version` | (absent) | Runtime topology revision/fencing value (cluster mode). |
+
+Optional sections `[invocation_limits]`, `[control_plane]`, `[data_plane]`, and
+`[backup]`, plus the cluster-mode identity fields above, are specified in the
+versioned [configuration contract](contract/mudud_cfg_v1.md). Cluster topology is
+described in [cluster configuration](cluster_configuration.md).
 
 ## Starting the server
 

@@ -14,8 +14,8 @@ mod tests {
     use crate::describer::Describer;
     use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
     use ::catalog::contract::meta_mgr::MetaMgr;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use ::catalog::contract::table_desc::TableDesc;
     use ::catalog::contract::table_info::TableInfo;
     use async_trait::async_trait;
@@ -25,7 +25,6 @@ mod tests {
     use mudu::mudu_error;
     use mudu_sys::sync::SMutex;
     use mudu_type::data_type::DataType;
-    use mudu_type::data_type_info::DataTypeInfo;
     use mudu_type::type_family::TypeFamily;
     use sql_parser::ast::expr_name::ExprName;
     use sql_parser::ast::object_ref::ObjectRef;
@@ -42,7 +41,7 @@ mod tests {
     }
 
     impl TestMetaMgr {
-        fn new(schema: SchemaTable) -> Self {
+        fn new(schema: SchemaClass) -> Self {
             let table = TableInfo::new(schema).unwrap().table_desc().unwrap();
             let mut tables = HashMap::new();
             tables.insert(table.id(), table);
@@ -65,7 +64,7 @@ mod tests {
                 .get(&oid)
                 .cloned()
                 .ok_or_else(|| {
-                    mudu_error!(ErrorCode::EntityNotFound, format!("no such table {}", oid))
+                    mudu_error!(ErrorCode::ObjectNotFound, format!("no such table {}", oid))
                 })
         }
 
@@ -79,7 +78,7 @@ mod tests {
                 .cloned())
         }
 
-        async fn create_table(&self, schema: &SchemaTable) -> RS<()> {
+        async fn create_table(&self, schema: &SchemaClass) -> RS<()> {
             let table = TableInfo::new(schema.clone())?.table_desc()?;
             self.tables.lock().unwrap().insert(table.id(), table);
             Ok(())
@@ -89,21 +88,32 @@ mod tests {
             self.tables.lock().unwrap().remove(&table_id);
             Ok(())
         }
+
+        async fn get_queue(&self, schema: &str, name: &str) -> RS<Option<Arc<TableDesc>>> {
+            match self.get_table_by_name(schema, name).await? {
+                Some(desc) if desc.is_queue() => Ok(Some(desc)),
+                _ => Ok(None),
+            }
+        }
     }
 
-    fn schema() -> SchemaTable {
-        SchemaTable::new(
+    fn schema() -> SchemaClass {
+        SchemaClass::new(
             "users".to_string(),
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
                     TypeFamily::I32,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::I32,
+                    )),
                 ),
                 SchemaColumn::new(
                     "name".to_string(),
                     TypeFamily::String,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::String)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::String,
+                    )),
                 ),
             ],
             vec![0],
@@ -197,7 +207,7 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn describe_select_missing_table_returns_entity_not_found_with_table_name() {
+    fn describe_select_missing_table_returns_object_not_found_with_class_name() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let err = Describer::describe(
                 meta_mgr().as_ref(),
@@ -206,7 +216,7 @@ mod tests {
             )
             .await
             .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
             assert!(err.message().contains("missing_table"));
         })
         .unwrap();
@@ -214,7 +224,7 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn describe_select_missing_column_returns_entity_not_found_with_column_name() {
+    fn describe_select_missing_column_returns_object_not_found_with_column_name() {
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let err = Describer::describe(
                 meta_mgr().as_ref(),
@@ -223,8 +233,51 @@ mod tests {
             )
             .await
             .unwrap_err();
-            assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
             assert!(err.message().contains("missing_col"));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn describe_receive_returns_envelope_descriptor() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let mut columns = ::catalog::contract::queue::queue_system_columns();
+            columns.push(SchemaColumn::new(
+                "body".to_string(),
+                TypeFamily::String,
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::String,
+                )),
+            ));
+            let value_indices = (1..columns.len()).collect();
+            let mut queue = SchemaClass::new("jobs".to_string(), columns, vec![0], value_indices);
+            queue.set_kind(::catalog::contract::schema_class::SchemaClassKind::Queue);
+            let meta = Arc::new(TestMetaMgr::new(queue));
+
+            let stmt = StmtType::Command(StmtCommand::Receive(
+                sql_parser::ast::stmt_receive::StmtReceive::new("jobs".to_string(), None, None),
+            ));
+            let desc = Describer::describe(meta.as_ref(), &stmt, DEFAULT_SCHEMA)
+                .await
+                .unwrap();
+            let fields = desc.fields();
+            let names: Vec<&str> = fields.iter().map(|field| field.name()).collect();
+            assert_eq!(names, vec!["__seq", "__lsn", "body"]);
+            assert_eq!(fields[0].type_family(), TypeFamily::I64);
+            assert!(!fields[0].nullable());
+            assert_eq!(fields[1].type_family(), TypeFamily::I64);
+            assert_eq!(fields[2].type_family(), TypeFamily::String);
+            assert!(fields[2].nullable());
+
+            let missing = StmtType::Command(StmtCommand::Receive(
+                sql_parser::ast::stmt_receive::StmtReceive::new("missing".to_string(), None, None),
+            ));
+            let err = Describer::describe(meta.as_ref(), &missing, DEFAULT_SCHEMA)
+                .await
+                .unwrap_err();
+            assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         })
         .unwrap();
     }

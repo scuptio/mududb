@@ -130,3 +130,36 @@ pub fn host_fs_fsync(fs_fsync_in: Vec<u8>, worker_local: Option<WorkerLocalRef>)
 pub fn host_fs_readdir(fs_readdir_in: Vec<u8>, worker_local: Option<WorkerLocalRef>) -> Vec<u8> {
     kernel_sync::fs_readdir_internal_with_worker_local(&fs_readdir_in, worker_local)
 }
+
+/// Handles the guest cache `open` syscall; `app_name` is the invoking
+/// application, whose schema the bare cache name resolves against.
+pub fn host_cache_open(
+    cache_open_in: Vec<u8>,
+    worker_local: Option<WorkerLocalRef>,
+    app_name: Option<&str>,
+) -> Vec<u8> {
+    kernel_sync::cache_open_internal_with_worker_local(&cache_open_in, worker_local, app_name)
+}
+
+/// Handles the guest cache `get` syscall.
+pub fn host_cache_get(cache_get_in: Vec<u8>, worker_local: Option<WorkerLocalRef>) -> Vec<u8> {
+    kernel_sync::cache_get_internal_with_worker_local(&cache_get_in, worker_local)
+}
+
+/// Handles the guest cache `put` syscall.
+pub fn host_cache_put(cache_put_in: Vec<u8>, worker_local: Option<WorkerLocalRef>) -> Vec<u8> {
+    kernel_sync::cache_put_internal_with_worker_local(&cache_put_in, worker_local)
+}
+
+/// Handles the guest cache `delete` syscall.
+pub fn host_cache_delete(
+    cache_delete_in: Vec<u8>,
+    worker_local: Option<WorkerLocalRef>,
+) -> Vec<u8> {
+    kernel_sync::cache_delete_internal_with_worker_local(&cache_delete_in, worker_local)
+}
+
+/// Handles the guest cache `ttl` syscall.
+pub fn host_cache_ttl(cache_ttl_in: Vec<u8>, worker_local: Option<WorkerLocalRef>) -> Vec<u8> {
+    kernel_sync::cache_ttl_internal_with_worker_local(&cache_ttl_in, worker_local)
+}

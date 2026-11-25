@@ -60,6 +60,7 @@ mod tests {
                 sever_mode: Default::default(),
                 async_runtime: None,
                 defer_initdb: false,
+                trusted_key_fingerprints: Vec::new(),
             },
         )
         .await?;
@@ -83,7 +84,7 @@ mod tests {
         let app_name = "app1".to_string();
         let app = service.app(app_name.clone()).await.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such app named {}", app_name)
             )
         })?;

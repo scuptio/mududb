@@ -10,21 +10,21 @@ use mudu::common::result::RS;
 use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 pub(crate) const SCHEMA_CATALOG_PARTITION_ID: OID = 0;
 pub(crate) const SCHEMA_CATALOG_TABLE_ID: OID = 0x1;
-const SCHEMA_CATALOG_TABLE_NAME: &str = "__meta_schema_table";
+const SCHEMA_CATALOG_TABLE_NAME: &str = "__meta_schema_class";
 const SCHEMA_CATALOG_TABLE_OID_COLUMN_ID: OID = 0x10001;
 const SCHEMA_CATALOG_SCHEMA_COLUMN_ID: OID = 0x10002;
 
-pub(crate) fn schema_catalog_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn schema_catalog_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         SCHEMA_CATALOG_TABLE_ID,
         SCHEMA_CATALOG_TABLE_NAME.to_string(),
         vec![
@@ -84,7 +84,7 @@ pub(crate) fn encode_schema_catalog_key(oid: OID) -> RS<Vec<u8>> {
     Ok(key)
 }
 
-pub(crate) fn encode_schema_catalog_value(schema: &SchemaTable) -> RS<Vec<u8>> {
+pub(crate) fn encode_schema_catalog_value(schema: &SchemaClass) -> RS<Vec<u8>> {
     rmp_serde::to_vec(schema).map_err(|e| {
         mudu::mudu_error!(
             mudu::error::ErrorCode::Encode,
@@ -95,10 +95,16 @@ pub(crate) fn encode_schema_catalog_value(schema: &SchemaTable) -> RS<Vec<u8>> {
 }
 
 pub(crate) fn decode_schema_catalog_key(tuple: &[u8]) -> RS<OID> {
+    if tuple.len() != std::mem::size_of::<OID>() {
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::CorruptedData,
+            "invalid schema catalog key length"
+        ));
+    }
     Ok(endian::read_u128(tuple))
 }
 
-pub(crate) fn decode_schema_catalog_value(tuple: &[u8]) -> RS<SchemaTable> {
+pub(crate) fn decode_schema_catalog_value(tuple: &[u8]) -> RS<SchemaClass> {
     rmp_serde::from_slice(tuple).map_err(|e| {
         mudu::mudu_error!(
             mudu::error::ErrorCode::Decode,
@@ -108,7 +114,7 @@ pub(crate) fn decode_schema_catalog_value(tuple: &[u8]) -> RS<SchemaTable> {
     })
 }
 
-pub(crate) async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<SchemaTable>> {
+pub(crate) async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<SchemaClass>> {
     let rows = relation
         .visible_range(
             (Bound::Unbounded, Bound::Unbounded),
@@ -116,6 +122,7 @@ pub(crate) async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<Sch
         )
         .await?;
     let mut schemas = Vec::with_capacity(rows.len());
+    let mut names = std::collections::BTreeSet::new();
     for (key, value) in rows {
         let key_oid = decode_schema_catalog_key(&key)?;
         let schema = decode_schema_catalog_value(&value)?;
@@ -127,6 +134,12 @@ pub(crate) async fn load_schemas_from_catalog(relation: &Relation) -> RS<Vec<Sch
                     key_oid,
                     schema.id()
                 )
+            ));
+        }
+        if !names.insert((schema.schema().clone(), schema.class_name().clone())) {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::CorruptedData,
+                "duplicate qualified name in schema catalog"
             ));
         }
         schemas.push(schema);
@@ -145,7 +158,7 @@ fn visible_snapshot_xid() -> u64 {
 
 pub(crate) async fn write_schema_to_catalog(
     relation: &Relation,
-    schema: &SchemaTable,
+    schema: &SchemaClass,
     xid: u64,
 ) -> RS<()> {
     let key = encode_schema_catalog_key(schema.id())?;
@@ -161,3 +174,6 @@ pub(crate) async fn delete_schema_from_catalog(relation: &Relation, oid: OID, xi
     relation.write_delete(key, xid).await?;
     relation.flush_wal_async().await
 }
+
+mod offline;
+pub use offline::read_persisted_schemas;

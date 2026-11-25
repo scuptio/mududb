@@ -12,12 +12,12 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::sync::async_::AMutex;
 use mudu_sys::SysIoContext;
 
-use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdentity};
+use crate::time_series::time_series_file::{TimeSeriesFile, TimeSeriesFileIdobject};
 use ::catalog::contract::data_row::DataRow;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::timestamp::Timestamp;
 use ::catalog::contract::version_tuple::VersionTuple;
-use ::index::btree::btree_index::BTreeIndex;
+
 use ::index::index_key::compare_context::CompareContext;
 use ::index::index_key::key_tuple::KeyTuple;
 use mudu_utils::scoped_task_trace;
@@ -30,49 +30,16 @@ impl RelationInner {
         path: String,
         table_desc: &TableDesc,
     ) -> RS<Self> {
-        scoped_task_trace!();
-        let key_identity = TimeSeriesFileIdentity {
-            partition_id,
+        let sys = mudu_sys::default_sys_io_context();
+        Self::new_with_provider_inner(
+            sys.fs(),
+            Some(sys.provider_arc()),
             table_id,
-            file_index: KEY_FILE_INDEX,
-        };
-        let value_identity = TimeSeriesFileIdentity {
             partition_id,
-            table_id,
-            file_index: VALUE_FILE_INDEX,
-        };
-        let key_schema_hash = tuple_schema_hash(b'K', table_desc.key_desc());
-        let value_schema_hash = tuple_schema_hash(b'V', table_desc.value_desc());
-
-        let relation = Self {
-            _table_id: table_id,
-            _partition_id: partition_id,
-            index: BTreeIndex::new(CompareContext {
-                result: Ok(()),
-                comparator: TupleComparator::new(),
-                desc: table_desc.key_desc().clone(),
-            }),
-            key_file: TimeSeriesFile::open_relation_file(
-                &path,
-                key_identity,
-                key_schema_hash,
-                true,
-            )
-            .await?,
-            value_file: TimeSeriesFile::open_relation_file(
-                &path,
-                value_identity,
-                value_schema_hash,
-                true,
-            )
-            .await?,
-            next_tuple_id: AtomicU64::new(1),
-            write_stripes: (0..WRITE_STRIPE_COUNT).map(|_| AMutex::new(())).collect(),
-        };
-        relation.rebuild_from_files_async().await.map_err(|e| {
-            mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
-        })?;
-        Ok(relation)
+            path,
+            table_desc,
+        )
+        .await
     }
 
     pub(crate) async fn new_with_fs(
@@ -113,12 +80,12 @@ impl RelationInner {
     ) -> RS<Self> {
         scoped_task_trace!();
         trace!(table_id, partition_id, path = %path, "relation new_with_fs start");
-        let key_identity = TimeSeriesFileIdentity {
+        let key_identity = TimeSeriesFileIdobject {
             partition_id,
             table_id,
             file_index: KEY_FILE_INDEX,
         };
-        let value_identity = TimeSeriesFileIdentity {
+        let value_identity = TimeSeriesFileIdobject {
             partition_id,
             table_id,
             file_index: VALUE_FILE_INDEX,
@@ -143,17 +110,22 @@ impl RelationInner {
         let value_file =
             Self::open_component_file(&fs, &provider, &path, value_identity, value_schema_hash)
                 .await?;
+        let context = CompareContext {
+            result: Ok(()),
+            comparator: TupleComparator::new(),
+            desc: table_desc.key_desc().clone(),
+        };
+        let stamp = Self::cache_stamp(&key_file, &value_file).await?;
+        let (index, restored) = RelationIndex::open(context, &fs, key_file.path(), &stamp).await?;
         let relation = Self {
             _table_id: table_id,
             _partition_id: partition_id,
-            index: BTreeIndex::new(CompareContext {
-                result: Ok(()),
-                comparator: TupleComparator::new(),
-                desc: table_desc.key_desc().clone(),
-            }),
+            index,
+            lifecycle: mudu_sys::sync::async_::ARwLock::new(false),
+            cache_tainted: std::sync::atomic::AtomicBool::new(false),
             key_file,
             value_file,
-            next_tuple_id: AtomicU64::new(1),
+            next_tuple_id: AtomicU64::new(restored.unwrap_or(1)),
             write_stripes: (0..WRITE_STRIPE_COUNT).map(|_| AMutex::new(())).collect(),
         };
         trace!(
@@ -161,9 +133,11 @@ impl RelationInner {
             partition_id,
             "relation files opened, rebuilding from files"
         );
-        relation.rebuild_from_files_async().await.map_err(|e| {
-            mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
-        })?;
+        if restored.is_none() {
+            relation.rebuild_from_files_async().await.map_err(|e| {
+                mudu_error!(ErrorCode::Storage, "rebuild relation from files failed", e)
+            })?;
+        }
         trace!(table_id, partition_id, "relation new_with_fs done");
         Ok(relation)
     }
@@ -174,7 +148,7 @@ impl RelationInner {
         fs: &Arc<dyn AsyncFs>,
         provider: &Option<Arc<dyn AsyncIoProvider>>,
         path: &str,
-        identity: TimeSeriesFileIdentity,
+        identity: TimeSeriesFileIdobject,
         schema_hash: u64,
     ) -> RS<TimeSeriesFile> {
         match provider {
@@ -210,7 +184,7 @@ impl RelationInner {
             max_tuple_id = max_tuple_id.max(tuple_id);
 
             let key_tuple = KeyTuple::from(key_row.payload.clone());
-            let row = match self.index.get(&key_tuple)? {
+            let row = match self.index.get(&key_tuple).await? {
                 Some(row) => {
                     let existing_tuple_id = row
                         .tuple_id()
@@ -245,7 +219,7 @@ impl RelationInner {
             // value file, and visibility reads fall back to the file until
             // the row is rewritten (see visible_value).
             row.write_shallow(version).await?;
-            let _ = self.index.insert(key_tuple, row)?;
+            let _ = self.index.insert(key_tuple, row).await?;
         }
 
         self.next_tuple_id
@@ -254,7 +228,7 @@ impl RelationInner {
     }
 }
 
-fn tuple_schema_hash(
+pub(super) fn tuple_schema_hash(
     role: u8,
     desc: &mudu_contract::tuple::tuple_binary_desc::TupleBinaryDesc,
 ) -> u64 {
@@ -279,7 +253,7 @@ fn tuple_schema_hash(
         h = write(h, &off.to_le_bytes());
         h = write(h, &len.to_le_bytes());
         h = write(h, &[fd.is_fixed_len() as u8]);
-        let info = fd.type_obj().to_info();
+        let info = mudu_type::data_type_codec::TypeCodec::to_info(fd.type_obj());
         h = write(h, &(info.id as u32).to_le_bytes());
         let p = info.param.as_bytes();
         h = write(h, &(p.len() as u32).to_le_bytes());

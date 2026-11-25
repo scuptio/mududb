@@ -1,9 +1,0 @@
-{
-  "packages": [
-    "example/mpk/key-value",
-    "example/mpk/tpcc",
-    "example/mpk/vote",
-    "example/mpk/wallet",
-    "example/mpk/ycsb"
-  ]
-}

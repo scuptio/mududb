@@ -4,6 +4,7 @@ use crate::data_type_impl::data_type_create::{
 };
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::Unstructured;
 
 fn seeded_bytes(seed: u64) -> Vec<u8> {
@@ -72,10 +73,10 @@ fn object_arb_param_produces_named_fields() {
     for seed in 100..132 {
         let bytes = seeded_bytes(seed);
         let mut u = Unstructured::new(&bytes);
-        let dt = TypeFamily::Record.fn_arb_param()(&mut u).unwrap();
-        let record = dt.expect_record_param();
-        assert_eq!(dt.type_family(), TypeFamily::Record);
-        assert!(!record.record_name().is_empty());
+        let dt = TypeFamily::Struct.fn_arb_param()(&mut u).unwrap();
+        let record = dt.expect_struct_param();
+        assert_eq!(dt.type_family(), TypeFamily::Struct);
+        assert!(!record.struct_name().is_empty());
         assert!(!record.fields().is_empty());
         for (name, field_ty) in record.fields() {
             assert!(!name.is_empty());
@@ -109,7 +110,7 @@ fn object_roundtrip_with_nested_array_field() {
             ),
         ],
     );
-    let value = DataValue::from_record(vec![
+    let value = DataValue::from_struct(vec![
         DataValue::from_string("neo".to_string()),
         DataValue::from_array(vec![
             DataValue::from_i32(7),
@@ -119,13 +120,13 @@ fn object_roundtrip_with_nested_array_field() {
         DataValue::from_binary(vec![1, 2, 3, 5, 8]),
     ]);
 
-    assert_binary_roundtrip(TypeFamily::Record, &dt, &value);
+    assert_binary_roundtrip(TypeFamily::Struct, &dt, &value);
 
-    let json = TypeFamily::Record.fn_output_json()(&value, &dt).unwrap();
-    let parsed = TypeFamily::Record.fn_input_json()(&json.into_json_value(), &dt).unwrap();
+    let json = TypeFamily::Struct.fn_output_json()(&value, &dt).unwrap();
+    let parsed = TypeFamily::Struct.fn_input_json()(&json.into_json_value(), &dt).unwrap();
     assert_eq!(
-        TypeFamily::Record.fn_send()(&parsed, &dt).unwrap().as_ref(),
-        TypeFamily::Record.fn_send()(&value, &dt).unwrap().as_ref()
+        TypeFamily::Struct.fn_send()(&parsed, &dt).unwrap().as_ref(),
+        TypeFamily::Struct.fn_send()(&value, &dt).unwrap().as_ref()
     );
 }
 
@@ -134,14 +135,14 @@ fn object_arbitrary_value_matches_generated_schema() {
     for seed in 200..216 {
         let bytes = seeded_bytes(seed);
         let mut u = Unstructured::new(&bytes);
-        let dt = TypeFamily::Record.fn_arb_param()(&mut u).unwrap();
-        let value = match TypeFamily::Record.fn_arb_internal()(&mut u, &dt) {
+        let dt = TypeFamily::Struct.fn_arb_param()(&mut u).unwrap();
+        let value = match TypeFamily::Struct.fn_arb_internal()(&mut u, &dt) {
             Ok(value) => value,
             Err(arbitrary::Error::NotEnoughData) => continue,
             Err(err) => panic!("unexpected arbitrary error: {:?}", err),
         };
-        let record = value.expect_record();
-        assert_eq!(record.len(), dt.expect_record_param().fields().len());
-        assert_binary_roundtrip(TypeFamily::Record, &dt, &value);
+        let record = value.expect_struct();
+        assert_eq!(record.len(), dt.expect_struct_param().fields().len());
+        assert_binary_roundtrip(TypeFamily::Struct, &dt, &value);
     }
 }

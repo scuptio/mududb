@@ -12,7 +12,7 @@ mod tests {
         assert_eq!(dt_lang_name_to_id("f64").unwrap().0, TypeFamily::F64);
         assert_eq!(dt_lang_name_to_id("String").unwrap().0, TypeFamily::String);
         assert_eq!(dt_lang_name_to_id("Vec").unwrap().0, TypeFamily::Array);
-        assert_eq!(dt_lang_name_to_id("Record").unwrap().0, TypeFamily::Record);
+        assert_eq!(dt_lang_name_to_id("Struct").unwrap().0, TypeFamily::Struct);
         assert_eq!(dt_lang_name_to_id("Vec<u8>").unwrap().0, TypeFamily::Binary);
         assert_eq!(dt_lang_name_to_id("OID").unwrap().0, TypeFamily::U128);
         assert_eq!(dt_lang_name_to_id("u128").unwrap().0, TypeFamily::U128);
@@ -29,7 +29,7 @@ mod tests {
         assert_eq!(dt_id_to_lang_name(TypeFamily::F64).unwrap(), "f64");
         assert_eq!(dt_id_to_lang_name(TypeFamily::String).unwrap(), "String");
         assert_eq!(dt_id_to_lang_name(TypeFamily::Array).unwrap(), "Vec");
-        assert_eq!(dt_id_to_lang_name(TypeFamily::Record).unwrap(), "Record");
+        assert_eq!(dt_id_to_lang_name(TypeFamily::Struct).unwrap(), "Struct");
         assert_eq!(dt_id_to_lang_name(TypeFamily::Binary).unwrap(), "Vec<u8>");
     }
 }

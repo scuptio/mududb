@@ -1,5 +1,5 @@
 //! Cross-language facade consistency scenario
-//! (`doc/dev/binding_api_surface.md`, section "Behavioral consistency
+//! (`doc/en/binding_api_surface.md`, section "Behavioral consistency
 //! scenario"). Every step must stay assertion-identical with the C#
 //! `FacadeScenarioTests`. Runs against the in-process standalone adapter
 //! (SQLite + local fs).

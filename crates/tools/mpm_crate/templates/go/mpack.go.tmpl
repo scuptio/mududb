@@ -16,7 +16,7 @@ import (
 // numbers the codec serves are verified against the Rust host sources
 // (`uni_scalar_value.rs`, `uni_data_value.rs`).
 //
-// MSSP v1 shapes: records and request argument lists are MessagePack maps
+// MSSP v1 shapes: structs and request argument lists are MessagePack maps
 // keyed by the 1-based field/parameter numbers (WIT declaration order);
 // variants stay `[tag, payload]` 2-arrays. Writes are canonical (shortest
 // integer/str/bin form, matching rmp_serde); reads are lenient (integer
@@ -405,7 +405,7 @@ func (r *mpReader) readDouble() float64 {
 }
 
 // nextIsInteger reports whether the next value belongs to the MessagePack
-// integer family (fixint or any int/uint width). Record/request map keys are
+// integer family (fixint or any int/uint width). Struct/request map keys are
 // field numbers, so a non-integer key is skipped with its value (lenient
 // decode).
 func (r *mpReader) nextIsInteger() bool {

@@ -1,0 +1,16 @@
+[package]
+name = "mudu_tui"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Terminal UI helpers for rendering MuduDB query results as an interactive table"
+
+[lints]
+workspace = true
+
+[dependencies]
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+unicode-width = { workspace = true }

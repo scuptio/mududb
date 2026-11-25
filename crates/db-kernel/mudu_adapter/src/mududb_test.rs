@@ -39,7 +39,7 @@ fn open_argv() -> UniSessionOpenArgv {
 
 #[test]
 fn connection_parses_mudud_async_and_http_query_variants() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
 
     with_connection_env(
@@ -74,7 +74,7 @@ fn connection_parses_mudud_async_and_http_query_variants() -> RS<()> {
 
 #[test]
 fn mudu_open_async_reports_database_error_when_mudud_addr_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let argv = open_argv();
@@ -93,7 +93,7 @@ fn mudu_open_async_reports_database_error_when_mudud_addr_missing() -> RS<()> {
 
 #[test]
 fn mudu_open_async_reports_network_error_for_invalid_address() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://not-a-socket-addr/test", || {
         let argv = open_argv();
@@ -115,7 +115,7 @@ fn mudu_open_async_reports_network_error_for_invalid_address() -> RS<()> {
 
 #[test]
 fn mudu_query_async_reports_database_error_when_mudud_app_name_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("SELECT 1".to_string());
@@ -134,7 +134,7 @@ fn mudu_query_async_reports_database_error_when_mudud_app_name_missing() -> RS<(
 
 #[test]
 fn mudu_command_async_reports_database_error_when_mudud_app_name_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("SELECT 1".to_string());
@@ -153,7 +153,7 @@ fn mudu_command_async_reports_database_error_when_mudud_app_name_missing() -> RS
 
 #[test]
 fn mudu_batch_async_rejects_parameters_before_session_lookup() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mududb_test.db", || {
         let stmt = SQLStmtText::new("INSERT INTO t VALUES (?)".to_string());
@@ -174,53 +174,53 @@ fn mudu_batch_async_rejects_parameters_before_session_lookup() -> RS<()> {
 }
 
 #[test]
-fn native_async_operations_report_entity_not_found_for_missing_session() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+fn native_async_operations_report_object_not_found_for_missing_session() -> RS<()> {
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mudud://127.0.0.1:9999/test", || {
         let session_id = 8888;
         mudu_sys::task::async_::block_on_tokio_current_thread(async move {
             let err = match mudu_close_async(session_id).await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_get_async(session_id, b"key").await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_put_async(session_id, b"key", b"value").await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_range_async(session_id, b"start", b"end").await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let query_stmt = SQLStmtText::new("SELECT 1".to_string());
             let err = match mudu_query_async::<i32>(session_id, &query_stmt, &()).await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let command_stmt = SQLStmtText::new("SELECT 1".to_string());
             let err = match mudu_command_async(session_id, &command_stmt, &()).await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let batch_stmt = SQLStmtText::new("INSERT INTO t VALUES (1)".to_string());
             let err = match mudu_batch_async(session_id, &batch_stmt, &()).await {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
@@ -233,7 +233,7 @@ fn native_async_operations_report_entity_not_found_for_missing_session() -> RS<(
 
 #[test]
 fn async_loop_open_reports_network_error_without_server() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -252,8 +252,8 @@ fn async_loop_open_reports_network_error_without_server() -> RS<()> {
 }
 
 #[test]
-fn async_loop_operations_report_entity_not_found_for_missing_session() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+fn async_loop_operations_report_object_not_found_for_missing_session() -> RS<()> {
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -264,44 +264,44 @@ fn async_loop_operations_report_entity_not_found_for_missing_session() -> RS<()>
             let stmt = SQLStmtText::new("SELECT 1".to_string());
 
             let err = match mudu_close(session_id) {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_get(session_id, b"key") {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_put(session_id, b"key", b"value") {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_range(session_id, b"start", b"end") {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_query::<i32>(session_id, &stmt, &()) {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let err = match mudu_command(session_id, &stmt, &()) {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
 
             let batch_stmt = SQLStmtText::new("INSERT INTO t VALUES (1)".to_string());
             let err = match mudu_batch(session_id, &batch_stmt, &()) {
-                Ok(_) => panic!("expected entity not found error"),
+                Ok(_) => panic!("expected object not found error"),
                 Err(e) => e,
             };
             assert_session_not_found(err, session_id);
@@ -312,7 +312,7 @@ fn async_loop_operations_report_entity_not_found_for_missing_session() -> RS<()>
 
 #[test]
 fn async_loop_batch_rejects_parameters() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -334,7 +334,7 @@ fn async_loop_batch_rejects_parameters() -> RS<()> {
 
 #[test]
 fn async_loop_query_and_command_forward_params_without_local_validation() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env(
         "mudud://127.0.0.1:9999/test?async_session_loop=true",
@@ -361,7 +361,7 @@ fn async_loop_query_and_command_forward_params_without_local_validation() -> RS<
 }
 
 fn assert_session_not_found(err: mudu::error::MuduError, session_id: u128) {
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     assert!(
         err.to_string()
             .contains(&format!("session {} does not exist", session_id))

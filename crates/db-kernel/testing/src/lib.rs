@@ -9,11 +9,14 @@
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
 use mudu_sys::net::sync::StdTcpListener;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 /// Common helpers used by integration tests.
 pub mod support;
+
+/// The in-process server fixture used by integration tests.
+pub mod in_process_server;
 
 #[cfg(test)]
 mod lib_test;
@@ -71,8 +74,20 @@ pub fn reserve_port_block(count: usize) -> RS<Option<u16>> {
 }
 
 /// Waits until a service starts accepting TCP connections on `port`.
+///
+/// The wait budget is [`support::backend_startup_timeout`]: booting a full
+/// backend (including mpk auto-load, which compiles wasmtime components) is
+/// ~15-25x slower under sanitizer instrumentation and also noticeably slower
+/// under coverage instrumentation, so a fixed short timeout makes
+/// instrumented runs fail with "server did not become ready".
 pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
+    wait_until_port_ready_within(port, service_name, support::backend_startup_timeout())
+}
+
+/// Waits until a service starts accepting TCP connections on `port`, giving
+/// up after `timeout`.
+pub fn wait_until_port_ready_within(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
     while mudu_sys::time::instant_now() < deadline {
         if mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], port))).is_ok() {
             return Ok(());
@@ -88,9 +103,31 @@ pub fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
     ))
 }
 
-/// Connects a synchronous client to `port`, retrying until timeout.
+/// Retry budget for [`connect_sync_client_with_retry`]: 5 s on regular
+/// builds, scaled up under sanitizer or coverage instrumentation, where the
+/// worker's accept path is slow enough that connections keep being refused
+/// well beyond 5 s even though the server is coming up.
+fn client_connect_retry_budget() -> Duration {
+    if support::sanitizer_runtime_detected() {
+        Duration::from_secs(120)
+    } else if support::coverage_runtime_detected() {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(5)
+    }
+}
+
+/// Connects a synchronous client to `port`, retrying until the budget from
+/// `client_connect_retry_budget` expires.
 pub fn connect_sync_client_with_retry(port: u16) -> RS<SyncClient> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(5);
+    connect_sync_client_with_retry_within(port, client_connect_retry_budget())
+}
+
+/// Connects a synchronous client to `port`, retrying until `timeout`
+/// expires. Tests that expect the connect to fail should use this variant
+/// with a short explicit timeout so they stay fast under instrumentation.
+pub fn connect_sync_client_with_retry_within(port: u16, timeout: Duration) -> RS<SyncClient> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
     let mut last_err = None;
     while mudu_sys::time::instant_now() < deadline {
         match SyncClient::connect(SocketAddr::from(([127, 0, 0, 1], port))) {
@@ -108,4 +145,26 @@ pub fn connect_sync_client_with_retry(port: u16) -> RS<SyncClient> {
             format!("timed out connecting SyncClient to TCP port {}", port)
         )),
     }
+}
+
+/// Connects a synchronous client to `host:port`, resolving the hostname first
+/// (the distributed e2e driver reaches node containers by their service name).
+pub fn connect_sync_client_host(host: &str, port: u16) -> RS<SyncClient> {
+    let addrs: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                format!("resolve host {host}"),
+                e
+            )
+        })?
+        .collect();
+    let addr = addrs.into_iter().next().ok_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
+            format!("no address resolved for host {host}")
+        )
+    })?;
+    SyncClient::connect(addr)
 }

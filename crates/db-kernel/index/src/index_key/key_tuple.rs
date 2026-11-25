@@ -195,11 +195,11 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct RecordingHasher {
+    struct StructingHasher {
         bytes: Vec<u8>,
     }
 
-    impl Hasher for RecordingHasher {
+    impl Hasher for StructingHasher {
         fn finish(&self) -> u64 {
             0
         }
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn hash_observes_bytes_via_context() {
         set_ok_context();
-        let mut recorder = RecordingHasher::default();
+        let mut recorder = StructingHasher::default();
         KeyTuple::from(vec![1, 2, 3]).hash(&mut recorder);
         assert_eq!(recorder.bytes, vec![1, 2, 3]);
         CompareContext::unset();
@@ -342,7 +342,7 @@ mod tests {
             comparator: comparator_err(),
             desc: test_desc(),
         }));
-        let mut recorder = RecordingHasher::default();
+        let mut recorder = StructingHasher::default();
         KeyTuple::from(vec![1]).hash(&mut recorder);
         assert!(take_context_result().is_err());
         CompareContext::unset();

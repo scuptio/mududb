@@ -73,3 +73,36 @@ impl Default for WorkerLogBatching {
         Self::new(64 * 1024, 32, Duration::from_micros(200), 256 * 1024)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn with_session_scaling_overrides_scaling_fields_only() {
+        let batching = WorkerLogBatching::new(1024, 4, Duration::from_millis(1), 8192)
+            .with_session_scaling(4, 1024, 8, 4096, 64);
+        // Base watermarks are kept verbatim.
+        assert_eq!(batching.trigger_bytes, 1024);
+        assert_eq!(batching.trigger_frames, 4);
+        assert_eq!(batching.max_wait, Duration::from_millis(1));
+        assert_eq!(batching.max_batch_bytes, 8192);
+        // Scaling fields take the overrides.
+        assert_eq!(batching.sessions_per_step, 4);
+        assert_eq!(batching.bytes_per_step, 1024);
+        assert_eq!(batching.frames_per_step, 8);
+        assert_eq!(batching.max_trigger_bytes, 4096);
+        assert_eq!(batching.max_trigger_frames, 64);
+    }
+
+    #[test]
+    fn new_applies_default_scaling() {
+        let batching = WorkerLogBatching::new(1, 2, Duration::ZERO, 3);
+        assert_eq!(batching.sessions_per_step, 8);
+        assert_eq!(batching.bytes_per_step, 32 * 1024);
+        assert_eq!(batching.frames_per_step, 16);
+        assert_eq!(batching.max_trigger_bytes, 512 * 1024);
+        assert_eq!(batching.max_trigger_frames, 256);
+    }
+}

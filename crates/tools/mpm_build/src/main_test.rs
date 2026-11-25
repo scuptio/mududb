@@ -4,7 +4,7 @@ mod tests {
 
     use crate::*;
     use anyhow::Result;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use tempfile::TempDir;
 
     fn create_test_files(dir: &std::path::Path) -> Result<()> {
@@ -70,6 +70,7 @@ mod tests {
                 .join("test.mpk")
                 .to_string_lossy()
                 .into_owned(),
+            sign_seed: None,
         }
     }
 
@@ -82,36 +83,46 @@ mod tests {
         config.validate()?;
         write_package_archive(&config)?;
 
+        // Flat `.mpk` must exist, verify, and round-trip back to the inputs.
         assert!(sync_path_exists(&config.output_path));
+        let flat = mudu_sys::fs::sync::sync_read_all(&config.output_path)?;
+        let pkg = mudu_caf::profile::parse(&flat)?;
+        assert_eq!(pkg.cfg_text, read_text_file(&config.package_cfg)?);
+        assert_eq!(pkg.desc_text, read_text_file(&config.package_desc)?);
+        assert_eq!(pkg.ddl_sql, read_text_file(&config.ddl_sql)?);
+        assert_eq!(pkg.initdb_sql, read_text_file(&config.initdb_sql)?);
+        assert_eq!(pkg.syscall_abi_version, SYSCALL_PAYLOAD_CURRENT_VERSION);
+        assert_eq!(pkg.modules.len(), 2);
 
-        let package_file = SFile::open(&config.output_path)?;
-        let mut zip_archive = zip::ZipArchive::new(package_file)?;
+        // `.mpk.zip` must exist and import back to the byte-identical flat.
+        let zip_path = format!("{}.zip", config.output_path);
+        assert!(sync_path_exists(&zip_path));
+        let zip_bytes = mudu_sys::fs::sync::sync_read_all(&zip_path)?;
+        let rebuilt = mudu_caf::import::import(&zip_bytes)?;
+        assert_eq!(rebuilt, flat);
 
-        let expected_files = [
-            "package.cfg.json",
-            "package.desc.json",
-            "ddl.sql",
-            "initdb.sql",
-            "package.manifest.json",
-            "test1.wasm",
-            "test2.wasm",
-        ];
+        Ok(())
+    }
 
-        for expected_file in expected_files {
-            assert!(zip_archive.by_name(expected_file).is_ok());
-        }
+    #[test]
+    fn test_package_archive_is_byte_reproducible() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        create_test_files(temp_dir.path())?;
 
-        // The manifest must pin the syscall payload ABI version the package
-        // was built against.
-        let mut manifest_text = String::new();
-        zip_archive
-            .by_name("package.manifest.json")?
-            .read_to_string(&mut manifest_text)?;
-        let expected_field = format!("\"syscall_abi_version\": {SYSCALL_PAYLOAD_CURRENT_VERSION}");
-        assert!(
-            manifest_text.contains(&expected_field),
-            "manifest missing {expected_field}: {manifest_text}"
-        );
+        let mut config = base_config(&temp_dir);
+        config.validate()?;
+        write_package_archive(&config)?;
+        let first = mudu_sys::fs::sync::sync_read_all(&config.output_path)?;
+
+        // Repacking the same inputs must produce byte-identical archives.
+        config.output_path = temp_dir
+            .path()
+            .join("test-second.mpk")
+            .to_string_lossy()
+            .into_owned();
+        write_package_archive(&config)?;
+        let second = mudu_sys::fs::sync::sync_read_all(&config.output_path)?;
+        assert_eq!(first, second, "repacked archive bytes differ");
 
         Ok(())
     }
@@ -280,19 +291,6 @@ mod tests {
         mudu_sys::fs::sync::sync_remove_file(&config.wasm_files[1])?;
 
         assert!(write_package_archive(&config).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn test_add_file_to_zip_returns_error_for_missing_file() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let output = temp_dir.path().join("test.zip");
-        let file = SFile::create(&output)?;
-        let mut zip = zip::ZipWriter::new(file);
-
-        assert!(
-            add_file_to_zip(&mut zip, temp_dir.path().join("missing.txt"), "missing.txt").is_err()
-        );
         Ok(())
     }
 }

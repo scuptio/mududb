@@ -1,6 +1,6 @@
 pub mod object {
     use mududb::common::result::RS;
-    use mududb::contract::database::entity::{self, Entity};
+    use mududb::contract::database::object::{self, Object};
 
     use mududb::contract::database::field_change::FieldChange;
 
@@ -48,7 +48,7 @@ pub mod object {
         pub const C_LAST_ORDER_ID: &str = "c_last_order_id";
     }
 
-    // entity struct definition
+    // object struct definition
     #[derive(Debug, Clone, Default)]
     pub struct Customer {
         pub c_id: i32,
@@ -146,7 +146,7 @@ pub mod object {
             }
         }
 
-        /// Typed bind parameters for [`SQL_INSERT`], in column declaration order.
+        /// Typed bind parameters for [`Self::SQL_INSERT`], in column declaration order.
         // The explicit full-row tuple is the point of the typed API.
         #[allow(clippy::type_complexity)]
         pub fn insert_params(
@@ -306,46 +306,46 @@ pub mod object {
         fn data_type() -> DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity::entity_data_type::<Customer>)
+                .get_or_init(object::object_data_type::<Customer>)
                 .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity::entity_from_binary(binary)
+            object::object_from_binary(binary)
         }
 
         fn from_value(value: &DataValue) -> RS<Self> {
-            entity::entity_from_value(value)
+            object::object_from_value(value)
         }
 
         fn from_textual(textual: &str) -> RS<Self> {
-            entity::entity_from_textual(textual)
+            object::object_from_textual(textual)
         }
     }
 
     impl DatumDyn for Customer {
         fn type_family(&self) -> RS<TypeFamily> {
-            entity::entity_type_family()
+            object::object_type_family()
         }
 
         fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-            entity::entity_to_binary(self, data_type)
+            object::object_to_binary(self, data_type)
         }
 
         fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-            entity::entity_to_textual(self, data_type)
+            object::object_to_textual(self, data_type)
         }
 
         fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-            entity::entity_to_value(self, data_type)
+            object::object_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity::entity_clone_boxed(self)
+            object::object_clone_boxed(self)
         }
     }
 
-    impl Entity for Customer {
+    impl Object for Customer {
         fn tuple_desc() -> &'static TupleFieldDesc {
             static ONCE_LOCK: std::sync::OnceLock<TupleFieldDesc> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(|| {
@@ -437,149 +437,149 @@ pub mod object {
             })
         }
 
-        fn table_name() -> &'static str {
+        fn class_name() -> &'static str {
             TABLE_NAME
         }
 
         fn from_tuple(row: &TupleField) -> RS<Self> {
             let fields = row.fields();
-            entity::expect_field_count(fields.len(), 12)?;
+            object::expect_field_count(fields.len(), 12)?;
             Ok(Self {
-                c_id: entity::field_from_tuple_binary(TABLE_NAME, columns::C_ID, &fields[0])?,
+                c_id: object::field_from_tuple_binary(TABLE_NAME, columns::C_ID, &fields[0])?,
 
-                c_d_id: entity::field_from_tuple_binary(TABLE_NAME, columns::C_D_ID, &fields[1])?,
+                c_d_id: object::field_from_tuple_binary(TABLE_NAME, columns::C_D_ID, &fields[1])?,
 
-                c_w_id: entity::field_from_tuple_binary(TABLE_NAME, columns::C_W_ID, &fields[2])?,
+                c_w_id: object::field_from_tuple_binary(TABLE_NAME, columns::C_W_ID, &fields[2])?,
 
-                c_first: entity::field_from_tuple_binary(TABLE_NAME, columns::C_FIRST, &fields[3])?,
+                c_first: object::field_from_tuple_binary(TABLE_NAME, columns::C_FIRST, &fields[3])?,
 
-                c_last: entity::field_from_tuple_binary(TABLE_NAME, columns::C_LAST, &fields[4])?,
+                c_last: object::field_from_tuple_binary(TABLE_NAME, columns::C_LAST, &fields[4])?,
 
-                c_discount: entity::field_from_tuple_binary(
+                c_discount: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_DISCOUNT,
                     &fields[5],
                 )?,
 
-                c_credit: entity::field_from_tuple_binary(
+                c_credit: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_CREDIT,
                     &fields[6],
                 )?,
 
-                c_balance: entity::field_from_tuple_binary(
+                c_balance: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_BALANCE,
                     &fields[7],
                 )?,
 
-                c_ytd_payment: entity::field_from_tuple_binary(
+                c_ytd_payment: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_YTD_PAYMENT,
                     &fields[8],
                 )?,
 
-                c_payment_cnt: entity::field_from_tuple_binary(
+                c_payment_cnt: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_PAYMENT_CNT,
                     &fields[9],
                 )?,
 
-                c_delivery_cnt: entity::field_from_tuple_binary(
+                c_delivery_cnt: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::C_DELIVERY_CNT,
                     &fields[10],
                 )?,
 
-                c_last_order_id: entity::opt_field_from_tuple_binary(&fields[11])?,
+                c_last_order_id: object::opt_field_from_tuple_binary(&fields[11])?,
             })
         }
 
         fn from_tuple_value(row: &TupleValue) -> RS<Self> {
             let values = row.values();
-            entity::expect_field_count(values.len(), 12)?;
+            object::expect_field_count(values.len(), 12)?;
             Ok(Self {
-                c_id: entity::field_from_tuple_value(TABLE_NAME, columns::C_ID, &values[0])?,
+                c_id: object::field_from_tuple_value(TABLE_NAME, columns::C_ID, &values[0])?,
 
-                c_d_id: entity::field_from_tuple_value(TABLE_NAME, columns::C_D_ID, &values[1])?,
+                c_d_id: object::field_from_tuple_value(TABLE_NAME, columns::C_D_ID, &values[1])?,
 
-                c_w_id: entity::field_from_tuple_value(TABLE_NAME, columns::C_W_ID, &values[2])?,
+                c_w_id: object::field_from_tuple_value(TABLE_NAME, columns::C_W_ID, &values[2])?,
 
-                c_first: entity::field_from_tuple_value(TABLE_NAME, columns::C_FIRST, &values[3])?,
+                c_first: object::field_from_tuple_value(TABLE_NAME, columns::C_FIRST, &values[3])?,
 
-                c_last: entity::field_from_tuple_value(TABLE_NAME, columns::C_LAST, &values[4])?,
+                c_last: object::field_from_tuple_value(TABLE_NAME, columns::C_LAST, &values[4])?,
 
-                c_discount: entity::field_from_tuple_value(
+                c_discount: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_DISCOUNT,
                     &values[5],
                 )?,
 
-                c_credit: entity::field_from_tuple_value(
+                c_credit: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_CREDIT,
                     &values[6],
                 )?,
 
-                c_balance: entity::field_from_tuple_value(
+                c_balance: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_BALANCE,
                     &values[7],
                 )?,
 
-                c_ytd_payment: entity::field_from_tuple_value(
+                c_ytd_payment: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_YTD_PAYMENT,
                     &values[8],
                 )?,
 
-                c_payment_cnt: entity::field_from_tuple_value(
+                c_payment_cnt: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_PAYMENT_CNT,
                     &values[9],
                 )?,
 
-                c_delivery_cnt: entity::field_from_tuple_value(
+                c_delivery_cnt: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::C_DELIVERY_CNT,
                     &values[10],
                 )?,
 
-                c_last_order_id: entity::opt_field_from_tuple_value(&values[11])?,
+                c_last_order_id: object::opt_field_from_tuple_value(&values[11])?,
             })
         }
 
         fn to_tuple(&self) -> RS<TupleField> {
             Ok(TupleField::new_nullable(vec![
-                entity::field_to_tuple_binary(&self.c_id)?,
-                entity::field_to_tuple_binary(&self.c_d_id)?,
-                entity::field_to_tuple_binary(&self.c_w_id)?,
-                entity::field_to_tuple_binary(&self.c_first)?,
-                entity::field_to_tuple_binary(&self.c_last)?,
-                entity::field_to_tuple_binary(&self.c_discount)?,
-                entity::field_to_tuple_binary(&self.c_credit)?,
-                entity::field_to_tuple_binary(&self.c_balance)?,
-                entity::field_to_tuple_binary(&self.c_ytd_payment)?,
-                entity::field_to_tuple_binary(&self.c_payment_cnt)?,
-                entity::field_to_tuple_binary(&self.c_delivery_cnt)?,
-                entity::opt_field_to_tuple_binary(&self.c_last_order_id)?,
+                object::field_to_tuple_binary(&self.c_id)?,
+                object::field_to_tuple_binary(&self.c_d_id)?,
+                object::field_to_tuple_binary(&self.c_w_id)?,
+                object::field_to_tuple_binary(&self.c_first)?,
+                object::field_to_tuple_binary(&self.c_last)?,
+                object::field_to_tuple_binary(&self.c_discount)?,
+                object::field_to_tuple_binary(&self.c_credit)?,
+                object::field_to_tuple_binary(&self.c_balance)?,
+                object::field_to_tuple_binary(&self.c_ytd_payment)?,
+                object::field_to_tuple_binary(&self.c_payment_cnt)?,
+                object::field_to_tuple_binary(&self.c_delivery_cnt)?,
+                object::opt_field_to_tuple_binary(&self.c_last_order_id)?,
             ]))
         }
 
         fn to_tuple_value(&self) -> RS<TupleValue> {
             Ok(TupleValue::from(vec![
-                entity::field_to_tuple_value(&self.c_id)?,
-                entity::field_to_tuple_value(&self.c_d_id)?,
-                entity::field_to_tuple_value(&self.c_w_id)?,
-                entity::field_to_tuple_value(&self.c_first)?,
-                entity::field_to_tuple_value(&self.c_last)?,
-                entity::field_to_tuple_value(&self.c_discount)?,
-                entity::field_to_tuple_value(&self.c_credit)?,
-                entity::field_to_tuple_value(&self.c_balance)?,
-                entity::field_to_tuple_value(&self.c_ytd_payment)?,
-                entity::field_to_tuple_value(&self.c_payment_cnt)?,
-                entity::field_to_tuple_value(&self.c_delivery_cnt)?,
-                entity::opt_field_to_tuple_value(&self.c_last_order_id)?,
+                object::field_to_tuple_value(&self.c_id)?,
+                object::field_to_tuple_value(&self.c_d_id)?,
+                object::field_to_tuple_value(&self.c_w_id)?,
+                object::field_to_tuple_value(&self.c_first)?,
+                object::field_to_tuple_value(&self.c_last)?,
+                object::field_to_tuple_value(&self.c_discount)?,
+                object::field_to_tuple_value(&self.c_credit)?,
+                object::field_to_tuple_value(&self.c_balance)?,
+                object::field_to_tuple_value(&self.c_ytd_payment)?,
+                object::field_to_tuple_value(&self.c_payment_cnt)?,
+                object::field_to_tuple_value(&self.c_delivery_cnt)?,
+                object::opt_field_to_tuple_value(&self.c_last_order_id)?,
             ]))
         }
     }

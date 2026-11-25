@@ -82,3 +82,56 @@ impl AsyncLocalTask for SessionHandleTask {
         self.serve_handle_connect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use mudu_sys::net::{AsyncTcpListener, AsyncTcpStream};
+    use mudu_utils::notifier::notify_wait;
+
+    #[test]
+    fn serve_handle_connect_spawns_session_tasks_until_channel_closes() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (tx, rx) = mudu_sys::tokio::sync::mpsc::channel(4);
+            let (stop_tx, stop_rx) = notify_wait();
+            let task = SessionHandleTask::new(
+                mudu_sys::env_var::temp_dir()
+                    .join(format!("sess_task_{}", mudu_utils::oid::gen_oid()))
+                    .to_string_lossy()
+                    .to_string(),
+                vec![rx],
+                stop_rx,
+            );
+
+            // One incoming session: a client that connects and drops, so the
+            // pgwire session task ends on EOF.
+            let listener = AsyncTcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let client = AsyncTcpStream::connect(addr).await.unwrap();
+            let (socket, peer_addr) = listener.accept().await.unwrap();
+            tx.send(IncomingSession::new(peer_addr, socket))
+                .await
+                .unwrap();
+            drop(client);
+            drop(tx); // close the channel so the serve loop exits
+
+            task.serve_handle_connect().await.unwrap();
+            // The session task runs detached on this local set; give it one
+            // turn to observe the EOF and log-and-forget its error.
+            mudu_sys::tokio::task::yield_now().await;
+            let _ = stop_tx;
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn serve_handle_connect_with_no_receivers_returns_immediately() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let (_stop_tx, stop_rx) = notify_wait();
+            let task = SessionHandleTask::new("/tmp/none".to_string(), vec![], stop_rx);
+            task.serve_handle_connect().await.unwrap();
+        })
+        .unwrap();
+    }
+}

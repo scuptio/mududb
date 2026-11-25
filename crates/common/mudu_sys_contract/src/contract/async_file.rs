@@ -13,6 +13,14 @@ pub trait AsyncFile: Send + Sync {
     /// Flush all written data to durable storage.
     async fn fsync(&self) -> RS<()>;
 
+    /// Set the file length. Call `fsync` afterwards to make the change durable.
+    async fn set_len(&self, _len: u64) -> RS<()> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "async file truncation is not implemented"
+        ))
+    }
+
     /// Return the current file length in bytes.
     async fn file_len(&self) -> RS<u64>;
 

@@ -152,5 +152,76 @@ async fn socket_without_current_ring_returns_error() {
     let err = socket(libc::AF_INET, libc::SOCK_STREAM, 0)
         .await
         .unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
+}
+
+#[test]
+fn socket_full_tcp_roundtrip_through_real_ring() {
+    use super::{recv, send_all};
+    use crate::imp::native::linux::io_uring::test_ring::drive_iouring_future;
+    use std::os::fd::IntoRawFd;
+
+    let result = drive_iouring_future(async {
+        // The listening socket comes from std; everything else goes through
+        // the ring: open, connect, accept, send/recv both ways, shutdown, close.
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = std_listener.local_addr().unwrap();
+        let listen_sock = IoSocket::from_raw_fd(std_listener.into_raw_fd());
+
+        let client = socket(libc::AF_INET, libc::SOCK_STREAM, 0).await.unwrap();
+        connect(&client, addr).await.unwrap();
+        let (server_side, peer) = accept(&listen_sock).await.unwrap();
+        assert!(peer.ip().is_loopback());
+
+        let sent = send(&client, b"ping".to_vec(), 0).await.unwrap();
+        assert_eq!(sent, 4);
+        let data = recv(&server_side, 4, 0).await.unwrap();
+        assert_eq!(data, b"ping");
+
+        send_all(&server_side, b"pong").await.unwrap();
+        let mut buf = [0u8; 4];
+        let read = recv_into(&client, &mut buf, 0).await.unwrap();
+        assert_eq!(read, 4);
+        assert_eq!(&buf, b"pong");
+
+        shutdown(&client, libc::SHUT_WR).await.unwrap();
+        close(client).await.unwrap();
+        close(server_side).await.unwrap();
+        close(listen_sock).await.unwrap();
+    });
+    // `None` means io_uring is unavailable on this host; the harness logged it.
+    let _ = result;
+}
+
+#[tokio::test]
+async fn failed_socket_completions_propagate_and_do_not_requeue() {
+    use super::request::{SocketCloseRequest, SocketInflightOp, SocketShutdownRequest};
+    use super::ring_io::complete_socket_io;
+    use crate::imp::io::user_io::{op_state, poll_op};
+    let ring = WorkerLocalRing::new();
+    let state = op_state();
+    let request = SocketCloseRequest::new(-1, state.clone());
+    assert!(complete_socket_io(
+        1,
+        SocketInflightOp::Close(Box::new(request)),
+        -libc::EBADF,
+        &ring
+    )
+    .unwrap());
+    assert!(std::future::poll_fn(|cx| poll_op(&state, cx))
+        .await
+        .is_err());
+    let state = op_state();
+    let request = SocketShutdownRequest::new(-1, libc::SHUT_RDWR, state.clone());
+    assert!(complete_socket_io(
+        2,
+        SocketInflightOp::Shutdown(Box::new(request)),
+        -libc::ENOTCONN,
+        &ring
+    )
+    .unwrap());
+    assert!(std::future::poll_fn(|cx| poll_op(&state, cx))
+        .await
+        .is_err());
+    assert!(ring.take_pending().unwrap().is_none());
 }

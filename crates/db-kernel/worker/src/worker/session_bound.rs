@@ -1,6 +1,5 @@
 use super::*;
 use crate::request_response_worker::{RequestResponseWorker, WorkerRuntimeRef};
-use ::catalog::contract::message_bus_api::{message_bus_for_worker, MessageBusRef};
 use ::catalog::contract::worker_snapshot::KvItem;
 use ::conn::worker_local::{WorkerExecute, WorkerFsService, WorkerLocal, WorkerLocalRef};
 use ::xengine::api::DeltaOp;
@@ -11,6 +10,7 @@ use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::protocol::{ProcedureInvokeRequest, ProcedureInvokeResponse};
+use mudu_utils::channel::{channel_for, ChannelEndpointRef};
 
 struct SessionBoundWorkerRuntime {
     worker: Arc<WorkerRuntime>,
@@ -45,14 +45,14 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
         self.worker.meta_mgr()
     }
 
-    fn message_bus(&self) -> MessageBusRef {
+    fn worker_channel(&self) -> ChannelEndpointRef {
         #[expect(
             clippy::expect_used,
-            reason = "message bus is expected to be registered"
+            reason = "worker channel is expected to be registered"
         )]
-        let bus = message_bus_for_worker(self.worker.server_instance_id(), self.worker.worker_id())
-            .expect("message bus is not registered");
-        bus
+        let channel = channel_for(self.worker.server_instance_id(), self.worker.worker_id())
+            .expect("worker channel is not registered");
+        channel
     }
 
     fn fs_service(&self) -> RS<Arc<dyn WorkerFsService>> {
@@ -113,6 +113,32 @@ impl WorkerLocal for SessionBoundWorkerRuntime {
         self.worker
             .range_in_session(session_id, start_key, end_key)
             .await
+    }
+
+    async fn cache_open(&self, name: &str, app_name: Option<&str>) -> RS<OID> {
+        self.worker.cache_open(name, app_name).await
+    }
+
+    async fn cache_get(&self, cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+        self.worker.cache_get(cache, key)
+    }
+
+    async fn cache_put(
+        &self,
+        cache: OID,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        ttl_secs: Option<u64>,
+    ) -> RS<()> {
+        self.worker.cache_put(cache, key, value, ttl_secs)
+    }
+
+    async fn cache_delete(&self, cache: OID, key: &[u8]) -> RS<bool> {
+        self.worker.cache_delete(cache, key)
+    }
+
+    async fn cache_ttl(&self, cache: OID, key: &[u8]) -> RS<Option<u64>> {
+        self.worker.cache_ttl(cache, key)
     }
 
     async fn query(

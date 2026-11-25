@@ -5,6 +5,7 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_contract::procedure::procedure_param::ProcedureParam;
 use mudu_contract::tuple::datum_desc::DatumDesc;
+use mudu_type::type_family_ext::TypeFamilyExt;
 use serde_json::{Value, json};
 use std::io::IsTerminal;
 use std::io::{self, Read, Write};

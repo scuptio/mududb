@@ -1,5 +1,5 @@
 use mudu_binding::universal::uni_def::{
-    RecordField, UniEnumDef, UniRecordDef, UniTableDef, UniVariantDef,
+    StructField, UniClassDef, UniEnumDef, UniStructDef, UniVariantDef,
 };
 
 /// Parsed contents of a WIT interface file.
@@ -10,9 +10,9 @@ pub struct WitDef {
     /// Use/import paths declared at the top level.
     pub use_path: Vec<Vec<String>>,
     /// Table definitions.
-    pub tables: Vec<UniTableDef>,
-    /// Record definitions.
-    pub records: Vec<UniRecordDef>,
+    pub tables: Vec<UniClassDef>,
+    /// Struct definitions.
+    pub records: Vec<UniStructDef>,
     /// Variant definitions.
     pub variants: Vec<UniVariantDef>,
     /// Enum definitions.
@@ -43,9 +43,9 @@ pub struct WitFuncDef {
     /// Function name as declared in WIT (kebab-case).
     pub func_name: String,
     /// Named parameters.
-    pub params: Vec<RecordField>,
+    pub params: Vec<StructField>,
     /// Named return values. Empty means the function returns nothing.
-    pub returns: Vec<RecordField>,
+    pub returns: Vec<StructField>,
     /// 1-based ordinal of the function within its interface, used as the
     /// MSSP `MessageKind` discriminant. 0 means "not assigned" (the parser
     /// leaves it unset; the code generator assigns it before rendering).

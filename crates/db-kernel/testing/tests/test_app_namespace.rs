@@ -5,7 +5,7 @@
 //! The fixtures are `wallet-go.mpk` and `wallet-py.mpk`: both packages define
 //! `users`, `wallets`, `transactions`, `orders`, `profile` and `profile_tags`
 //! in their `sql/ddl.sql`. Before per-app schemas, installing the second
-//! package on the same server failed its initdb DDL with `EntityAlreadyExists`
+//! package on the same server failed its initdb DDL with `ObjectAlreadyExists`
 //! in the global catalog namespace. Now the schema is the app name
 //! (`wallet-go` / `wallet-py`), so both installs succeed, and:
 //!
@@ -32,13 +32,10 @@ use base64::Engine;
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
 use mudu_client::management::{fetch_app_list, http_timeout};
-use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode, ServerMode};
 use mudu_sys::fs::sync::{create_dir_all, read, remove_dir_all};
-use mudu_sys::net::sync::SStdTcpStream;
-use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
+use mudu_sys::task::sync::sleep_blocking;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
 use runtime_wasm::service::runtime_opt::ComponentTarget;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -121,9 +118,6 @@ fn run_app_namespace_isolation(server_mode: ServerMode) -> RS<()> {
         drop(server);
     }
 
-    // Give it a small moment to ensure ports are released
-    sleep_blocking(Duration::from_millis(500));
-
     println!("Step 2: Restart with the same dirs (catalog reload keeps schema ownership)");
     {
         let server = ctx.start_server()?;
@@ -136,7 +130,7 @@ fn run_app_namespace_isolation(server_mode: ServerMode) -> RS<()> {
 
 // Before per-app schemas this second install failed: both packages define
 // `users` (and `wallets`, `profile`, ...) and the second initdb hit
-// EntityAlreadyExists in the global namespace.
+// ObjectAlreadyExists in the global namespace.
 fn install_both_apps(ctx: &TestContext, go_mpk: &Path, py_mpk: &Path) -> RS<()> {
     ctx.install_mpk(go_mpk)?;
     ctx.install_mpk(py_mpk)?;
@@ -455,18 +449,9 @@ fn assert_return_profile(response: &Value, expected: &Value, level_as_i64: bool)
 // compiling the wallet-py CPython component takes ~40s.
 const BOOT_WAIT_TIMEOUT: Duration = Duration::from_secs(180);
 
-fn wait_until_port_ready_within(port: u16, service_name: &str, timeout: Duration) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + timeout;
-    while mudu_sys::time::instant_now() < deadline {
-        if mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], port))).is_ok() {
-            return Ok(());
-        }
-        sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!("{service_name} server did not become ready on port {port}")
-    ))
+// Under sanitizer instrumentation the shared (longer) startup budget wins.
+fn boot_wait_timeout() -> Duration {
+    BOOT_WAIT_TIMEOUT.max(backend_startup_timeout())
 }
 
 fn mpk_path(file_name: &str) -> PathBuf {
@@ -505,31 +490,6 @@ fn row_string(row: &mudu_contract::tuple::tuple_value::TupleValue, index: usize)
     row.values()
         .get(index)
         .and_then(|value| value.as_string().map(|v| v.to_string()))
-}
-
-struct RunningServer {
-    stop: Notifier,
-    http_port: u16,
-    tcp_port: u16,
-    handle: Option<SJoinHandle<RS<()>>>,
-}
-
-impl Drop for RunningServer {
-    fn drop(&mut self) {
-        self.stop.notify_all();
-        if let Some(handle) = self.handle.take() {
-            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
-            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.http_port));
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.tcp_port));
-                sleep_blocking(Duration::from_millis(25));
-            }
-            let join_result = handle.join().expect("join server thread");
-            if let Err(err) = join_result {
-                panic!("server stopped with error: {err}");
-            }
-        }
-    }
 }
 
 struct TestContext {
@@ -573,47 +533,14 @@ impl TestContext {
         }))
     }
 
-    fn start_server(&self) -> RS<RunningServer> {
-        let cfg = self.build_cfg();
-        let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
-        let handle = spawn_thread(move || {
-            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        })?;
-        let server = RunningServer {
-            stop,
-            http_port: self.http_port,
-            tcp_port: self.tcp_port,
-            handle: Some(handle),
-        };
-        let boot: RS<()> = (|| {
-            // Restart boots auto-load every installed package; compiling the
-            // wallet-py CPython component takes ~40s, far beyond the shared
-            // port-ready helpers' fixed 10s, so these waits use a generous
-            // budget.
-            wait_until_port_ready_within(self.http_port, "HTTP", BOOT_WAIT_TIMEOUT)?;
-            wait_until_port_ready_within(self.tcp_port, "TCP", BOOT_WAIT_TIMEOUT)?;
-            // The ready barrier fires only after the deferred initdb drain
-            // has completed, so a ready server implies auto-loaded packages
-            // have their tables.
-            wait_until_backend_ready(ready_waiter, "backend", BOOT_WAIT_TIMEOUT)?;
-            // The management thread binds its listener before actix is
-            // accepting, so the port-ready check above can race with the
-            // first request. Poll a lightweight HTTP endpoint until it
-            // responds to avoid transient "error sending request" failures.
-            self.wait_until_http_management_ready()?;
-            Ok(())
-        })();
-        match boot {
-            Ok(()) => Ok(server),
-            // A failed boot must stop the spawned server rather than leak
-            // it: a leftover server keeps the process-global default remote
-            // endpoint and misroutes a later test's initdb connections.
-            Err(err) => {
-                drop(server);
-                Err(err)
-            }
-        }
+    fn start_server(&self) -> RS<InProcessServer> {
+        // The management thread binds its listener before actix is accepting,
+        // so the ready race can beat the first request. Poll a lightweight
+        // HTTP endpoint until it responds to avoid transient "error sending
+        // request" failures.
+        let server = InProcessServer::start_with_timeout(self.build_cfg(), boot_wait_timeout())?;
+        self.wait_until_http_management_ready()?;
+        Ok(server)
     }
 
     fn wait_until_http_management_ready(&self) -> RS<()> {
@@ -724,7 +651,7 @@ impl TestContext {
             .and_then(|row| row_i64(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("wallet balance not found for user_id={user_id}")
                 )
             })

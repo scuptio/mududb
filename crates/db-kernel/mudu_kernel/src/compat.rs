@@ -1,6 +1,6 @@
 //! Kernel compatibility helpers.
 //!
-//! This module builds and installs the global [`CompatibilityRouter`] used by
+//! This module builds and installs the global [`mudu_compat_migrate::CompatibilityRouter`] used by
 //! format decode entry points across the workspace.
 
 use mudu::compat::{CompatibilityMatrix, FormatKind};

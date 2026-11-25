@@ -49,6 +49,16 @@ impl<T: ?Sized> SMutex<T> {
         }
     }
 
+    /// Acquires the mutex even when a previous holder panicked while holding
+    /// it: the protected value is still coherent (the panic happened while
+    /// the value was being mutated at worst), and test infrastructure uses
+    /// this so one panicking test does not fail every later test that
+    /// touches the same process-global state.
+    pub fn lock_ignore_poison(&self) -> SMutexGuard<'_, T> {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        SMutexGuard { inner }
+    }
+
     /// Attempts to acquire the mutex without blocking; returns `None` if it
     /// is locked or poisoned.
     pub fn try_lock(&self) -> Option<SMutexGuard<'_, T>> {
@@ -163,5 +173,50 @@ mod tests {
         let guard = mutex.try_lock().unwrap();
         assert_eq!(*guard, 0);
         assert!(mutex.try_lock().is_none());
+    }
+
+    #[test]
+    fn condvar_blocks_until_notify_all() {
+        use super::SCondvar;
+        let mutex = std::sync::Arc::new(SMutex::new(false));
+        let condvar = std::sync::Arc::new(SCondvar::default());
+        let mutex2 = mutex.clone();
+        let condvar2 = condvar.clone();
+        let worker = std::thread::spawn(move || {
+            let mut guard = mutex2.lock().unwrap();
+            while !*guard {
+                guard = condvar2.wait(guard).unwrap();
+            }
+            *guard
+        });
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        *mutex.lock().unwrap() = true;
+        condvar.notify_all();
+        assert!(worker.join().unwrap());
+    }
+
+    #[test]
+    fn mutex_into_inner_debug_display_and_default() {
+        let mutex = SMutex::new(7);
+        let _ = format!("{:?}", mutex);
+        {
+            let guard = mutex.lock().unwrap();
+            let _ = format!("{:?}", guard);
+            let _ = format!("{}", guard);
+        }
+        assert_eq!(mutex.into_inner().unwrap(), 7);
+        let default_mutex = super::SMutex::<u32>::default();
+        assert_eq!(*default_mutex.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn poisoned_mutex_fails_lock_and_into_inner() {
+        let mutex = SMutex::new(0);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("poison the mutex");
+        }));
+        assert!(mutex.lock().is_err());
+        assert!(mutex.into_inner().is_err());
     }
 }

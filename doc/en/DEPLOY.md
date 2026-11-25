@@ -33,18 +33,21 @@ Installs all dependencies required to run MuduDB:
 |----------|----------|
 | System packages | python3, pip, python-is-python3, build-essential, curl, liburing-dev, clang, libclang-dev, llvm-dev, pkgconf, iproute2 |
 | Rust | pinned stable toolchain (with rustfmt, clippy, x86_64-unknown-linux-gnu and wasm32-wasip2 targets) + auxiliary nightly toolchain |
-| Python | toml, tomli-w |
+| Python | 3.11+ |
 | Tools | cargo-make |
 
-> Implementation reference: `script/shell/install_deps.sh`, `rust-toolchain.toml`.
+> Implementation reference: `script/shell/install_deps.sh` (a thin wrapper for
+> `script/setup_dev_env.sh --system-pip` — system-wide Python packages, no venv),
+> `rust-toolchain.toml`.
 
-### `script/shell/build_all.sh`
+### `cargo make build` / `cargo make dist`
 
-Builds and installs all components:
+`cargo make build` compiles all components (root `Makefile.toml`): `cargo build --release` in each of the four group workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`), plus the standalone guest-SDK workspace `crates/sdk/mudu_api/rust`.
 
-1. `cargo build --release` in each of the four group workspaces under `crates/` (`common`, `db-kernel`, `sdk`, `tools`) — builds all crates
-2. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mpm-build, mpm-crate, mpm-install, mgen, mtp, mudud, mcli)
-3. `cargo make` in `example/mpk/wallet` — regenerates entity code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
+`cargo make dist` additionally packages and installs:
+
+1. `python3 script/build/install_binaries.py` — installs binaries to `~/.cargo/bin/` (mpm, mpm-build, mpm-crate, mpm-install, mgen, mtp, mudud, mcli) by copying the freshly built artifacts (unchanged ones are skipped)
+2. `cargo make package` in `example/mpk/wallet` — regenerates object code, transpiles procedures, builds the wallet example, and produces a `.mpk` package
 
 The wallet `Makefile.toml` reinstalls the workspace CLI tools from source before generating code, so the package is always built with the current commit's toolchain.
 
@@ -69,7 +72,7 @@ Integration test with extra diagnostics, outputting more detailed logs and inter
 set -euo pipefail
 bash script/shell/install_deps.sh
 source "$HOME/.cargo/env"
-bash script/shell/build_all.sh
+cargo make dist
 bash script/shell/run_test.sh
 bash script/shell/debug_test.sh
 echo "All tests passed."

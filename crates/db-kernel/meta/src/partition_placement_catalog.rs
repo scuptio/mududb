@@ -11,12 +11,12 @@ use mudu_type::data_type_info::DataTypeInfo;
 use mudu_type::type_family::TypeFamily;
 
 use ::catalog::contract::partition_rule_binding::PartitionPlacement;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 pub(crate) const PARTITION_PLACEMENT_CATALOG_PARTITION_ID: OID = 0;
 pub(crate) const PARTITION_PLACEMENT_CATALOG_TABLE_ID: OID = 0x4;
@@ -24,8 +24,8 @@ const PARTITION_PLACEMENT_CATALOG_TABLE_NAME: &str = "__meta_partition_placement
 const PARTITION_PLACEMENT_CATALOG_PARTITION_OID_COLUMN_ID: OID = 0x40001;
 const PARTITION_PLACEMENT_CATALOG_PLACEMENT_COLUMN_ID: OID = 0x40002;
 
-pub(crate) fn partition_placement_catalog_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn partition_placement_catalog_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         PARTITION_PLACEMENT_CATALOG_TABLE_ID,
         PARTITION_PLACEMENT_CATALOG_TABLE_NAME.to_string(),
         vec![

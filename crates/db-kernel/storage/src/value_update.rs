@@ -20,6 +20,7 @@ use mudu_type::data_type::DataType;
 use mudu_type::data_type_function::{recv_binary, send_binary};
 use mudu_type::data_value::DataValue;
 use mudu_type::type_family::TypeFamily;
+use mudu_type::type_family_ext::TypeFamilyExt;
 
 /// Materializes an absolute update against the currently-committed value
 /// tuple `current`, producing the new encoded value tuple. `values` holds the

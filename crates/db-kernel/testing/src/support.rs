@@ -1,17 +1,24 @@
 use mudu::common::result::RS;
 use mudu_client::client::async_client::{AsyncClient, AsyncClientImpl};
+use mudu_client::client::client::SyncClient;
 use mudu_contract::protocol::{ClientRequest, ServerResponse, SessionCreateRequest};
 use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::sync::SMutex;
+use mudu_sys::task::async_::TaskRuntime;
+use mudu_sys::task::sync::SJoinHandle;
 use mudu_sys::task::sync::spawn_thread;
 use mudu_type::data_value::DataValue;
 use mudu_utils::debug::debug_serve;
-use mudu_utils::notifier::{NotifyWait, Waiter};
+use mudu_utils::notifier::{Notifier, NotifyWait, Waiter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
+
+pub use crate::in_process_server::InProcessServer;
 /// Returns `true` when the current host can run a backend in the requested mode.
 pub fn supports_server_mode(server_mode: ServerMode) -> bool {
     match server_mode {
@@ -36,12 +43,23 @@ pub fn sanitizer_runtime_detected() -> bool {
         || mudu_sys::env_var::var("LSAN_OPTIONS").is_some()
 }
 
+/// Returns `true` when the test binary runs under coverage instrumentation:
+/// cargo llvm-cov exports LLVM_PROFILE_FILE (the profraw output pattern) to
+/// every instrumented test process it spawns.
+pub fn coverage_runtime_detected() -> bool {
+    mudu_sys::env_var::var("LLVM_PROFILE_FILE").is_some()
+}
+
 /// Startup budget for booting a full backend server: 30 s on regular builds,
 /// 10 min under sanitizer instrumentation, which slows wasmtime component
-/// compilation during mpk auto-load down ~15-25x.
+/// compilation during mpk auto-load down ~15-25x, and 2 min under coverage
+/// instrumentation, whose lighter slowdown still blows the 30 s budget on a
+/// cold boot from slow disks.
 pub fn backend_startup_timeout() -> Duration {
     if sanitizer_runtime_detected() {
         Duration::from_secs(600)
+    } else if coverage_runtime_detected() {
+        Duration::from_secs(120)
     } else {
         Duration::from_secs(30)
     }
@@ -69,6 +87,150 @@ pub fn wait_until_backend_ready(waiter: Waiter, service_name: &str, timeout: Dur
         )
     })?;
     Ok(())
+}
+
+/// Waits until every port in `ports` can be bound on the loopback address,
+/// or `timeout` elapses.
+///
+/// In-process server restarts reuse the same ports: a stopped server's
+/// sockets — worker listeners, loopback client connections, the shutdown
+/// probe's own connections — can outlive the server thread in states that
+/// SO_REUSEADDR does not cover (ESTABLISHED, FIN_WAIT2), so a fixed sleep
+/// races their teardown and the restart dies with EADDRINUSE. Probing with a
+/// bind that sets SO_REUSEADDR exactly predicts the server's own bind: it
+/// succeeds over lingering TIME_WAIT sockets and fails only while a live
+/// socket still holds the port.
+pub fn wait_until_ports_bindable(ports: &[u16], timeout: Duration) -> RS<()> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    loop {
+        let mut busy = Vec::new();
+        for &port in ports {
+            if StdTcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).is_err() {
+                busy.push(port);
+            }
+        }
+        if busy.is_empty() {
+            return Ok(());
+        }
+        if mudu_sys::time::instant_now() >= deadline {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                format!(
+                    "ports {busy:?} are still busy {timeout:?} after the previous server stopped"
+                )
+            ));
+        }
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
+    }
+}
+
+/// Waits for an in-process backend server to finish startup, racing the
+/// readiness conditions against the server thread's exit.
+///
+/// Readiness requires all three of: the management HTTP port accepting TCP
+/// connections, the worker TCP port accepting connections, and the backend
+/// ready barrier (`ready`, a clone of the notifier handed to
+/// `Backend::sync_serve_with_stop_and_ready`) having fired. `timeout` is the
+/// budget for the whole wait (callers pass [`backend_startup_timeout`]). On
+/// success the server thread's join handle is handed back for later shutdown
+/// joins.
+///
+/// A wait that only polls ports burns its whole budget when the server
+/// thread dies before binding — a listen port lost to a parallel test
+/// process, a failing procedure-runtime build, a management-thread bind
+/// error — and dropping the join handle unobserved then hides the real
+/// error behind a "server did not become ready" timeout. Here the server
+/// thread's exit aborts the wait immediately and the thread's (by then
+/// non-blocking) join result becomes the failure cause. On timeout, `stop`
+/// is signalled so a slow-but-alive server shuts down instead of leaking
+/// its listeners into the rest of the test process. The error message
+/// reports each condition's last observed state either way.
+///
+/// Not available on the deterministic-simulation backend (`ds`): it runs no
+/// management HTTP listener, so the HTTP condition could never resolve.
+#[cfg(not(feature = "ds"))]
+pub fn wait_test_server_ready(
+    http_port: u16,
+    tcp_port: u16,
+    stop: &Notifier,
+    ready: &Notifier,
+    server: SJoinHandle<RS<()>>,
+    timeout: Duration,
+) -> RS<SJoinHandle<RS<()>>> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    let mut http_up = false;
+    let mut tcp_up = false;
+    loop {
+        if server.is_finished() {
+            // The management and initdb-drain threads outlive the server
+            // thread when it dies mid-startup; fire stop so they shut down
+            // instead of leaking the HTTP listener.
+            stop.notify_all();
+            let state = format!(
+                "HTTP port {http_port} accepting: {http_up}, worker port {tcp_port} accepting: {tcp_up}, ready barrier fired: {}",
+                ready.is_notified()
+            );
+            return Err(match server.join() {
+                Ok(Ok(())) => mudu::mudu_error!(
+                    mudu::error::ErrorCode::External,
+                    format!(
+                        "server thread returned during startup without becoming ready ({state})"
+                    )
+                ),
+                Ok(Err(err)) => mudu::mudu_error!(
+                    mudu::error::ErrorCode::External,
+                    format!("server thread exited during startup ({state})"),
+                    err
+                ),
+                Err(payload) => mudu::mudu_error!(
+                    mudu::error::ErrorCode::External,
+                    format!(
+                        "server thread panicked during startup ({state}): {}",
+                        panic_payload_message(&payload)
+                    )
+                ),
+            });
+        }
+        if !http_up {
+            http_up =
+                mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], http_port)))
+                    .is_ok();
+        }
+        if !tcp_up {
+            tcp_up = mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], tcp_port)))
+                .is_ok();
+        }
+        if http_up && tcp_up && ready.is_notified() {
+            return Ok(server);
+        }
+        if mudu_sys::time::instant_now() >= deadline {
+            stop.notify_all();
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::TimedOut,
+                format!(
+                    "server did not become ready within {timeout:?} (HTTP port {http_port} accepting: {http_up}, worker port {tcp_port} accepting: {tcp_up}, ready barrier fired: {}); stop signalled, the still-running server thread shuts down asynchronously",
+                    ready.is_notified()
+                )
+            ));
+        }
+        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
+    }
+}
+
+/// Extracts a printable message from a thread panic payload.
+///
+/// Takes the boxed payload directly: coercing `&Box<dyn Any + Send>` to a
+/// `&dyn Any` parameter would unsize the *box itself* as the `Any` type and
+/// the downcasts would never match the real payload.
+#[cfg(not(feature = "ds"))]
+fn panic_payload_message(payload: &Box<dyn std::any::Any + Send + 'static>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        message.to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
 }
 
 /// Global mutex used to serialize integration tests that share runtime state.
@@ -134,7 +296,7 @@ impl TestListener {
 /// an async connect. Each attempt drives the connect on a fresh
 /// current-thread runtime.
 pub fn wait_until_async_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
+    let deadline = mudu_sys::time::instant_now() + backend_startup_timeout();
     while mudu_sys::time::instant_now() < deadline {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let connected = mudu_sys::task::async_::block_on_tokio_current_thread(async move {
@@ -170,25 +332,17 @@ pub fn wait_until_worker_port_ready(port: u16) -> RS<()> {
     }
 }
 
-/// Drives an async client future to completion on a fresh current-thread
-/// runtime.
-fn block_on_client<F, T>(future: F) -> RS<T>
-where
-    F: std::future::Future<Output = RS<T>>,
-{
-    let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
-    runtime.block_on(future)
-}
-
 /// Blocking SQL client backed by the async client transport.
 ///
 /// Integration tests use it when the server runs on the deterministic
 /// simulation backend: the simulated worker TCP listener only accepts
 /// simulated async connections, so the synchronous client cannot reach it.
-/// Each call drives the async client on a fresh current-thread runtime, which
-/// keeps the test bodies written against the blocking client unchanged.
+/// The client holds one current-thread runtime for its whole lifetime: the
+/// connection's tokio context lives in that runtime, so driving calls on a
+/// fresh runtime per call would shut the connection's runtime down.
 pub struct BlockingAsyncClient {
     client: AsyncClientImpl,
+    runtime: TaskRuntime,
 }
 
 impl BlockingAsyncClient {
@@ -198,8 +352,9 @@ impl BlockingAsyncClient {
         let deadline = mudu_sys::time::instant_now() + Duration::from_secs(5);
         let mut last_err = None;
         while mudu_sys::time::instant_now() < deadline {
-            match block_on_client(AsyncClientImpl::connect(&addr)) {
-                Ok(client) => return Ok(Self { client }),
+            let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
+            match runtime.block_on(AsyncClientImpl::connect(&addr)) {
+                Ok(client) => return Ok(Self { client, runtime }),
                 Err(err) => {
                     last_err = Some(err);
                     mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
@@ -217,11 +372,12 @@ impl BlockingAsyncClient {
 
     /// Creates a new session and returns its id.
     pub fn create_session(&mut self, config_json: Option<String>) -> RS<u128> {
-        block_on_client(
-            self.client
-                .create_session(SessionCreateRequest::new(config_json)),
-        )
-        .map(|response| response.session_id())
+        self.runtime
+            .block_on(
+                self.client
+                    .create_session(SessionCreateRequest::new(config_json)),
+            )
+            .map(|response| response.session_id())
     }
 
     /// Executes a SQL statement without a session id and returns the server
@@ -242,7 +398,7 @@ impl BlockingAsyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        block_on_client(
+        self.runtime.block_on(
             self.client
                 .execute(ClientRequest::new_with_oid(oid, app_name, sql)),
         )
@@ -257,7 +413,7 @@ impl BlockingAsyncClient {
         sql: impl Into<String>,
         params: Vec<DataValue>,
     ) -> RS<ServerResponse> {
-        block_on_client(
+        self.runtime.block_on(
             self.client
                 .execute(ClientRequest::new_with_oid(oid, app_name, sql).with_params(params)),
         )
@@ -271,7 +427,7 @@ impl BlockingAsyncClient {
         app_name: impl Into<String>,
         sql: impl Into<String>,
     ) -> RS<ServerResponse> {
-        block_on_client(
+        self.runtime.block_on(
             self.client
                 .query(ClientRequest::new_with_oid(oid, app_name, sql)),
         )
@@ -286,7 +442,7 @@ impl BlockingAsyncClient {
         sql: impl Into<String>,
         params: Vec<DataValue>,
     ) -> RS<ServerResponse> {
-        block_on_client(
+        self.runtime.block_on(
             self.client
                 .query(ClientRequest::new_with_oid(oid, app_name, sql).with_params(params)),
         )
@@ -390,5 +546,375 @@ pub fn wait_until_leader_serving(nodes: &[(u64, u16)], timeout: Duration) -> RS<
             ));
         }
         mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
+    }
+}
+
+/// Connects a synchronous client to `port` and creates a session, retrying
+/// the whole pair until `timeout`: a port probe can succeed slightly before
+/// the backend serves real requests.
+pub fn connect_session_with_retry(port: u16, timeout: Duration) -> RS<(SyncClient, u128)> {
+    let deadline = mudu_sys::time::instant_now() + timeout;
+    let mut last_err = None;
+    while mudu_sys::time::instant_now() < deadline {
+        let attempt = crate::connect_sync_client_with_retry(port)
+            .and_then(|mut client| client.create_session(None).map(|session| (client, session)));
+        match attempt {
+            Ok(pair) => return Ok(pair),
+            Err(err) => {
+                last_err = Some(err);
+                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(50));
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
+            format!("connect to server on port {} timed out", port)
+        )
+    }))
+}
+
+/// Fetches the `data` payload of the queue observability endpoint (`GET
+/// /mudu/server/queues`), failing when the response status is non-zero.
+pub fn fetch_server_queues(http_port: u16) -> RS<serde_json::Value> {
+    let value = fetch_server_json(http_port, "/mudu/server/queues")?;
+    let status = value.get("status").and_then(serde_json::Value::as_i64);
+    if status != Some(0) {
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::External,
+            format!("server queues endpoint failed: {value}")
+        ));
+    }
+    Ok(value
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
+}
+
+/// GETs a management endpoint and returns the full response envelope (the
+/// caller inspects `status`/`data` itself).
+pub fn fetch_server_json(http_port: u16, path: &str) -> RS<serde_json::Value> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "build http client error",
+                e
+            )
+        })?;
+        let url = format!("http://127.0.0.1:{http_port}{path}");
+        let response = client.get(url).send().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "GET management endpoint error",
+                e
+            )
+        })?;
+        response.json::<serde_json::Value>().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
+                "decode management endpoint response error",
+                e
+            )
+        })
+    })
+}
+
+/// POSTs a JSON body to a management endpoint and returns the full response
+/// envelope (the caller inspects `status`/`data` itself).
+pub fn post_server_json(
+    http_port: u16,
+    path: &str,
+    body: serde_json::Value,
+) -> RS<serde_json::Value> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "build http client error",
+                e
+            )
+        })?;
+        let url = format!("http://127.0.0.1:{http_port}{path}");
+        let response = client.post(url).json(&body).send().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "POST management endpoint error",
+                e
+            )
+        })?;
+        response.json::<serde_json::Value>().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
+                "decode management endpoint response error",
+                e
+            )
+        })
+    })
+}
+
+/// DELETEs a management endpoint and returns the full response envelope (the
+/// caller inspects `status`/`data` itself).
+pub fn delete_server_json(http_port: u16, path: &str) -> RS<serde_json::Value> {
+    let runtime = mudu_sys::task::async_::build_current_thread_runtime()?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "build http client error",
+                e
+            )
+        })?;
+        let url = format!("http://127.0.0.1:{http_port}{path}");
+        let response = client.delete(url).send().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Network,
+                "DELETE management endpoint error",
+                e
+            )
+        })?;
+        response.json::<serde_json::Value>().await.map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::Decode,
+                "decode management endpoint response error",
+                e
+            )
+        })
+    })
+}
+
+/// A running `mudud` child process spawned by crash-recovery tests. Dropping
+/// it SIGKILLs the process and reaps it, so a panicking test never leaks a
+/// server.
+#[cfg(unix)]
+pub struct MududChild {
+    child: std::process::Child,
+    logs: Arc<SMutex<String>>,
+}
+
+#[cfg(unix)]
+impl MududChild {
+    /// Spawns `mudud serve --cfg <cfg_path>` with its stdio drained into a
+    /// shared, capped log buffer (a full pipe would otherwise block the
+    /// child).
+    pub fn spawn(binary: &std::path::Path, cfg_path: &std::path::Path) -> RS<Self> {
+        let mut command = mudu_sys::process::Command::new(binary);
+        command
+            .arg("serve")
+            .arg("--cfg")
+            .arg(cfg_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command.spawn().map_err(|e| {
+            mudu::mudu_error!(
+                mudu::error::ErrorCode::from(&e),
+                format!("spawn mudud binary {} error", binary.display()),
+                e
+            )
+        })?;
+        let logs = Arc::new(SMutex::new(String::new()));
+        let drain_result = (|| -> RS<()> {
+            if let Some(stdout) = child.stdout.take() {
+                spawn_mudud_log_drain(stdout, Arc::clone(&logs))?;
+            }
+            if let Some(stderr) = child.stderr.take() {
+                spawn_mudud_log_drain(stderr, Arc::clone(&logs))?;
+            }
+            Ok(())
+        })();
+        if let Err(err) = drain_result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err);
+        }
+        Ok(Self { child, logs })
+    }
+
+    /// Polls until every port of `ports` accepts TCP connections, the process
+    /// dies, or the timeout expires.
+    pub fn wait_ready(&mut self, ports: &[u16], timeout: Duration) -> RS<()> {
+        let deadline = mudu_sys::time::instant_now() + timeout;
+        while mudu_sys::time::instant_now() < deadline {
+            if let Some(status) = self.child.try_wait().map_err(|e| {
+                mudu::mudu_error!(
+                    mudu::error::ErrorCode::from(&e),
+                    "poll mudud status error",
+                    e
+                )
+            })? {
+                return Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::External,
+                    format!(
+                        "mudud exited during startup with {status};\nchild logs:\n{}",
+                        self.logs()
+                    )
+                ));
+            }
+            let all_up = ports.iter().all(|port| {
+                mudu_sys::net::sync::connect_tcp(SocketAddr::from(([127, 0, 0, 1], *port))).is_ok()
+            });
+            if all_up {
+                return Ok(());
+            }
+            mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
+        }
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::Network,
+            format!(
+                "mudud did not become ready within {timeout:?};\nchild logs:\n{}",
+                self.logs()
+            )
+        ))
+    }
+
+    /// Sends SIGKILL (no graceful shutdown) and waits for the process to die.
+    pub fn sigkill(&mut self) -> RS<()> {
+        use std::os::unix::process::ExitStatusExt;
+        self.child.kill().map_err(|e| {
+            mudu::mudu_error!(mudu::error::ErrorCode::from(&e), "kill mudud error", e)
+        })?;
+        let status = self.child.wait().map_err(|e| {
+            mudu::mudu_error!(mudu::error::ErrorCode::from(&e), "wait mudud error", e)
+        })?;
+        if status.signal() != Some(9) {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::External,
+                format!("mudud must die from SIGKILL, got {status}")
+            ));
+        }
+        Ok(())
+    }
+
+    /// The captured child stdout/stderr (capped at 256 KiB).
+    pub fn logs(&self) -> String {
+        self.logs
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for MududChild {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Drains one child stdio pipe into the shared log buffer so the child can
+/// never block on a full pipe; the buffer is capped to bound memory.
+#[cfg(unix)]
+fn spawn_mudud_log_drain<R: std::io::Read + Send + 'static>(
+    reader: R,
+    logs: Arc<SMutex<String>>,
+) -> RS<()> {
+    const CAP: usize = 256 * 1024;
+    use std::io::Read;
+    spawn_thread(move || {
+        let mut reader = std::io::BufReader::new(reader);
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(mut guard) = logs.lock()
+                        && guard.len() < CAP
+                    {
+                        guard.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })?;
+    Ok(())
+}
+
+/// Locates the repository root by walking up from the testing crate's
+/// manifest directory to the `.project.home` anchor file.
+#[cfg(unix)]
+fn repo_root() -> RS<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for ancestor in manifest_dir.ancestors() {
+        if mudu_sys::fs::sync::sync_path_exists(ancestor.join(".project.home")) {
+            return Ok(ancestor.to_path_buf());
+        }
+    }
+    Err(mudu::mudu_error!(
+        mudu::error::ErrorCode::ObjectNotFound,
+        format!(
+            "no .project.home anchor found above {}",
+            manifest_dir.display()
+        )
+    ))
+}
+
+/// Returns the path of the `mudud` binary, building it with cargo when it
+/// has not been compiled yet.
+#[cfg(unix)]
+pub fn ensure_mudud_binary() -> RS<PathBuf> {
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let root = repo_root()?;
+    let path = match mudu_sys::env_var::var("CARGO_TARGET_DIR") {
+        Some(dir) if PathBuf::from(&dir).is_absolute() => PathBuf::from(dir),
+        _ => root.join("target"),
+    }
+    .join(profile)
+    .join("mudud");
+    if mudu_sys::fs::sync::sync_path_exists(&path) {
+        return Ok(path);
+    }
+    let mut command = mudu_sys::process::Command::new("cargo");
+    command.arg("build").arg("-p").arg("mudud");
+    if !cfg!(debug_assertions) {
+        command.arg("--release");
+    }
+    command.current_dir(root.join("crates").join("db-kernel"));
+    strip_inherited_rustflags(&mut command);
+    let status = command.status().map_err(|e| {
+        mudu::mudu_error!(
+            mudu::error::ErrorCode::from(&e),
+            "run cargo build -p mudud error",
+            e
+        )
+    })?;
+    if !status.success() {
+        return Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::External,
+            format!("cargo build -p mudud failed with {status}")
+        ));
+    }
+    if mudu_sys::fs::sync::sync_path_exists(&path) {
+        Ok(path)
+    } else {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::ObjectNotFound,
+            format!("mudud binary still missing after build: {}", path.display())
+        ))
+    }
+}
+
+/// Removes inherited rustc flag variables from a nested cargo build. The
+/// nightly ASan job runs the whole test suite with
+/// `RUSTFLAGS="-Z sanitizer=address"`; a nested build without `--target`
+/// would apply those flags to proc macros too, and an ASan-instrumented
+/// proc-macro .so cannot be loaded into rustc. The fixture binary built
+/// here does not need the outer test build's flags.
+#[cfg(unix)]
+pub fn strip_inherited_rustflags(command: &mut mudu_sys::process::Command) {
+    for var in [
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+    ] {
+        command.env_remove(var);
     }
 }

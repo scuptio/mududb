@@ -7,18 +7,18 @@
 //! cells); the only new moving part is the storage-usage cache — directory
 //! walks run in a 10-second background loop, never on the request path.
 
+use crate::counters::{counter_slot, ReplicationCounters};
 use crate::raft_service::RaftShare;
 use crate::stream_admin::stream_admin_for_node;
 use crate::{connected_subscriber_ack_pairs, repl_worker};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::repl_cfg::ReplMode;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_sys::sync::SMutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -52,11 +52,11 @@ pub struct RaftStatusView {
 pub struct StreamStatusView {
     /// Current stream epoch.
     pub epoch: u64,
-    /// The primary this node is or follows.
+    /// The Primary this node is or follows.
     pub primary_node_id: Option<u64>,
-    /// Whether this node is the primary.
+    /// Whether this node is the Primary.
     pub is_primary: bool,
-    /// Whether the primary waits for a replica's durable ack per commit.
+    /// Whether the Primary waits for a StreamFollower's durable ack per commit.
     pub sync: bool,
     /// Synchronous replication wait timeout in milliseconds.
     pub sync_timeout_ms: u64,
@@ -121,23 +121,6 @@ pub struct ReplicationStorageView {
     pub snapshot_worker_bytes: Vec<u64>,
     /// When the cache was last refreshed (millis since the epoch).
     pub refreshed_at_ms: u64,
-}
-
-/// Operational counters of the replication layer (this server's lifetime).
-#[derive(Clone, Debug, Default)]
-pub struct ReplicationCounters {
-    /// Synchronous stream commits that failed on the replica-ack timeout.
-    pub sync_write_timeouts: u64,
-    /// Worker snapshots taken locally.
-    pub snapshots_taken: u64,
-    /// Worker WAL chunks reclaimed by the prefix GC.
-    pub wal_chunks_reclaimed: u64,
-    /// Staging chunks reclaimed by the prefix GC.
-    pub staging_chunks_reclaimed: u64,
-    /// Snapshot offers served to lagging subscribers.
-    pub snapshot_offers_served: u64,
-    /// Snapshot restores completed on this node.
-    pub snapshot_restores_completed: u64,
 }
 
 /// The assembled replication status of one node.
@@ -230,65 +213,6 @@ fn status_entry(node_id: u64) -> Option<Arc<SMutex<StatusCacheEntry>>> {
         .lock()
         .ok()
         .and_then(|registry| registry.get(&node_id).cloned())
-}
-
-fn counter_slot(server_instance_id: ServerInstanceId) -> Arc<ReplicationCountersAtomic> {
-    static SLOTS: OnceLock<SMutex<HashMap<ServerInstanceId, Arc<ReplicationCountersAtomic>>>> =
-        OnceLock::new();
-    let slots = SLOTS.get_or_init(|| SMutex::new(HashMap::new()));
-    match slots.lock() {
-        Ok(mut map) => map.entry(server_instance_id).or_default().clone(),
-        Err(_) => Arc::new(ReplicationCountersAtomic::default()),
-    }
-}
-
-#[derive(Default)]
-struct ReplicationCountersAtomic {
-    sync_write_timeouts: AtomicU64,
-    snapshots_taken: AtomicU64,
-    wal_chunks_reclaimed: AtomicU64,
-    staging_chunks_reclaimed: AtomicU64,
-}
-
-impl ReplicationCountersAtomic {
-    fn snapshot(&self) -> ReplicationCounters {
-        ReplicationCounters {
-            sync_write_timeouts: self.sync_write_timeouts.load(Ordering::Relaxed),
-            snapshots_taken: self.snapshots_taken.load(Ordering::Relaxed),
-            wal_chunks_reclaimed: self.wal_chunks_reclaimed.load(Ordering::Relaxed),
-            staging_chunks_reclaimed: self.staging_chunks_reclaimed.load(Ordering::Relaxed),
-            snapshot_offers_served: crate::test_hook_snapshot_offers_served(),
-            snapshot_restores_completed: crate::test_hook_snapshot_restores_completed(),
-        }
-    }
-}
-
-/// Counter bump: a synchronous stream commit hit the replica-ack timeout.
-pub(crate) fn note_sync_write_timeout(server_instance_id: ServerInstanceId) {
-    counter_slot(server_instance_id)
-        .sync_write_timeouts
-        .fetch_add(1, Ordering::Relaxed);
-}
-
-/// Counter bump: a worker snapshot was taken on this server.
-pub(crate) fn note_snapshot_taken(server_instance_id: ServerInstanceId) {
-    counter_slot(server_instance_id)
-        .snapshots_taken
-        .fetch_add(1, Ordering::Relaxed);
-}
-
-/// Counter bump: worker WAL chunks were reclaimed by the prefix GC.
-pub(crate) fn note_wal_chunks_reclaimed(server_instance_id: ServerInstanceId, chunks: u64) {
-    counter_slot(server_instance_id)
-        .wal_chunks_reclaimed
-        .fetch_add(chunks, Ordering::Relaxed);
-}
-
-/// Counter bump: staging chunks were reclaimed by the prefix GC.
-pub(crate) fn note_staging_chunks_reclaimed(server_instance_id: ServerInstanceId, chunks: u64) {
-    counter_slot(server_instance_id)
-        .staging_chunks_reclaimed
-        .fetch_add(chunks, Ordering::Relaxed);
 }
 
 /// Whether a replication status entry exists for the node (the
@@ -581,11 +505,16 @@ fn collect_worker_view(
         .worker_log()?
         .map(|log| log.next_lsn().as_u64())
         .unwrap_or(0);
-    let chain = handle.state().chain()?;
-    let staging_max = match handle.state().staging()? {
-        Some(staging) => staging.max_lsn()?.map(|lsn| lsn.as_u64()),
-        None => None,
+    // The committed chain point and its digest come from the data plane's
+    // committed stream vector (raft mode); the worker's own machine holds
+    // the durable WAL resume point.
+    let chain = match crate::data_plane::data_plane_for(server_instance_id) {
+        Some(service) => service
+            .committed_view(worker_index)
+            .unwrap_or((0, crate::seg_hash::ZERO_SEG_HASH)),
+        None => (0, crate::seg_hash::ZERO_SEG_HASH),
     };
+    let staging_max: Option<u64> = None;
     let snapshot =
         crate::snapshot::load_latest_manifest(data_dir.to_string_lossy().as_ref(), worker_index)?
             .map(|manifest| SnapshotStatusView {

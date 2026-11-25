@@ -4,7 +4,7 @@ import { MpackWriter, MpackReader } from "./mpack";
 
 
 
-// Records shared by the funcs below; note that the tree-sitter-wit
+// Structs shared by the funcs below; note that the tree-sitter-wit
 
 
 export class MuOid {

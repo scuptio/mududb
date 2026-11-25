@@ -8,9 +8,9 @@ use crate::common::desc::{
 };
 use crate::common::type_registry::{TypeDefKind, TypeRegistry};
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_record_type::{UniRecordField, UniRecordType};
 use mudu_binding::universal::uni_result_type::UniResultType;
 use mudu_binding::universal::uni_scalar::UniScalar;
+use mudu_binding::universal::uni_struct_type::{UniStructField, UniStructType};
 use mudu_type::type_family::TypeFamily;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -128,15 +128,15 @@ fn aggregates_multiple_wit_files() -> Result<(), Box<dyn Error>> {
     // The name resolves in any case form the front-ends may produce.
     for name in ["address", "Address", "ADDRESS"] {
         let def = registry.resolve(name).expect("address should resolve");
-        assert!(matches!(def, TypeDefKind::Record(_)));
+        assert!(matches!(def, TypeDefKind::Struct(_)));
         assert_eq!(def.declared_name(), "address");
         assert_eq!(def.kind_name(), "record");
     }
     let profile = registry.resolve("Profile").expect("profile should resolve");
-    assert!(profile.as_record().is_some());
+    assert!(profile.as_struct().is_some());
     let color = registry.resolve("color").expect("color should resolve");
     assert!(matches!(color, TypeDefKind::Enum(_)));
-    assert!(color.as_record().is_none());
+    assert!(color.as_struct().is_none());
     assert!(registry.resolve("nope").is_none());
     Ok(())
 }
@@ -148,9 +148,9 @@ fn resolves_identifier_fields_across_files() -> Result<(), Box<dyn Error>> {
         &[("address.wit", ADDRESS_WIT), ("profile.wit", PROFILE_WIT)],
     )?;
     let data_type = registry.to_data_type(&UniDataType::Identifier("profile".to_string()))?;
-    assert_eq!(data_type.type_family(), TypeFamily::Record);
-    let record = data_type.as_record_param().expect("record param");
-    assert_eq!(record.record_name(), "Profile");
+    assert_eq!(data_type.type_family(), TypeFamily::Struct);
+    let record = data_type.as_struct_param().expect("record param");
+    assert_eq!(record.struct_name(), "Profile");
     let fields = record.fields();
     assert_eq!(fields.len(), 4);
 
@@ -166,9 +166,9 @@ fn resolves_identifier_fields_across_files() -> Result<(), Box<dyn Error>> {
     assert_eq!(tags.data_type().type_family(), TypeFamily::String);
 
     assert_eq!(fields[3].0, "home");
-    assert_eq!(fields[3].1.type_family(), TypeFamily::Record);
-    let home = fields[3].1.as_record_param().expect("nested record param");
-    assert_eq!(home.record_name(), "Address");
+    assert_eq!(fields[3].1.type_family(), TypeFamily::Struct);
+    let home = fields[3].1.as_struct_param().expect("nested record param");
+    assert_eq!(home.struct_name(), "Address");
     assert_eq!(home.fields().len(), 2);
     assert_eq!(home.fields()[0].0, "city");
     assert_eq!(home.fields()[0].1.type_family(), TypeFamily::String);
@@ -343,15 +343,15 @@ fn scalar_and_composite_mappings() -> Result<(), Box<dyn Error>> {
     assert!(error.to_string().contains("no Char family"), "{error}");
 
     // Inline (anonymous) record type.
-    let inline = UniDataType::Record(UniRecordType {
-        record_name: "point".to_string(),
-        record_fields: vec![
-            UniRecordField {
+    let inline = UniDataType::Struct(UniStructType {
+        struct_name: "point".to_string(),
+        struct_fields: vec![
+            UniStructField {
                 field_name: "x".to_string(),
                 field_type: UniDataType::Scalar(UniScalar::I32),
                 field_attrs: vec![],
             },
-            UniRecordField {
+            UniStructField {
                 field_name: "y".to_string(),
                 field_type: UniDataType::Scalar(UniScalar::I32),
                 field_attrs: vec![],
@@ -359,9 +359,9 @@ fn scalar_and_composite_mappings() -> Result<(), Box<dyn Error>> {
         ],
     });
     let data_type = registry.to_data_type(&inline)?;
-    assert_eq!(data_type.type_family(), TypeFamily::Record);
-    let record = data_type.as_record_param().expect("record param");
-    assert_eq!(record.record_name(), "point");
+    assert_eq!(data_type.type_family(), TypeFamily::Struct);
+    let record = data_type.as_struct_param().expect("record param");
+    assert_eq!(record.struct_name(), "point");
     assert_eq!(record.fields().len(), 2);
     Ok(())
 }
@@ -387,7 +387,7 @@ fn non_wit_file_path_errors() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn desc_json_snapshot_record_typed_param() -> Result<(), Box<dyn Error>> {
+fn desc_json_snapshot_struct_typed_param() -> Result<(), Box<dyn Error>> {
     let registry = registry_from_dir(
         "mtp_registry_snapshot",
         &[("address.wit", ADDRESS_WIT), ("profile.wit", PROFILE_WIT)],
@@ -400,7 +400,7 @@ fn desc_json_snapshot_record_typed_param() -> Result<(), Box<dyn Error>> {
     let (optional_profile, optional_nullable) =
         registry.to_data_type_nullable(&UniDataType::Option(Box::new(profile_type.clone())))?;
     assert!(optional_nullable);
-    assert_eq!(optional_profile.type_family(), TypeFamily::Record);
+    assert_eq!(optional_profile.type_family(), TypeFamily::Struct);
 
     let model = ProcDescModel {
         name: "set_profile".to_string(),
@@ -436,9 +436,9 @@ fn expected_snapshot_json() -> serde_json::Value {
     });
     let i32_type = serde_json::json!({ "id": "I32", "param": null });
     let address_type = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Address",
                 "field": [
                     ["city", string_type],
@@ -448,9 +448,9 @@ fn expected_snapshot_json() -> serde_json::Value {
         }
     });
     let profile_type_json = serde_json::json!({
-        "id": "Record",
+        "id": "Struct",
         "param": {
-            "Record": {
+            "Struct": {
                 "name": "Profile",
                 "field": [
                     ["display-name", string_type],

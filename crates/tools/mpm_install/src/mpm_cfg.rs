@@ -169,4 +169,76 @@ mod tests {
         let got = resolve_package(Some("cli_pkg"), Some("cfg_pkg")).unwrap_err();
         assert!(got.to_string().contains("cli_pkg"));
     }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir =
+            mudu_sys::env_var::temp_dir().join(format!("mpm_cfg_{tag}_{}", std::process::id()));
+        let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
+        mudu_sys::fs::sync::sync_create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn load_from_explicit_path_reads_values() {
+        let dir = temp_dir("explicit");
+        let path = dir.join("mpm.cfg");
+        mudu_sys::fs::sync::sync_write(&path, "server = '10.0.0.1:8300'\npackage = 'w.mpk'\n")
+            .unwrap();
+        let cfg = MpmCfg::load(Some(&path)).unwrap();
+        assert_eq!(cfg.server.as_deref(), Some("10.0.0.1:8300"));
+        assert_eq!(cfg.package.as_deref(), Some("w.mpk"));
+
+        // A missing explicit file and a malformed one are both errors.
+        assert!(MpmCfg::load(Some(&dir.join("absent.cfg"))).is_err());
+        mudu_sys::fs::sync::sync_write(&path, "not = [valid").unwrap();
+        assert!(MpmCfg::load(Some(&path)).is_err());
+        let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_without_path_falls_back_to_default() {
+        // The test process cwd has no mpm.cfg and the user-level config is
+        // absent in CI environments; when one does exist it must still parse.
+        let cfg = MpmCfg::load(None).unwrap();
+        if let Some(user) = user_config_path()
+            && mudu_sys::fs::sync::sync_path_exists(&user)
+        {
+            let _ = cfg.server;
+        } else {
+            assert!(cfg.server.is_none());
+        }
+        // The path helpers stay consistent with the constants.
+        assert!(
+            project_config_path()
+                .unwrap()
+                .ends_with(PROJECT_CONFIG_NAME)
+        );
+        assert!(user_config_path().unwrap().ends_with(USER_CONFIG_PATH));
+        assert!(home_dir().is_some());
+    }
+
+    #[test]
+    fn resolve_package_appends_mpk_suffix_and_checks_existence() {
+        let dir = temp_dir("resolve");
+        let pkg = dir.join("w.mpk");
+        mudu_sys::fs::sync::sync_write(&pkg, b"bytes").unwrap();
+
+        // Exact path exists.
+        let got = resolve_package(Some(pkg.to_str().unwrap()), None).unwrap();
+        assert_eq!(got, pkg);
+
+        // Bare name gains the .mpk suffix.
+        let bare = dir.join("w");
+        let got = resolve_package(Some(bare.to_str().unwrap()), None).unwrap();
+        assert_eq!(got, pkg);
+
+        // Missing package errors.
+        let err = resolve_package(Some(dir.join("nope").to_str().unwrap()), None).unwrap_err();
+        assert!(err.to_string().contains("package not found"));
+
+        // Config value is used when the CLI has none.
+        let got = resolve_package(None, Some(pkg.to_str().unwrap())).unwrap();
+        assert_eq!(got, pkg);
+        let _ = mudu_sys::fs::sync::sync_remove_dir_all(&dir);
+    }
 }

@@ -30,10 +30,10 @@ MP_INLINE uni_data_type *uni_data_type_decode_new(mp_reader *r, mp_arena *a);
 #endif /* MUDUD_FWD_UNI_DATA_TYPE */
 #ifndef MUDUD_FWD_UNI_RECORD_TYPE
 #define MUDUD_FWD_UNI_RECORD_TYPE
-typedef struct uni_record_type uni_record_type;
-MP_INLINE void uni_record_type_encode(mp_writer *w, const uni_record_type *value);
-MP_INLINE int uni_record_type_decode(mp_reader *r, mp_arena *a, uni_record_type *out);
-MP_INLINE uni_record_type *uni_record_type_decode_new(mp_reader *r, mp_arena *a);
+typedef struct uni_struct_type uni_struct_type;
+MP_INLINE void uni_struct_type_encode(mp_writer *w, const uni_struct_type *value);
+MP_INLINE int uni_struct_type_decode(mp_reader *r, mp_arena *a, uni_struct_type *out);
+MP_INLINE uni_struct_type *uni_struct_type_decode_new(mp_reader *r, mp_arena *a);
 #endif /* MUDUD_FWD_UNI_RECORD_TYPE */
 #ifndef MUDUD_FWD_UNI_RESULT_TYPE
 #define MUDUD_FWD_UNI_RESULT_TYPE
@@ -61,7 +61,7 @@ struct uni_data_type {
     union {
         uni_scalar scalar;
         uni_data_type * array;
-        uni_record_type * record;
+        uni_struct_type * struct;
         uni_data_type * option;
         uni_data_type_tuple_list tuple;
         uni_result_type * result;
@@ -89,10 +89,10 @@ MP_INLINE void uni_data_type_encode(mp_writer *w, const uni_data_type *value) {
         }
         break;
     case UNI_DATA_TYPE_RECORD:
-        if ((value->as.record) == 0) {
+        if ((value->as.struct) == 0) {
             mpw_fail(w);
         } else {
-            uni_record_type_encode(w, &((*value->as.record)));
+            uni_struct_type_encode(w, &((*value->as.struct)));
         }
         break;
     case UNI_DATA_TYPE_OPTION:
@@ -168,11 +168,11 @@ MP_INLINE int uni_data_type_decode(mp_reader *r, mp_arena *a, uni_data_type *val
         case 2u:
             value->kind = UNI_DATA_TYPE_RECORD;
             {
-                uni_record_type *p0 = uni_record_type_decode_new(r, a);
+                uni_struct_type *p0 = uni_struct_type_decode_new(r, a);
                 if (p0 == 0) {
                     mpr_fail(r);
                 } else {
-                    value->as.record = p0;
+                    value->as.struct = p0;
                 }
             }
             break;
@@ -273,7 +273,7 @@ MP_INLINE uni_data_type *uni_data_type_decode_new(mp_reader *r, mp_arena *a) {
 #ifdef __cplusplus
 }
 #endif
-#include "mududb/types/UniRecordType.h"
+#include "mududb/types/UniStructType.h"
 #include "mududb/types/UniResultType.h"
 
 #endif /* MUDUD_TYPES_UNI_DATA_TYPE_H */

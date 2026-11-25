@@ -27,11 +27,11 @@ pub struct ItemCols {
 
 impl __sdk::__query_builder::HasCols for Item {
     type Cols = ItemCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         ItemCols {
-            i_id: __sdk::__query_builder::Col::new(table_name, "i_id"),
-            i_name: __sdk::__query_builder::Col::new(table_name, "i_name"),
-            i_price: __sdk::__query_builder::Col::new(table_name, "i_price"),
+            i_id: __sdk::__query_builder::Col::new(class_name, "i_id"),
+            i_name: __sdk::__query_builder::Col::new(class_name, "i_name"),
+            i_price: __sdk::__query_builder::Col::new(class_name, "i_price"),
         }
     }
 }
@@ -45,9 +45,9 @@ pub struct ItemIxCols {
 
 impl __sdk::__query_builder::HasIxCols for Item {
     type IxCols = ItemIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         ItemIxCols {
-            i_id: __sdk::__query_builder::IxCol::new(table_name, "i_id"),
+            i_id: __sdk::__query_builder::IxCol::new(class_name, "i_id"),
         }
     }
 }

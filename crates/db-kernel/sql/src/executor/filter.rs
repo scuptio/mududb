@@ -14,7 +14,7 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
 use mudu_contract::tuple::typed_bin::TypedBin;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::datum::DatumDyn;
 use sql_parser::ast::expr_operator::ValueCompare;
 use std::cmp::Ordering;

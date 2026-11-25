@@ -1,7 +1,7 @@
 //! Source code generation for the Mudu database system.
 //!
 //! The `mudu_gen` crate parses WIT interface definitions and DDL SQL to generate
-//! language-specific bindings and entity code for Rust, C#, AssemblyScript and
+//! language-specific bindings and object code for Rust, C#, AssemblyScript and
 //! Python.
 
 #![warn(missing_docs)]
@@ -22,8 +22,8 @@ pub mod src_check;
 #[allow(unused)]
 mod ts_const;
 
-/// Table/column metadata used during entity generation.
-pub mod entity;
+/// Table/column metadata used during object generation.
+pub mod object;
 
 /// Language definitions and rendering back-ends.
 pub mod lang_impl;

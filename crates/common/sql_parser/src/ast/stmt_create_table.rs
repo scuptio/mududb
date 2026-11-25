@@ -7,7 +7,7 @@ use std::fmt::Debug;
 /// `CREATE TABLE` statement AST node.
 #[derive(Clone, Debug)]
 pub struct StmtCreateTable {
-    table_name: String,
+    class_name: String,
     column_def: Vec<ColumnDef>,
     primary_key_column_def: Vec<AttrIndex>,
     non_primary_key_column_def: Vec<AttrIndex>,
@@ -16,9 +16,9 @@ pub struct StmtCreateTable {
 
 impl StmtCreateTable {
     /// Create a new `CREATE TABLE` statement with the given table name.
-    pub fn new(table_name: String) -> StmtCreateTable {
+    pub fn new(class_name: String) -> StmtCreateTable {
         Self {
-            table_name,
+            class_name,
             column_def: vec![],
             primary_key_column_def: vec![],
             non_primary_key_column_def: vec![],
@@ -27,8 +27,8 @@ impl StmtCreateTable {
     }
 
     /// Return the table name.
-    pub fn table_name(&self) -> &String {
-        &self.table_name
+    pub fn class_name(&self) -> &String {
+        &self.class_name
     }
 
     /// Return the column definitions.

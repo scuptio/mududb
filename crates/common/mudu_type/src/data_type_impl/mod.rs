@@ -2,6 +2,8 @@ pub mod data_type_create;
 pub mod data_type_table;
 pub mod lang;
 
+mod data_value_datum;
+
 mod fn_date;
 mod fn_f32;
 mod fn_f64;
@@ -83,3 +85,6 @@ mod compare_test;
 mod error_test;
 
 mod temporal;
+
+#[cfg(test)]
+mod int128_edges_test;

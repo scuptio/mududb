@@ -17,7 +17,7 @@ impl PartitionRouting {
     pub(crate) fn slot(&self, partition_index: usize) -> RS<PartitionSlot> {
         self.slots.get(partition_index).copied().ok_or_else(|| {
             mududb::mudu_error!(
-                mududb::error::ErrorCode::EntityNotFound,
+                mududb::error::ErrorCode::ObjectNotFound,
                 format!("no routing slot for partition index {}", partition_index)
             )
         })
@@ -93,7 +93,7 @@ fn build_partition_routing(
     slots.sort_by_key(|slot| slot.partition_id);
     if slots.len() < partition_count {
         return Err(mududb::mudu_error!(
-            mududb::error::ErrorCode::EntityNotFound,
+            mududb::error::ErrorCode::ObjectNotFound,
             format!(
                 "requested {} partitions but topology only exposes {}",
                 partition_count,

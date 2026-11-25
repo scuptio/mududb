@@ -4,7 +4,7 @@
 //! does not read parameter values: every placeholder (`?`) is recorded as an
 //! ordered [`ParamSlot`] and every value position in the bound statement
 //! becomes a [`TemplateDatum`] (either a literal encoded at bind time or a
-//! slot reference). The resulting [`BoundTemplate`] is schema-dependent but
+//! slot reference). The resulting [`crate::bound_template::BoundTemplate`] is schema-dependent but
 //! parameter-independent, so it can be cached keyed by SQL text plus catalog
 //! version and re-executed with different parameters by filling the slots
 //! (see `mudu_conn::plan_cache`).
@@ -32,7 +32,7 @@ use mudu::error::ErrorCode as ER;
 use mudu::mudu_error;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
-use mudu_type::data_type_fn_param::DataType;
+use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
 use sql_parser::ast::expr_item::ExprValue;
 use sql_parser::ast::expr_operator::ValueCompare;
@@ -65,13 +65,13 @@ pub enum TemplateDatum {
 
 /// Collects [`ParamSlot`]s while template binding walks a statement.
 #[derive(Default)]
-pub(crate) struct SlotRecorder {
+pub(crate) struct SlotStructer {
     slots: Vec<ParamSlot>,
     next_param_index: usize,
 }
 
-impl SlotRecorder {
-    /// Records one placeholder against `data_type` and returns its slot index.
+impl SlotStructer {
+    /// Structs one placeholder against `data_type` and returns its slot index.
     pub(crate) fn push(&mut self, data_type: DataType, delta_operand: bool) -> u32 {
         let index = self.slots.len() as u32;
         self.slots.push(ParamSlot {
@@ -93,7 +93,7 @@ impl SlotRecorder {
 pub(crate) fn template_from_expr(
     expr: &ExprValue,
     data_type: &DataType,
-    recorder: &mut SlotRecorder,
+    recorder: &mut SlotStructer,
 ) -> RS<TemplateDatum> {
     match expr {
         ExprValue::ValueLiteral(literal) => Ok(TemplateDatum::Const(
@@ -191,6 +191,10 @@ pub struct InsertTemplate {
     /// Tables with fs-bound columns keep the fs DML hook, so they are
     /// classified `Other` and executed through the regular planner path.
     pub has_fs_columns: bool,
+    /// Queue tables synthesize their system columns in the command executor
+    /// (`InsertKeyValue`), so they are classified `Other` and never take the
+    /// point-insert fast path.
+    pub is_queue: bool,
 }
 
 /// Template form of [`BoundInsertRow`]; every datum is non-NULL by
@@ -300,7 +304,9 @@ impl BoundTemplate {
                 PlanClass::PointRead { select: attrs }
             }
             StmtTemplate::Update(update) if !update.has_fs_columns => PlanClass::PointUpdate,
-            StmtTemplate::Insert(insert) if !insert.has_fs_columns => PlanClass::PointInsert,
+            StmtTemplate::Insert(insert) if !insert.has_fs_columns && !insert.is_queue => {
+                PlanClass::PointInsert
+            }
             _ => PlanClass::Other,
         }
     }

@@ -11,6 +11,9 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'doc/**'
+  schedule:
+    # Daily at 02:41 UTC; avoids the crowded :00/:30 minute marks.
+    - cron: '41 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -39,12 +42,21 @@ jobs:
         group: [ common, db-kernel, sdk, tools ]
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Setup pinned nightly tooling Rust
+        id: setup_pinned_nightly_tooling_rust
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Cache Cargo dependency downloads
+        id: cache_cargo_dependency_downloads
         uses: actions/cache@v4
         with:
           path: |
@@ -58,21 +70,29 @@ jobs:
             udeps-deps-${{ runner.os }}-${{ matrix.group }}-
 
       - name: Install cargo-udeps
-        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-udeps --version 0.1.61 --locked
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_udeps bash {0}
+        id: install_cargo_udeps
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-udeps --version 0.1.61 --locked
 
       - name: Fetch locked workspace dependencies
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run fetch_locked_workspace_dependencies bash {0}
+        id: fetch_locked_workspace_dependencies
         timeout-minutes: 15
         working-directory: crates/${{ matrix.group }}
-        run: cargo +${NIGHTLY_TOOLCHAIN} fetch --locked
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" fetch --locked
 
       - name: Run cargo-udeps
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_cargo_udeps bash {0}
+        id: run_cargo_udeps
         working-directory: crates/${{ matrix.group }}
         run: |
           mkdir -p ${{ github.workspace }}/logs/${{ matrix.group }}
           set -o pipefail
-          cargo +${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets --locked --offline 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/nightly-udeps.log
+          cargo +"${NIGHTLY_TOOLCHAIN}" udeps --workspace --all-targets --locked --offline 2>&1 | tee ${{ github.workspace }}/logs/${{ matrix.group }}/nightly-udeps.log
 
       - name: Local reproduction command
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run local_reproduction_command bash {0}
+        id: local_reproduction_command
         if: failure()
         run: |
           echo "To reproduce locally:"
@@ -84,14 +104,32 @@ jobs:
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} fetch --locked"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} udeps --workspace --all-targets --locked --offline"
 
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
+
   cargo-fuzz:
     name: cargo-fuzz
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Free disk space
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk_space bash {0}
+        id: free_disk_space
         if: env.ACT != 'true'
         run: |
           df -h
@@ -102,12 +140,17 @@ jobs:
           df -h
 
       - name: Setup pinned nightly tooling Rust
+        id: setup_pinned_nightly_tooling_rust
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Install cargo-fuzz
-        run: cargo +${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_fuzz bash {0}
+        id: install_cargo_fuzz
+        run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-fuzz --version 0.13.2 --locked
 
       - name: Run fuzz targets (smoke)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_fuzz_targets_smoke bash {0}
+        id: run_fuzz_targets_smoke
         working-directory: crates/db-kernel/mudu_kernel/fuzz
         run: |
           mkdir -p ${{ github.workspace }}/logs
@@ -115,11 +158,13 @@ jobs:
           {
             for target in _de_en_x_l_up_tuple _de_en_x_l_batch _schema_table _x_log_append _delta_apply _type_convert; do
               echo "Running fuzz target: ${target}"
-              cargo +${NIGHTLY_TOOLCHAIN} fuzz run "${target}" -- -max_total_time=60 -runs=1000
+              cargo +"${NIGHTLY_TOOLCHAIN}" fuzz run "${target}" -- -max_total_time=60 -runs=1000
             done
           } 2>&1 | tee ${{ github.workspace }}/logs/nightly-fuzz.log
 
       - name: Local reproduction command
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run local_reproduction_command bash {0}
+        id: local_reproduction_command
         if: failure()
         run: |
           echo "To reproduce locally:"
@@ -128,6 +173,15 @@ jobs:
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} install cargo-fuzz --version 0.13.2 --locked"
           echo "  cd crates/db-kernel/mudu_kernel/fuzz"
           echo "  cargo +\${NIGHTLY_TOOLCHAIN} fuzz run <target> -- -max_total_time=60"
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   sanitizer-address:
     name: Address Sanitizer
@@ -138,9 +192,18 @@ jobs:
       MUDU_CLI_HTTP_TIMEOUT_SECS: 120
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Free disk space
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk_space bash {0}
+        id: free_disk_space
         if: env.ACT != 'true'
         run: |
           df -h
@@ -151,9 +214,12 @@ jobs:
           df -h
 
       - name: Setup pinned nightly tooling Rust
+        id: setup_pinned_nightly_tooling_rust
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Run tests with AddressSanitizer
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_tests_with_addresssanitizer bash {0}
+        id: run_tests_with_addresssanitizer
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
@@ -163,7 +229,7 @@ jobs:
             failed=0
             for group in crates/common crates/db-kernel crates/sdk crates/tools; do
               echo "=== ASan tests: ${group} ==="
-              (cd "${group}" && cargo +${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu) || failed=1
+              (cd "${group}" && cargo +"${NIGHTLY_TOOLCHAIN}" test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu) || failed=1
             done
             exit "${failed}"
           } 2>&1 | tee ${{ github.workspace }}/logs/nightly-asan.log
@@ -172,6 +238,8 @@ jobs:
           LSAN_OPTIONS: "suppressions=${{ github.workspace }}/script/ci/lsan_suppressions.txt"
 
       - name: Local reproduction command
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run local_reproduction_command bash {0}
+        id: local_reproduction_command
         if: failure()
         run: |
           echo "To reproduce locally:"
@@ -180,6 +248,15 @@ jobs:
           echo "  rustup target add x86_64-unknown-linux-gnu --toolchain \${NIGHTLY_TOOLCHAIN}"
           echo "  cd crates/<group>   # one of: common db-kernel sdk tools"
           echo "  RUSTFLAGS=\"-Z sanitizer=address\" LSAN_OPTIONS=\"suppressions=$(pwd)/script/ci/lsan_suppressions.txt\" MUDU_CLI_HTTP_TIMEOUT_SECS=120 cargo +\${NIGHTLY_TOOLCHAIN} test --workspace --lib --tests --bins --target x86_64-unknown-linux-gnu"
+
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report
 
   coverage:
     name: Code Coverage
@@ -192,9 +269,18 @@ jobs:
       MUDU_CLI_HTTP_TIMEOUT_SECS: 120
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Free disk space
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk_space bash {0}
+        id: free_disk_space
         if: env.ACT != 'true'
         run: |
           df -h
@@ -205,48 +291,65 @@ jobs:
           df -h
 
       - name: Setup pinned nightly tooling Rust
+        id: setup_pinned_nightly_tooling_rust
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Install llvm-tools-preview
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_llvm_tools_preview bash {0}
+        id: install_llvm_tools_preview
         run: rustup component add llvm-tools-preview --toolchain "${NIGHTLY_TOOLCHAIN}"
 
       - name: Install cargo-llvm-cov
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_cargo_llvm_cov bash {0}
+        id: install_cargo_llvm_cov
         run: cargo +"${NIGHTLY_TOOLCHAIN}" install cargo-llvm-cov --version 0.8.7 --locked
 
-      - name: Run coverage (per group workspace)
+      - name: Run coverage (unit tests, merged across group workspaces)
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_coverage_unit_tests_merged_across_group_workspaces bash {0}
+        id: run_coverage_unit_tests_merged_across_group_workspaces
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
-          # The core packages (mudu, mudu_type, mudu_contract, mudu_kernel) are
-          # split across the crates/common and crates/db-kernel workspaces;
-          # the script runs llvm-cov per group and writes reports to
-          # target/llvm-cov/<group>/.
-          bash script/coverage/run_coverage.sh --profile core --format all 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
+          # Unit tests of all four group workspaces, merged into a single
+          # report under target/llvm-cov/ (e2e stays local-only: --no-e2e).
+          python3 script/coverage/run_coverage.py --format all --no-e2e 2>&1 | tee ${{ github.workspace }}/logs/nightly-coverage.log
 
       - name: Upload coverage artifacts
+        id: upload_coverage_artifacts
         if: env.ACT != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ github.run_id }}-${{ github.sha }}
           path: |
-            target/llvm-cov/*/html
-            target/llvm-cov/*/coverage.json
-            target/llvm-cov/*/coverage.lcov
+            target/llvm-cov/html
+            target/llvm-cov/coverage.json
+            target/llvm-cov/coverage.lcov
           retention-days: 30
 
       - name: Summarize coverage in job summary
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run summarize_coverage_in_job_summary bash {0}
+        id: summarize_coverage_in_job_summary
         if: env.ACT != 'true'
         run: |
-          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          for json in target/llvm-cov/*/coverage.json; do
-            echo "### ${json}" >> "$GITHUB_STEP_SUMMARY"
-            python3 .github/scripts/summarize_coverage.py "${json}" >> "$GITHUB_STEP_SUMMARY" || true
-          done
+          {
+            echo "## Coverage Report"
+            echo "Commit: ${{ github.sha }}"
+            echo "Artifact: coverage-${{ github.run_id }}-${{ github.sha }}"
+            python3 .github/scripts/summarize_coverage.py target/llvm-cov/coverage.json || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Local reproduction command
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run local_reproduction_command bash {0}
+        id: local_reproduction_command
         if: failure()
         run: |
           echo "To reproduce locally:"
-          echo "  bash script/coverage/run_coverage.sh --profile core --format all"
+          echo "  python3 script/coverage/run_coverage.py --format all --no-e2e"
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

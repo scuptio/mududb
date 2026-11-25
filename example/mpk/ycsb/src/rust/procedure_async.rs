@@ -12,7 +12,7 @@ async fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
     let value = mudu_get(session_id, key.as_bytes()).await?.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("ycsb key not found: {user_key}")
         )
     })?;
@@ -38,7 +38,7 @@ pub async fn ycsb_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     let _ = mudu_get(xid, key.as_bytes()).await?.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("ycsb key not found: {user_key}")
         )
     })?;

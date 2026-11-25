@@ -77,6 +77,16 @@ impl TokioFile {
             .map_err(|e| io_error_with_message(e, "fsync tokio file error"))
     }
 
+    pub(crate) async fn set_len(&self, len: u64) -> RS<()> {
+        let mut file = self.inner.lock().await;
+        file.flush()
+            .await
+            .map_err(|e| io_error_with_message(e, "flush before tokio truncate error"))?;
+        file.set_len(len)
+            .await
+            .map_err(|e| io_error_with_message(e, "truncate tokio file error"))
+    }
+
     pub(crate) async fn file_len(&self) -> RS<u64> {
         let file = self.inner.lock().await;
         file.metadata()
@@ -88,5 +98,21 @@ impl TokioFile {
     #[cfg(unix)]
     pub(crate) fn as_raw_fd(&self) -> Option<RawFd> {
         self.inner.try_lock().map(|file| file.as_raw_fd())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn positioned_io_rejects_nonseekable_files() {
+        use std::os::fd::OwnedFd;
+        let (stream, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let fd: OwnedFd = stream.into();
+        let file = tokio::fs::File::from_std(std::fs::File::from(fd));
+        let file = super::TokioFile::from(file);
+        assert!(file.read_exact_at(0, 1).await.is_err());
+        assert!(file.write_all_at(0, b"x").await.is_err());
+        assert!(file.fsync().await.is_err());
     }
 }

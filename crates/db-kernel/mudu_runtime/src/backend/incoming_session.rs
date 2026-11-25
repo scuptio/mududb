@@ -29,3 +29,36 @@ impl IncomingSession {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use crate::backend::session_ctx::SessionCtx;
+    use mudu_sys::net::AsyncTcpListener;
+
+    #[test]
+    fn session_handler_task_surfaces_client_disconnect() {
+        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
+            let listener = AsyncTcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            // A client that connects and immediately drops the connection:
+            // the pgwire startup read hits EOF inside process_socket.
+            let client = AsyncTcpStream::connect(addr).await.unwrap();
+            let (socket, peer_addr) = listener.accept().await.unwrap();
+            drop(client);
+
+            let session = IncomingSession::new(peer_addr, socket);
+            let ctx = SessionCtx::new(
+                mudu_sys::env_var::temp_dir()
+                    .join(format!("incoming_session_{}", mudu_utils::oid::gen_oid()))
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            // EOF mid-startup surfaces as an error (or a clean close);
+            // either way the task returns instead of hanging.
+            let _ = session.session_handler_task(ctx).await;
+        })
+        .unwrap();
+    }
+}

@@ -79,7 +79,7 @@ mod tests {
             assert_eq!(ErrorCode::from_u32(ec.to_u32()), Some(ec));
         }
         assert_eq!(ErrorCode::from_u32(0), None);
-        assert_eq!(ErrorCode::from_u32(50040), None);
+        assert_eq!(ErrorCode::from_u32(50041), None);
     }
 
     #[test]

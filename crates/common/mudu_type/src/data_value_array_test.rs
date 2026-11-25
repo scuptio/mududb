@@ -60,7 +60,7 @@ mod tests {
             DataValue::from_string("x".to_string()),
         ]];
         let arr = DataValueArray::from_object(rows);
-        assert_eq!(arr.get_type_family(), TypeFamily::Record);
+        assert_eq!(arr.get_type_family(), TypeFamily::Struct);
         assert!(arr.as_object().is_some());
         assert_eq!(arr.as_object().unwrap().len(), 1);
         assert_eq!(arr.as_object().unwrap()[0].len(), 2);
@@ -93,7 +93,7 @@ mod tests {
             ),
             (
                 DataValueArray::from_object(vec![vec![DataValue::from_i32(1)]]),
-                TypeFamily::Record,
+                TypeFamily::Struct,
             ),
             (
                 DataValueArray::from_array(vec![vec![DataValueArray::from_i32(vec![1])]]),

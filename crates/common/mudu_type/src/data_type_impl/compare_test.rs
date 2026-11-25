@@ -1,5 +1,6 @@
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::Unstructured;
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;

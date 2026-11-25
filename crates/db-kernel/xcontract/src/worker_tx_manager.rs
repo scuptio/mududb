@@ -376,7 +376,14 @@ impl TxMgr for WorkerTxManager {
             ops.push(TxOp::Begin);
             ops.extend(state.log_buffer.clone());
             ops.push(TxOp::Commit(next_commit_timestamp()));
-            XLBatch::new(vec![XLEntry { xid, ops }])
+            // The commit epoch stamps the versions of this transaction's
+            // writes (replicas and recovery replay stamp identically);
+            // `None` keeps pre-epoch xid stamping.
+            XLBatch::new(vec![XLEntry {
+                xid,
+                ops,
+                commit_epoch: self.snapshot.epoch(),
+            }])
         })
     }
 }

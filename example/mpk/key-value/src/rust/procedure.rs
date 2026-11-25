@@ -22,7 +22,7 @@ fn read_value(session_id: OID, user_key: &str) -> RS<String> {
     let key = kv_data_key(user_key);
     let value = mudu_get(session_id, key.as_bytes())?.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("key-value key not found: {user_key}")
         )
     })?;
@@ -45,7 +45,7 @@ pub fn kv_update(xid: OID, user_key: String, value: String) -> RS<()> {
     let key = kv_data_key(&user_key);
     let _ = mudu_get(xid, key.as_bytes())?.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("key-value key not found: {user_key}")
         )
     })?;
@@ -81,18 +81,12 @@ pub fn kv_read_modify_write(xid: OID, user_key: String, append_value: String) ->
 #[cfg(test)]
 mod tests {
     use super::{kv_insert, kv_read, kv_read_modify_write, kv_scan, kv_update};
+    use crate::test_lock;
     use mududb::sys::env_var::temp_dir;
-    use mududb::sys::sync::SMutex;
     use mududb::sys::time::system_time_now;
     use mududb::sys_interface::sync_api::{mudu_close, mudu_open};
     use std::path::PathBuf;
-    use std::sync::OnceLock;
     use std::time::UNIX_EPOCH;
-
-    fn test_lock() -> &'static SMutex<()> {
-        static LOCK: OnceLock<SMutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| SMutex::new(()))
-    }
 
     fn temp_db_path(name: &str) -> PathBuf {
         let suffix = system_time_now()

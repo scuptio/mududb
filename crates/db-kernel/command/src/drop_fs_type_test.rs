@@ -3,7 +3,7 @@ use crate::drop_fs_type::DropFsType;
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::fs_type::{FsTypeDesc, FsTypeKind};
 use ::catalog::contract::meta_mgr::MetaMgr;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::xengine::x_param::PDropType;
 use async_trait::async_trait;
@@ -25,14 +25,12 @@ where
 
 struct MockMetaMgr {
     fs_types: SMutex<HashMap<String, FsTypeDesc>>,
-    next_fs_id: SMutex<u64>,
 }
 
 impl MockMetaMgr {
     fn new() -> Self {
         Self {
             fs_types: SMutex::new(HashMap::new()),
-            next_fs_id: SMutex::new(1),
         }
     }
 
@@ -49,7 +47,7 @@ impl MetaMgr for MockMetaMgr {
 
     async fn get_table_by_id(&self, oid: OID) -> RS<Arc<TableDesc>> {
         Err(mudu::mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such table {}", oid)
         ))
     }
@@ -58,7 +56,7 @@ impl MetaMgr for MockMetaMgr {
         Ok(None)
     }
 
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
 
@@ -67,9 +65,7 @@ impl MetaMgr for MockMetaMgr {
     }
 
     async fn create_fs_type(&self, name: &str, kind: FsTypeKind) -> RS<u64> {
-        let mut next_fs_id = self.next_fs_id.lock().unwrap();
-        let fs_id = *next_fs_id;
-        *next_fs_id += 1;
+        let fs_id = catalog::contract::derive_oid::derive_fs_id(name);
         self.fs_types.lock().unwrap().insert(
             name.to_string(),
             FsTypeDesc::new(name.to_string(), fs_id, kind),
@@ -97,6 +93,7 @@ fn drop_fs_type_removes_registered_type() {
             name: "wal_log".to_string(),
         },
         meta.clone(),
+        None,
     );
     block_on(cmd.prepare()).unwrap();
     block_on(cmd.run()).unwrap();
@@ -112,7 +109,8 @@ fn drop_fs_type_prepare_fails_on_unknown_name() {
             name: "no_such_type".to_string(),
         },
         meta,
+        None,
     );
     let err = block_on(cmd.prepare()).unwrap_err();
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
 }

@@ -1,5 +1,5 @@
 use super::discover_procedures;
-use crate::go::procedure::{GoValueType, normalize_type_name};
+use crate::go::types::{GoValueType, normalize_type_name};
 use mudu::error::ErrorCode;
 use std::error::Error;
 
@@ -279,7 +279,7 @@ func updateProfile(session muduOid, id int64, profile gentypes.Profile, note *st
     let procs = discover_procedures(code, Some(&registry))?;
     assert_eq!(procs.len(), 1);
     assert_eq!(procs[0].params[1].value_type, GoValueType::Int64);
-    let GoValueType::Record(profile) = &procs[0].params[2].value_type else {
+    let GoValueType::Struct(profile) = &procs[0].params[2].value_type else {
         return Err(format!(
             "expected a record parameter type, got {:?}",
             procs[0].params[2].value_type
@@ -289,7 +289,7 @@ func updateProfile(session muduOid, id int64, profile gentypes.Profile, note *st
     assert_eq!(profile.name, "Profile");
     assert_eq!(
         profile.data_type.type_family(),
-        mudu_type::type_family::TypeFamily::Record
+        mudu_type::type_family::TypeFamily::Struct
     );
     assert!(procs[0].params[3].value_type.is_nullable());
     assert_eq!(
@@ -308,7 +308,7 @@ func updateProfile(session muduOid, id int64, profile gentypes.Profile, note *st
         mode.data_type.type_family(),
         mudu_type::type_family::TypeFamily::I32
     );
-    assert!(matches!(procs[0].return_value_type, GoValueType::Record(_)));
+    assert!(matches!(procs[0].return_value_type, GoValueType::Struct(_)));
     Ok(())
 }
 

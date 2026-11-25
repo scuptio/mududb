@@ -24,6 +24,7 @@ xengine = { workspace = true }
 runtime_libsql = { workspace = true }
 mudu = { workspace = true }
 mudu_binding = { workspace = true }
+mudu_caf = { workspace = true }
 mudu_contract = { workspace = true }
 mudu_sys = { workspace = true }
 mudu_type = { workspace = true }
@@ -43,6 +44,7 @@ zip = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
 [dev-dependencies]
+wal = { workspace = true }
 bytes = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

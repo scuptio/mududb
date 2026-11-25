@@ -1,10 +1,12 @@
 //! Mutable view over a slotted-page buffer.
 
-use crate::page::page_block_ref::{align_up, PageBlockRef, PAGE_SIZE, RECORD_ALIGN};
+use super::{layout_math, sequence_edit};
+
+use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_header::{PageHeader, PAGE_HEADER_SIZE};
 use crate::page::page_tailer::{PageTailer, PAGE_TAILER_SIZE};
-use crate::page::record_slot::{RecordSlot, RECORD_SLOT_SIZE};
-use crate::page::record_slot_ref::RecordSlotRef;
+use crate::page::record_slot::{StructSlot, RECORD_SLOT_SIZE};
+use crate::page::record_slot_ref::StructSlotRef;
 use crate::page::PageId;
 use ::wal::lsn::LSN;
 use mudu::common::crc::crc16;
@@ -14,8 +16,8 @@ use mudu::mudu_error;
 
 /// `PageBlockRefMut` keeps the same layout and ordering guarantees as `PageBlockRef`.
 ///
-/// Record payloads are always written on 8-byte boundaries in the data area.
-/// `RecordSlot::size` stores the real payload length rather than the aligned size.
+/// Struct payloads are always written on 8-byte boundaries in the data area.
+/// `StructSlot::size` stores the real payload length rather than the aligned size.
 ///
 /// Update and delete paths compact the page after the change so that the data
 /// area stays contiguous and `free_bytes` remains an exact value instead of a
@@ -26,7 +28,7 @@ use mudu::mudu_error;
 ///
 /// The tailer checksum is NOT maintained by the mutation methods: recomputing
 /// the full-page CRC32 on every in-memory change dominates the batched write
-/// path. Callers must invoke [`Self::refresh_tailer_checksum`] once at the
+/// path. Callers must invoke `Self::refresh_tailer_checksum` once at the
 /// persistence point (before the image is appended to the WAL or written to
 /// the data file) so every page that reaches durable storage carries a valid
 /// checksum. In-memory images may therefore hold a stale tailer checksum;
@@ -88,15 +90,16 @@ impl<'a> PageBlockRefMut<'a> {
     }
 
     /// Returns the slot at `sorted_index` in ascending key order.
-    pub fn slot(&self, sorted_index: usize) -> RS<RecordSlot> {
+    pub fn slot(&self, sorted_index: usize) -> RS<StructSlot> {
         PageBlockRef::try_new(self.page)?.slot(sorted_index)
     }
 
     /// Returns a zero-copy reader for the slot at `sorted_index` in ascending
     /// key order.
-    pub fn slot_ref(&self, sorted_index: usize) -> RS<RecordSlotRef<'_>> {
+    pub fn slot_ref(&self, sorted_index: usize) -> RS<StructSlotRef<'_>> {
         self.check_page_len()?;
         let count = self.header()?.record_count() as usize;
+        self.slot_region_start_for_count(count)?;
         if sorted_index >= count {
             return Err(mudu_error!(
                 ErrorCode::Decode,
@@ -105,7 +108,7 @@ impl<'a> PageBlockRefMut<'a> {
         }
 
         let offset = self.slot_offset_for_sorted_index(sorted_index);
-        RecordSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
+        StructSlotRef::new(&self.page[offset..offset + RECORD_SLOT_SIZE])
     }
 
     /// Returns the payload bytes of the record at `sorted_index` in ascending
@@ -114,14 +117,14 @@ impl<'a> PageBlockRefMut<'a> {
         let slot = self.slot_ref(sorted_index)?;
         let offset = slot.offset() as usize;
         let size = slot.size() as usize;
-        let slot_start = self.slot_region_start_for_count(self.header()?.record_count() as usize);
-        if offset < PAGE_HEADER_SIZE || offset + size > slot_start {
+        let slot_start = self.slot_region_start_for_count(self.header()?.record_count() as usize)?;
+        if layout_math::record_end(PAGE_HEADER_SIZE, slot_start, offset, size).is_none() {
             return Err(mudu_error!(
                 ErrorCode::Decode,
                 format!(
                     "record range [{}, {}) overlaps page metadata or slot array",
                     offset,
-                    offset + size
+                    offset.saturating_add(size)
                 )
             ));
         }
@@ -137,31 +140,74 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(())
     }
 
+    fn transact<T>(&mut self, edit: impl FnOnce(&mut PageBlockRefMut<'_>) -> RS<T>) -> RS<T> {
+        self.check_page_len()?;
+        let mut prepared = [0u8; PAGE_SIZE];
+        prepared.copy_from_slice(&self.page[..PAGE_SIZE]);
+        let result = edit(&mut PageBlockRefMut::new(&mut prepared))?;
+        if !sequence_edit::publish(&mut self.page[..PAGE_SIZE], &prepared) {
+            return Err(mudu_error!(
+                ErrorCode::Internal,
+                "page publication length mismatch"
+            ));
+        }
+        Ok(result)
+    }
+
     pub(crate) fn insert_record(
         &mut self,
         timestamp: u64,
         tuple_id: u64,
         payload: &[u8],
     ) -> RS<usize> {
+        self.transact(|draft| draft.insert_record_inner(timestamp, tuple_id, payload))
+    }
+
+    pub(crate) fn delete_record(&mut self, index: usize) -> RS<()> {
+        self.transact(|draft| draft.delete_record_inner(index))
+    }
+
+    pub(crate) fn update_record(
+        &mut self,
+        index: usize,
+        timestamp: u64,
+        tuple_id: u64,
+        payload: &[u8],
+    ) -> RS<usize> {
+        self.transact(|draft| draft.update_record_inner(index, timestamp, tuple_id, payload))
+    }
+
+    pub(crate) fn compact(&mut self) -> RS<()> {
+        self.transact(|draft| draft.compact_inner())
+    }
+
+    fn insert_record_inner(&mut self, timestamp: u64, tuple_id: u64, payload: &[u8]) -> RS<usize> {
         self.check_page_len()?;
 
         let header = self.header()?;
         let count = header.record_count() as usize;
-        let data_offset = align_up(header.first_free_offset() as usize, RECORD_ALIGN);
-        let padding = data_offset - header.first_free_offset() as usize;
-        let next_slot_start = self.slot_region_start_for_count(count + 1);
-        let record_end = data_offset + payload.len();
-        if record_end > next_slot_start
-            || padding + payload.len() + RECORD_SLOT_SIZE > header.free_bytes() as usize
-        {
-            return Err(mudu_error!(
-                ErrorCode::InsufficientBufferSpace,
-                "page does not have enough free space"
-            ));
-        }
+        let next_slot_start =
+            layout_math::slot_start(self.tailer_offset(), PAGE_HEADER_SIZE, count + 1).ok_or_else(
+                || {
+                    mudu_error!(
+                        ErrorCode::InsufficientBufferSpace,
+                        "page does not have enough free space"
+                    )
+                },
+            )?;
+        let first = header.first_free_offset() as usize;
+        let (data_offset, record_end) =
+            layout_math::allocate(first, next_slot_start, payload.len())
+                .filter(|(_, end)| end - first + RECORD_SLOT_SIZE <= header.free_bytes() as usize)
+                .ok_or_else(|| {
+                    mudu_error!(
+                        ErrorCode::InsufficientBufferSpace,
+                        "page does not have enough free space"
+                    )
+                })?;
 
         self.page[data_offset..record_end].copy_from_slice(payload);
-        let mut slot = RecordSlot::new(
+        let mut slot = StructSlot::new(
             data_offset as u32,
             payload.len() as u32,
             timestamp,
@@ -179,9 +225,9 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(insert_at)
     }
 
-    pub(crate) fn delete_record(&mut self, sorted_index: usize) -> RS<()> {
+    fn delete_record_inner(&mut self, sorted_index: usize) -> RS<()> {
         self.check_page_len()?;
-        let mut slots = self.read_all_slots()?;
+        let slots = self.read_all_slots()?;
         if sorted_index >= slots.len() {
             return Err(mudu_error!(
                 ErrorCode::Decode,
@@ -189,11 +235,12 @@ impl<'a> PageBlockRefMut<'a> {
             ));
         }
 
-        slots.remove(sorted_index);
+        let slots = sequence_edit::splice(&slots, sorted_index, sorted_index + 1, &[])
+            .ok_or_else(|| mudu_error!(ErrorCode::Decode, "invalid page record edit"))?;
         self.compact_with_slots(slots)
     }
 
-    pub(crate) fn update_record(
+    fn update_record_inner(
         &mut self,
         sorted_index: usize,
         timestamp: u64,
@@ -201,7 +248,7 @@ impl<'a> PageBlockRefMut<'a> {
         payload: &[u8],
     ) -> RS<usize> {
         self.check_page_len()?;
-        let mut slots = self.read_all_slots()?;
+        let slots = self.read_all_slots()?;
         if sorted_index >= slots.len() {
             return Err(mudu_error!(
                 ErrorCode::Decode,
@@ -209,12 +256,13 @@ impl<'a> PageBlockRefMut<'a> {
             ));
         }
 
-        slots.remove(sorted_index);
-        let mut new_slot = RecordSlot::new(0, payload.len() as u32, timestamp, tuple_id);
+        let slots = sequence_edit::splice(&slots, sorted_index, sorted_index + 1, &[])
+            .ok_or_else(|| mudu_error!(ErrorCode::Decode, "invalid page record edit"))?;
+        let mut new_slot = StructSlot::new(0, payload.len() as u32, timestamp, tuple_id);
         new_slot.set_check_sum(crc16(payload));
         let mut entries = self.materialize_entries(&slots)?;
         entries.push((new_slot, payload.to_vec()));
-        let mut sorted_slots: Vec<RecordSlot> = entries.iter().map(|(slot, _)| *slot).collect();
+        let mut sorted_slots: Vec<StructSlot> = entries.iter().map(|(slot, _)| *slot).collect();
         sorted_slots.sort_by(|left, right| left.cmp_key(right));
         let new_index = sorted_slots
             .iter()
@@ -226,43 +274,56 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(new_index)
     }
 
-    pub(crate) fn compact(&mut self) -> RS<()> {
+    fn compact_inner(&mut self) -> RS<()> {
         let slots = self.read_all_slots()?;
         self.compact_with_slots(slots)
     }
 
-    fn compact_with_slots(&mut self, slots: Vec<RecordSlot>) -> RS<()> {
+    fn compact_with_slots(&mut self, slots: Vec<StructSlot>) -> RS<()> {
         let entries = self.materialize_entries(&slots)?;
         self.rebuild_from_entries(entries)?;
         Ok(())
     }
 
-    fn rebuild_from_entries(&mut self, mut entries: Vec<(RecordSlot, Vec<u8>)>) -> RS<()> {
+    fn rebuild_from_entries(&mut self, mut entries: Vec<(StructSlot, Vec<u8>)>) -> RS<()> {
         let header = self.header()?;
         entries.sort_by(|(left, _), (right, _)| left.cmp_key(right));
 
+        let slot_start =
+            layout_math::slot_start(self.tailer_offset(), PAGE_HEADER_SIZE, entries.len())
+                .ok_or_else(|| {
+                    mudu_error!(
+                        ErrorCode::InsufficientBufferSpace,
+                        "page does not have enough free space"
+                    )
+                })?;
+        let mut next_data = PAGE_HEADER_SIZE;
+        let mut planned = Vec::with_capacity(entries.len());
+        for (_, payload) in &entries {
+            let range =
+                layout_math::allocate(next_data, slot_start, payload.len()).ok_or_else(|| {
+                    mudu_error!(
+                        ErrorCode::InsufficientBufferSpace,
+                        "page does not have enough free space"
+                    )
+                })?;
+            next_data = range.1;
+            planned.push(range);
+        }
         let tailer_offset = self.tailer_offset();
         self.page[PAGE_HEADER_SIZE..tailer_offset].fill(0);
-
-        let mut next_data = PAGE_HEADER_SIZE;
         let mut slots = Vec::with_capacity(entries.len());
-        for (mut slot, payload) in entries {
-            let offset = align_up(next_data, RECORD_ALIGN);
-            let record_end = offset + payload.len();
-            let slot_start = self.slot_region_start_for_count(slots.len() + 1);
-            if record_end > slot_start {
+        for ((mut slot, payload), (offset, _record_end)) in entries.into_iter().zip(planned) {
+            if !sequence_edit::copy_payload(&mut self.page[..slot_start], offset, &payload) {
                 return Err(mudu_error!(
-                    ErrorCode::InsufficientBufferSpace,
-                    "page does not have enough free space"
+                    ErrorCode::Encode,
+                    "invalid planned payload range"
                 ));
             }
-
-            self.page[offset..record_end].copy_from_slice(&payload);
             slot.set_offset(offset as u32);
             slot.set_size(payload.len() as u32);
             slot.set_check_sum(crc16(&payload));
             slots.push(slot);
-            next_data = record_end;
         }
 
         self.rewrite_header_and_slots(header.page_id(), slots, next_data as u32)?;
@@ -272,10 +333,10 @@ impl<'a> PageBlockRefMut<'a> {
     fn rewrite_header_and_slots(
         &mut self,
         page_id: PageId,
-        slots: Vec<RecordSlot>,
+        slots: Vec<StructSlot>,
         first_free_offset: u32,
     ) -> RS<()> {
-        let slot_region_start = self.slot_region_start_for_count(slots.len());
+        let slot_region_start = self.slot_region_start_for_count(slots.len())?;
         let tailer_offset = self.tailer_offset();
         self.page[slot_region_start..tailer_offset].fill(0);
 
@@ -303,20 +364,25 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(())
     }
 
-    fn materialize_entries(&self, slots: &[RecordSlot]) -> RS<Vec<(RecordSlot, Vec<u8>)>> {
+    fn materialize_entries(&self, slots: &[StructSlot]) -> RS<Vec<(StructSlot, Vec<u8>)>> {
         let page = PageBlockRef::try_new(self.page)?;
+        let limit = self.slot_region_start_for_count(page.slot_count()?)?;
         slots
             .iter()
             .map(|slot| {
                 let offset = slot.offset() as usize;
                 let size = slot.size() as usize;
-                let data = page.page()[offset..offset + size].to_vec();
+                let end = layout_math::record_end(PAGE_HEADER_SIZE, limit, offset, size)
+                    .ok_or_else(|| {
+                        mudu_error!(ErrorCode::Decode, "record points outside the data region")
+                    })?;
+                let data = page.page()[offset..end].to_vec();
                 Ok((*slot, data))
             })
             .collect()
     }
 
-    fn read_all_slots(&self) -> RS<Vec<RecordSlot>> {
+    fn read_all_slots(&self) -> RS<Vec<StructSlot>> {
         let page = PageBlockRef::try_new(self.page)?;
         let count = page.slot_count()?;
         (0..count).map(|idx| page.slot(idx)).collect()
@@ -340,8 +406,9 @@ impl<'a> PageBlockRefMut<'a> {
         PAGE_SIZE - PAGE_TAILER_SIZE
     }
 
-    fn slot_region_start_for_count(&self, count: usize) -> usize {
-        self.tailer_offset() - (count * RECORD_SLOT_SIZE)
+    fn slot_region_start_for_count(&self, count: usize) -> RS<usize> {
+        layout_math::slot_start(self.tailer_offset(), PAGE_HEADER_SIZE, count)
+            .ok_or_else(|| mudu_error!(ErrorCode::Decode, "slot array overlaps page header"))
     }
 
     fn slot_offset_for_sorted_index(&self, sorted_index: usize) -> usize {
@@ -364,7 +431,7 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(())
     }
 
-    fn find_insert_position_by_key(&self, new_slot: &RecordSlot) -> RS<usize> {
+    fn find_insert_position_by_key(&self, new_slot: &StructSlot) -> RS<usize> {
         let page = PageBlockRef::try_new(self.page)?;
         let count = page.slot_count()?;
         let mut low = 0usize;
@@ -381,18 +448,22 @@ impl<'a> PageBlockRefMut<'a> {
         Ok(low)
     }
 
-    fn insert_slot_bytes(&mut self, insert_at: usize, slot: &RecordSlot) -> RS<()> {
+    fn insert_slot_bytes(&mut self, insert_at: usize, slot: &StructSlot) -> RS<()> {
         let count = self.header()?.record_count() as usize;
-        let old_region_start = self.slot_region_start_for_count(count);
-        let new_region_start = self.slot_region_start_for_count(count + 1);
-        let moved_region_end = self.tailer_offset() - (insert_at * RECORD_SLOT_SIZE);
-        if insert_at < count {
-            self.page
-                .copy_within(old_region_start..moved_region_end, new_region_start);
-        }
-
-        let slot_offset = self.slot_offset_for_sorted_index(insert_at);
-        slot.encode(&mut self.page[slot_offset..slot_offset + RECORD_SLOT_SIZE])?;
+        let old_region_start = self.slot_region_start_for_count(count)?;
+        let new_region_start = self.slot_region_start_for_count(count + 1)?;
+        let insert_byte = (count - insert_at) * RECORD_SLOT_SIZE;
+        let mut encoded = [0u8; RECORD_SLOT_SIZE];
+        slot.encode(&mut encoded)?;
+        let bytes = sequence_edit::splice(
+            &self.page[old_region_start..self.tailer_offset()],
+            insert_byte,
+            insert_byte,
+            &encoded,
+        )
+        .ok_or_else(|| mudu_error!(ErrorCode::Encode, "invalid slot insertion"))?;
+        let tail = self.tailer_offset();
+        self.page[new_region_start..tail].copy_from_slice(&bytes);
         Ok(())
     }
 
@@ -409,7 +480,7 @@ impl<'a> PageBlockRefMut<'a> {
         updated.set_first_free_offset(first_free_offset);
         updated.set_last_record_offset(last_record_offset);
         updated.set_free_bytes(
-            (self.slot_region_start_for_count(new_count) - first_free_offset as usize) as u32,
+            (self.slot_region_start_for_count(new_count)? - first_free_offset as usize) as u32,
         );
         updated.encode(&mut self.page[..PAGE_HEADER_SIZE])?;
         Ok(())
@@ -567,5 +638,64 @@ mod tests {
         let ro = PageBlockRef::try_new(&raw).unwrap();
         ro.validate_layout().unwrap();
         assert_eq!(ro.tailer().unwrap().lsn(), ro.header().unwrap().lsn());
+    }
+    #[test]
+    fn oversized_update_preserves_original_page() {
+        let mut bytes = vec![0u8; PAGE_SIZE];
+        let mut page = PageBlockRefMut::new(&mut bytes);
+        page.init_empty(PageId::new(7)).unwrap();
+        page.insert_record(1, 2, b"original").unwrap();
+        let before = page.page().to_vec();
+        assert!(page.update_record(0, 1, 2, &vec![0; PAGE_SIZE]).is_err());
+        assert_eq!(page.page(), before);
+        assert_eq!(page.record_bytes(0).unwrap(), b"original");
+    }
+    #[test]
+    fn full_slot_array_keeps_capacity_error_and_page_bytes() {
+        let mut bytes = vec![0u8; PAGE_SIZE];
+        let mut page = PageBlockRefMut::new(&mut bytes);
+        page.init_empty(PageId::new(7)).unwrap();
+        let capacity = (PAGE_SIZE - super::PAGE_TAILER_SIZE - super::PAGE_HEADER_SIZE)
+            / super::RECORD_SLOT_SIZE;
+        for i in 0..capacity {
+            page.insert_record(i as u64, i as u64, &[]).unwrap();
+        }
+        let before = page.page().to_vec();
+        let error = page.insert_record(u64::MAX, u64::MAX, &[]).unwrap_err();
+        assert_eq!(error.ec(), mudu::error::ErrorCode::InsufficientBufferSpace);
+        assert_eq!(page.page(), before);
+    }
+
+    #[test]
+    fn malformed_slot_count_is_rejected_before_slicing() {
+        let mut bytes = vec![0u8; PAGE_SIZE];
+        let mut page = PageBlockRefMut::new(&mut bytes);
+        page.init_empty(PageId::new(7)).unwrap();
+        let mut header = page.header().unwrap();
+        header.set_record_count(u32::MAX);
+        header
+            .encode(&mut page.page[..super::PAGE_HEADER_SIZE])
+            .unwrap();
+        assert!(page.slot_ref(1000).is_err());
+        assert!(page.record_bytes(1000).is_err());
+        let readonly = PageBlockRef::try_new(page.page()).unwrap();
+        assert!(readonly.slot_ref(1000).is_err());
+        assert!(readonly.record_bytes(1000).is_err());
+    }
+    #[test]
+    fn compaction_rejects_invalid_record_interval_without_writing() {
+        let mut bytes = vec![0u8; PAGE_SIZE];
+        let mut page = PageBlockRefMut::new(&mut bytes);
+        page.init_empty(PageId::new(7)).unwrap();
+        page.insert_record(1, 2, b"original").unwrap();
+        let mut slot = page.slot(0).unwrap();
+        slot.set_offset(u32::MAX);
+        let offset = page.slot_offset_for_sorted_index(0);
+        slot.encode(&mut page.page[offset..offset + super::RECORD_SLOT_SIZE])
+            .unwrap();
+        let before = page.page().to_vec();
+        let error = page.compact().unwrap_err();
+        assert_eq!(error.ec(), mudu::error::ErrorCode::Decode);
+        assert_eq!(page.page(), before);
     }
 }

@@ -158,3 +158,81 @@ impl crate::net::contract::SyncNet for StdSyncNet {
         SStdTcpStream::connect(addr).map(SStdTcpStream::into_inner)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{bind_tcp, connect_tcp, StdSyncNet, StdTcpListener, SyncNet};
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn sync_tcp_loopback_roundtrip() {
+        let listener = bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        listener.set_nonblocking(false).unwrap();
+        let cloned = listener.try_clone().unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _peer) = cloned.accept().unwrap();
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).unwrap();
+            stream.write_all(&buf).unwrap();
+            stream.flush().unwrap();
+            let extra = stream.write(b"x").unwrap();
+            assert_eq!(extra, 1);
+            stream
+        });
+
+        let mut client = connect_tcp(addr).unwrap();
+        client.set_nodelay(true).unwrap();
+        let _local = client.local_addr().unwrap();
+        let _peer = client.peer_addr().unwrap();
+        let written = client.write(b"hello").unwrap();
+        assert_eq!(written, 5);
+        let mut buf = [0u8; 5];
+        client.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"hello");
+        // One more pending byte exercises the plain `read` path.
+        let mut one = [0u8; 1];
+        assert_eq!(client.read(&mut one).unwrap(), 1);
+
+        let _fd = client.as_raw_fd();
+        let server_stream = server.join().unwrap();
+        let _std_server_stream = server_stream.into_inner();
+        let _std_client_stream = client.into_inner();
+        let _std_listener = listener.into_inner();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn listener_into_raw_fd() {
+        let listener = StdTcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let fd = listener.into_raw_fd();
+        unsafe { libc::close(fd) };
+    }
+
+    #[test]
+    fn std_sync_net_both_trait_impls() {
+        let net = StdSyncNet;
+        let listener = SyncNet::bind_tcp(&net, "127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _stream = SyncNet::connect_tcp(&net, addr).unwrap();
+
+        let std_listener = <StdSyncNet as crate::net::contract::SyncNet>::bind_tcp(
+            &net,
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .unwrap();
+        let std_addr = std_listener.local_addr().unwrap();
+        let _std_stream =
+            <StdSyncNet as crate::net::contract::SyncNet>::connect_tcp(&net, std_addr).unwrap();
+    }
+
+    #[test]
+    fn connect_rejects_unresolvable_address() {
+        // A port above 65535 fails resolution locally without any DNS query.
+        assert!(super::SStdTcpStream::connect("127.0.0.1:99999").is_err());
+    }
+}

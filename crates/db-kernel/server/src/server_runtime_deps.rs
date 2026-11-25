@@ -17,6 +17,7 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 /// Dependencies assembled for one server process after pure configuration is known.
 pub struct ServerRuntimeDeps {
     log_batching: WorkerLogBatching,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     procedure_runtimes: ProcedureRuntimes,
     worker_registry: Arc<WorkerRegistry>,
@@ -26,13 +27,23 @@ pub struct ServerRuntimeDeps {
 impl ServerRuntimeDeps {
     /// Assembles the dependencies from the server configuration, loading or
     /// creating the worker registry under the configured log directory.
+    /// Cluster mode derives worker ids from `(node_id, worker_index)` so the
+    /// whole cluster can address any worker without exchanging worker maps.
     pub fn from_cfg(cfg: &ServerCfg) -> RS<Self> {
-        let worker_registry = load_or_create_worker_registry(cfg.log_dir(), cfg.worker_count())?;
+        let worker_registry = match cfg.cluster_node_id() {
+            Some(node_id) => crate::worker_registry::load_or_create_worker_registry_cluster(
+                cfg.log_dir(),
+                cfg.worker_count(),
+                node_id,
+            )?,
+            None => load_or_create_worker_registry(cfg.log_dir(), cfg.worker_count())?,
+        };
         let log_batching =
             WorkerLogBatching::new(64 * 1024, 32, cfg.log_batching_max_wait(), 256 * 1024);
         Ok(Self {
             log_batching,
             wal_sync_policy: cfg.wal_sync_policy(),
+            queue_limits: cfg.queue_limits(),
             procedure_runtimes: ProcedureRuntimes::default(),
             worker_registry,
             async_runtime: None,
@@ -86,6 +97,11 @@ impl ServerRuntimeDeps {
 
     pub(crate) fn log_batching(&self) -> WorkerLogBatching {
         self.log_batching
+    }
+
+    /// Per-queue message and encoded payload byte caps.
+    pub fn queue_limits(&self) -> (u64, u64) {
+        self.queue_limits
     }
 
     /// Returns the WAL sync policy.

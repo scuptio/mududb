@@ -31,13 +31,13 @@ pub struct NewOrderCols {
 
 impl __sdk::__query_builder::HasCols for NewOrder {
     type Cols = NewOrderCols;
-    fn cols(table_name: &'static str) -> Self::Cols {
+    fn cols(class_name: &'static str) -> Self::Cols {
         NewOrderCols {
-            pk: __sdk::__query_builder::Col::new(table_name, "pk"),
-            no_wd: __sdk::__query_builder::Col::new(table_name, "no_wd"),
-            no_o_id: __sdk::__query_builder::Col::new(table_name, "no_o_id"),
-            no_d_id: __sdk::__query_builder::Col::new(table_name, "no_d_id"),
-            no_w_id: __sdk::__query_builder::Col::new(table_name, "no_w_id"),
+            pk: __sdk::__query_builder::Col::new(class_name, "pk"),
+            no_wd: __sdk::__query_builder::Col::new(class_name, "no_wd"),
+            no_o_id: __sdk::__query_builder::Col::new(class_name, "no_o_id"),
+            no_d_id: __sdk::__query_builder::Col::new(class_name, "no_d_id"),
+            no_w_id: __sdk::__query_builder::Col::new(class_name, "no_w_id"),
         }
     }
 }
@@ -52,10 +52,10 @@ pub struct NewOrderIxCols {
 
 impl __sdk::__query_builder::HasIxCols for NewOrder {
     type IxCols = NewOrderIxCols;
-    fn ix_cols(table_name: &'static str) -> Self::IxCols {
+    fn ix_cols(class_name: &'static str) -> Self::IxCols {
         NewOrderIxCols {
-            no_wd: __sdk::__query_builder::IxCol::new(table_name, "no_wd"),
-            pk: __sdk::__query_builder::IxCol::new(table_name, "pk"),
+            no_wd: __sdk::__query_builder::IxCol::new(class_name, "no_wd"),
+            pk: __sdk::__query_builder::IxCol::new(class_name, "pk"),
         }
     }
 }

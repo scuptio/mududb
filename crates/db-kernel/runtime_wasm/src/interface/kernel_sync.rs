@@ -13,17 +13,21 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::codec::syscall_payload::{
-    decode_close_request, decode_delete_request, decode_fs_close_request, decode_fs_fstat_request,
+    decode_cache_delete_request, decode_cache_get_request, decode_cache_open_request,
+    decode_cache_put_request, decode_cache_ttl_request, decode_close_request,
+    decode_delete_request, decode_fs_close_request, decode_fs_fstat_request,
     decode_fs_fsync_request, decode_fs_lseek_request, decode_fs_open_request,
     decode_fs_pread_request, decode_fs_pwrite_request, decode_fs_read_request,
     decode_fs_readdir_request, decode_fs_stat_request, decode_fs_write_request, decode_get_request,
     decode_open_request, decode_put_request, decode_range_request, decode_relation_get_request,
-    decode_relation_insert_request, decode_relation_update_request, encode_close_result,
-    encode_delete_result, encode_fs_close_result, encode_fs_fstat_result, encode_fs_fsync_result,
-    encode_fs_lseek_result, encode_fs_open_result, encode_fs_pread_result, encode_fs_pwrite_result,
-    encode_fs_read_result, encode_fs_readdir_result, encode_fs_stat_result, encode_fs_write_result,
-    encode_get_result, encode_open_result, encode_put_result, encode_range_result,
-    encode_relation_get_result, encode_relation_insert_result, encode_relation_update_result,
+    decode_relation_insert_request, decode_relation_update_request, encode_cache_delete_result,
+    encode_cache_get_result, encode_cache_open_result, encode_cache_put_result,
+    encode_cache_ttl_result, encode_close_result, encode_delete_result, encode_fs_close_result,
+    encode_fs_fstat_result, encode_fs_fsync_result, encode_fs_lseek_result, encode_fs_open_result,
+    encode_fs_pread_result, encode_fs_pwrite_result, encode_fs_read_result,
+    encode_fs_readdir_result, encode_fs_stat_result, encode_fs_write_result, encode_get_result,
+    encode_open_result, encode_put_result, encode_range_result, encode_relation_get_result,
+    encode_relation_insert_result, encode_relation_update_result,
 };
 use mudu_binding::universal::mp_wire::{FromValue, ToValue, decode_value_prefix, encode_value};
 use mudu_binding::universal::uni_error::UniError;
@@ -198,7 +202,7 @@ pub(crate) fn get_context(oid: OID) -> RS<Context> {
     match opt {
         Some(ctx) => Ok(ctx),
         None => Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such session id: {}", oid)
         )),
     }
@@ -669,6 +673,98 @@ pub(crate) fn require_worker_local(worker_local: Option<WorkerLocalRef>) -> RS<W
     })
 }
 
+/// Open a volatile cache by name through the worker-local interface; the bare
+/// name resolves against the invoking application's schema.
+pub fn cache_open_internal_with_worker_local(
+    cache_open_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+    app_name: Option<&str>,
+) -> Vec<u8> {
+    encode_cache_open_result(&_cache_open_internal(cache_open_in, worker_local, app_name))
+}
+
+fn _cache_open_internal(
+    cache_open_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+    app_name: Option<&str>,
+) -> RS<OID> {
+    let name = decode_cache_open_request(cache_open_in)?;
+    let app_name = app_name.map(str::to_string);
+    let worker_local = require_worker_local(worker_local)?;
+    run_async(async move { worker_local.cache_open(&name, app_name.as_deref()).await })?
+}
+
+/// Read a cache entry through the worker-local interface.
+pub fn cache_get_internal_with_worker_local(
+    cache_get_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> Vec<u8> {
+    encode_cache_get_result(&_cache_get_internal(cache_get_in, worker_local))
+}
+
+fn _cache_get_internal(
+    cache_get_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> RS<Option<Vec<u8>>> {
+    let (cache, key) = decode_cache_get_request(cache_get_in)?;
+    let worker_local = require_worker_local(worker_local)?;
+    run_async(async move { worker_local.cache_get(cache.to_oid(), &key).await })?
+}
+
+/// Write a cache entry through the worker-local interface.
+pub fn cache_put_internal_with_worker_local(
+    cache_put_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> Vec<u8> {
+    encode_cache_put_result(&_cache_put_internal(cache_put_in, worker_local))
+}
+
+fn _cache_put_internal(cache_put_in: &[u8], worker_local: Option<WorkerLocalRef>) -> RS<()> {
+    let (cache, key, value, ttl_secs) = decode_cache_put_request(cache_put_in)?;
+    let worker_local = require_worker_local(worker_local)?;
+    run_async(async move {
+        worker_local
+            .cache_put(cache.to_oid(), key, value, ttl_secs)
+            .await
+    })?
+}
+
+/// Remove a cache entry through the worker-local interface.
+pub fn cache_delete_internal_with_worker_local(
+    cache_delete_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> Vec<u8> {
+    encode_cache_delete_result(&_cache_delete_internal(cache_delete_in, worker_local))
+}
+
+fn _cache_delete_internal(cache_delete_in: &[u8], worker_local: Option<WorkerLocalRef>) -> RS<()> {
+    let (cache, key) = decode_cache_delete_request(cache_delete_in)?;
+    let worker_local = require_worker_local(worker_local)?;
+    run_async(async move {
+        worker_local
+            .cache_delete(cache.to_oid(), &key)
+            .await
+            .map(|_| ())
+    })?
+}
+
+/// Read a cache entry's remaining TTL through the worker-local interface.
+pub fn cache_ttl_internal_with_worker_local(
+    cache_ttl_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> Vec<u8> {
+    encode_cache_ttl_result(&_cache_ttl_internal(cache_ttl_in, worker_local))
+}
+
+fn _cache_ttl_internal(
+    cache_ttl_in: &[u8],
+    worker_local: Option<WorkerLocalRef>,
+) -> RS<Option<u64>> {
+    let (cache, key) = decode_cache_ttl_request(cache_ttl_in)?;
+    let worker_local = require_worker_local(worker_local)?;
+    run_async(async move { worker_local.cache_ttl(cache.to_oid(), &key).await })?
+}
+
 /// Resolve the session the calling procedure is bound to.
 ///
 /// The SyscallPayload v1 fs frames carry no session id outside `fs-open`:
@@ -708,7 +804,7 @@ mod tests {
     #[test]
     fn kv_syscalls_require_task_context() {
         // The frame's session id is a task-id lookup key; with no task
-        // context registered the syscall reports EntityNotFound regardless
+        // context registered the syscall reports ObjectNotFound regardless
         // of whether a worker-local was passed.
         let get = encode_get_request(UniOid::from_oid(1), b"alpha");
         let err = decode_get_result(&get_internal_with_worker_local(&get, None)).unwrap_err();
@@ -725,6 +821,6 @@ mod tests {
         let delete = encode_delete_request(UniOid::from_oid(9), b"alpha");
         let out = delete_internal_with_worker_local(&delete, None);
         let err = decode_delete_result(&out).unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     }
 }

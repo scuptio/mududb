@@ -518,3 +518,6 @@ mod tests {
         unset_current_worker_ring();
     }
 }
+
+#[cfg(test)]
+mod error_tests;

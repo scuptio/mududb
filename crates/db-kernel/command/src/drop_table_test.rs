@@ -3,15 +3,15 @@ use crate::drop_table::DropTable;
 use ::catalog::contract::cmd_exec::CmdExec;
 
 use ::catalog::contract::meta_mgr::MetaMgr;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::wal::xl_batch::XLBatch;
 use ::xengine::api::{
     AlterTable, OptDelete, OptInsert, OptRead, OptUpdate, Predicate, RSCursor, RangeData, VecDatum,
-    VecSelTerm, XContract,
+    VecSelTerm, XContract, XContractQueue,
 };
 use ::xengine::tx_mgr::{PhysicalRelationId, TxMgr};
 use ::xengine::x_param::PDropTable;
@@ -21,6 +21,7 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_sys::sync::SMutex;
 use mudu_type::data_type::DataType;
+use mudu_type::data_type_codec::TypeCodec;
 use mudu_type::type_family::TypeFamily;
 use std::collections::BTreeMap;
 use std::sync::{
@@ -38,7 +39,7 @@ where
 }
 
 fn dummy_table_desc() -> Arc<TableDesc> {
-    let schema = SchemaTable::new(
+    let schema = SchemaClass::new(
         "t".to_string(),
         vec![SchemaColumn::new(
             "k".to_string(),
@@ -130,7 +131,7 @@ impl MockXContract {
 
 #[async_trait]
 impl XContract for MockXContract {
-    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _tx_mgr: Arc<dyn TxMgr>, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _tx_mgr: Arc<dyn TxMgr>, _oid: OID) -> RS<()> {
@@ -211,6 +212,8 @@ impl XContract for MockXContract {
     }
 }
 
+impl XContractQueue for MockXContract {}
+
 struct MockMetaMgr {
     known_oids: SMutex<Vec<OID>>,
 }
@@ -236,7 +239,7 @@ impl MetaMgr for MockMetaMgr {
             Ok(dummy_table_desc())
         } else {
             Err(mudu::mudu_error!(
-                mudu::error::ErrorCode::EntityNotFound,
+                mudu::error::ErrorCode::ObjectNotFound,
                 format!("no such table {}", oid)
             ))
         }
@@ -244,7 +247,7 @@ impl MetaMgr for MockMetaMgr {
     async fn get_table_by_name(&self, _schema: &str, _name: &str) -> RS<Option<Arc<TableDesc>>> {
         Ok(None)
     }
-    async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+    async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
         Ok(())
     }
     async fn drop_table(&self, _table_id: OID) -> RS<()> {
@@ -278,7 +281,7 @@ fn prepare_fails_with_unknown_oid() {
         Arc::new(MockMetaMgr::new()),
     );
     let err = block_on(async { cmd.prepare().await }).unwrap_err();
-    assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
 }
 
 #[test]
@@ -303,4 +306,54 @@ fn run_skips_drop_table_when_oid_missing() {
     );
     block_on(async { cmd.run().await }).unwrap();
     assert!(!x_contract.drop_table_called.load(Ordering::Relaxed));
+}
+
+// Fixture self-tests: drive every mock method so the shared test fixture is
+// verified end to end (and unused fixture paths cannot rot silently).
+#[test]
+fn mock_tx_mgr_fixture_covers_its_trait_surface() {
+    let tx = MockTxMgr;
+    let _ = tx.xid();
+    let _ = tx.snapshot();
+    tx.put(b"k".to_vec(), b"v".to_vec());
+    tx.delete(b"k".to_vec());
+    let _ = tx.get(b"k");
+    let relation = || PhysicalRelationId {
+        table_id: 1,
+        partition_id: 2,
+    };
+    tx.put_relation(relation(), b"k".to_vec(), b"v".to_vec());
+    tx.delete_relation(relation(), b"k".to_vec());
+    let _ = tx.get_relation(relation(), b"k");
+    let _ = tx.staged_relation_items_in_range(relation(), b"a", b"z");
+    let _ = tx.staged_relation_ops();
+    let _ = tx.staged_items_in_range(b"a", b"z");
+    let _ = tx.staged_put_items();
+    let _ = tx.is_empty();
+    let _ = tx.write_ops();
+    tx.build_write_ops();
+    let _ = tx.xl_batch();
+}
+
+#[test]
+fn mock_meta_mgr_fixture_covers_its_trait_surface() {
+    let meta = MockMetaMgr::new();
+    let schema = ::catalog::contract::schema_class::SchemaClass::new(
+        "fixture_t".to_string(),
+        vec![::catalog::contract::schema_column::SchemaColumn::new(
+            "k".to_string(),
+            mudu_type::type_family::TypeFamily::I64,
+            mudu_type::data_type::DataType::new_no_param(mudu_type::type_family::TypeFamily::I64)
+                .to_info(),
+        )],
+        vec![0],
+        vec![],
+    );
+    block_on(async {
+        meta.initialize().await.unwrap();
+        let _ = meta.get_table_by_id(1).await;
+        let _ = meta.get_table_by_name("fixture_s", "fixture_t").await;
+        meta.create_table(&schema).await.unwrap();
+        meta.drop_table(1).await.unwrap();
+    });
 }

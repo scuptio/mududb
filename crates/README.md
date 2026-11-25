@@ -40,5 +40,5 @@ rules, and [AGENTS.md](../AGENTS.md) for the contributor checklist.
 - Cross-group path dependencies use the `../../<group>/<crate>` form.
 - Run cargo commands from inside a group directory, e.g.
   `cd crates/db-kernel && cargo test --workspace`.
-- `bash script/shell/check_all.sh` runs fmt + clippy + test compilation
+- `cargo make check` (`script/ci/check_all.py`) runs fmt + clippy + test compilation
   across all group/example workspaces.

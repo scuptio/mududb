@@ -16,12 +16,14 @@
 //! replication channel binds real OS sockets (see the sibling mpk test
 //! files' gate comments).
 #![cfg(not(feature = "ds"))]
+#![cfg(feature = "socket")]
 
 use mudu::common::result::RS;
 use mudu_client::client::client::SyncClient;
 use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::{
-    MuduDBCfg, RaftReplCfg, ReplicationCfg, ReplicationPeer, RoutingMode, ServerMode,
+    DataGroupCfg, DataMemberCfg, DataPlaneCfg, DataReplicaCfg, MuduDBCfg, RaftReplCfg, RoutingMode,
+    ServerMode,
 };
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
 use mudu_sys::net::sync::SStdTcpStream;
@@ -32,7 +34,7 @@ use runtime_wasm::service::runtime_opt::ComponentTarget;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::support::*;
-use testing::{connect_sync_client_with_retry, reserve_port, wait_until_port_ready};
+use testing::{connect_sync_client_with_retry, reserve_port};
 
 const RAFT_TICK_MS: u64 = 25;
 const LEADER_WAIT: Duration = Duration::from_secs(30);
@@ -132,7 +134,9 @@ fn join_learner_catch_up_and_promote(
 // granted when its log tail is at least as long as every other voter's, so
 // drive one more converged write and let the append heartbeats even out the
 // tails before the failover. The promoted learner wins the election and
-// every acknowledged write survives (RPO=0).
+// every acknowledged write survives (RPO=0). The survivor set is computed
+// from the killed leader: under instrumented runs the initial election is
+// not deterministic, so any of nodes 1-3 may be the dead one.
 fn promoted_learner_wins_failover(
     cluster: &mut Cluster,
     leader_id: u64,
@@ -147,15 +151,19 @@ fn promoted_learner_wins_failover(
     }
     sleep_blocking(Duration::from_millis(500));
     cluster.stop_node(leader_id)?;
-    let new_leader = cluster.wait_leader_among(&[1, 2, 4])?;
+    let survivors: Vec<u64> = [1, 2, 3, 4]
+        .into_iter()
+        .filter(|id| *id != leader_id)
+        .collect();
+    let new_leader = cluster.wait_leader_among(&survivors)?;
     assert_eq!(new_leader, 4, "the promoted learner must win the election");
     let mut committed = batch_a.to_vec();
     committed.extend(batch_b.to_vec());
     cluster.wait_values(4, &committed)?;
     let batch_c = make_batch("mem-c", 8);
     cluster.put_all(4, &batch_c)?;
-    for node_id in [1, 2, 4] {
-        cluster.wait_values(node_id, &batch_c)?;
+    for node_id in &survivors {
+        cluster.wait_values(*node_id, &batch_c)?;
     }
     Ok(())
 }
@@ -171,10 +179,14 @@ fn remove_dead_member_keeps_serving(cluster: &mut Cluster, dead_leader: u64) -> 
         3,
         "the conf must shrink back to three members: {response}"
     );
+    let survivors: Vec<u64> = [1, 2, 3, 4]
+        .into_iter()
+        .filter(|id| *id != dead_leader)
+        .collect();
     let batch_d = make_batch("mem-d", 8);
     cluster.put_all(4, &batch_d)?;
-    for node_id in [1, 2, 4] {
-        cluster.wait_values(node_id, &batch_d)?;
+    for node_id in &survivors {
+        cluster.wait_values(*node_id, &batch_d)?;
     }
     Ok(())
 }
@@ -337,6 +349,7 @@ struct ClusterNode {
     pg_port: u16,
     tcp_port: u16,
     repl_port: u16,
+    channel_port: u16,
     mpk_dir: PathBuf,
     data_dir: PathBuf,
     server: Option<RunningServer>,
@@ -349,8 +362,8 @@ struct Cluster {
 
 impl Cluster {
     fn new(node_count: usize) -> RS<Option<Self>> {
-        let mut ports = Vec::with_capacity(node_count * 4);
-        for _ in 0..node_count * 4 {
+        let mut ports = Vec::with_capacity(node_count * 5);
+        for _ in 0..node_count * 5 {
             let Some(port) = reserve_port()? else {
                 return Ok(None);
             };
@@ -367,10 +380,11 @@ impl Cluster {
             create_dir_all(&data_dir)?;
             nodes.push(ClusterNode {
                 node_id,
-                http_port: ports[index * 4],
-                pg_port: ports[index * 4 + 1],
-                tcp_port: ports[index * 4 + 2],
-                repl_port: ports[index * 4 + 3],
+                http_port: ports[index * 5],
+                pg_port: ports[index * 5 + 1],
+                tcp_port: ports[index * 5 + 2],
+                repl_port: ports[index * 5 + 3],
+                channel_port: ports[index * 5 + 4],
                 mpk_dir,
                 data_dir,
                 server: None,
@@ -430,13 +444,23 @@ impl Cluster {
     fn start_server(node: &ClusterNode, peers: &[ClusterNode]) -> RS<RunningServer> {
         let cfg = Self::build_cfg(node, peers);
         let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
+        let (ready, _ready_waiter) = notify_wait();
+        let ready_probe = ready.clone();
         let handle = spawn_thread(move || {
             Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
         })?;
-        wait_until_port_ready(node.http_port, "HTTP")?;
-        wait_until_worker_port_ready(node.tcp_port)?;
-        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
+        // Race the readiness conditions against the server thread's exit: a
+        // startup failure (e.g. a listen port lost to a parallel test
+        // process) surfaces with the thread's own error immediately instead
+        // of burning the whole readiness budget on a port that never opens.
+        let handle = wait_test_server_ready(
+            node.http_port,
+            node.tcp_port,
+            &stop,
+            &ready_probe,
+            handle,
+            backend_startup_timeout(),
+        )?;
         Ok(RunningServer {
             stop,
             http_port: node.http_port,
@@ -446,6 +470,13 @@ impl Cluster {
     }
 
     fn build_cfg(node: &ClusterNode, peers: &[ClusterNode]) -> MuduDBCfg {
+        let member = |peer: &ClusterNode| DataMemberCfg {
+            name: format!("node-{}", peer.node_id),
+            host: "127.0.0.1".to_string(),
+            channel_port: peer.channel_port,
+            client_port: peer.pg_port,
+            replication_port: peer.repl_port,
+        };
         MuduDBCfg {
             listen_ip: "127.0.0.1".to_string(),
             http_listen_port: node.http_port,
@@ -459,26 +490,27 @@ impl Cluster {
             component_target: Some(ComponentTarget::P2),
             mpk_path: node.mpk_dir.to_string_lossy().into_owned(),
             db_path: node.data_dir.to_string_lossy().into_owned(),
-            replication: Some(ReplicationCfg {
-                node_id: node.node_id,
-                listen_port: node.repl_port,
-                repl_flow_window_segments: 64,
-                snapshot_wal_threshold_bytes: 1024 * 1024 * 1024,
-                gc_check_interval_secs: 60,
-                stream: None,
-                raft: Some(RaftReplCfg {
-                    raft_tick_ms: RAFT_TICK_MS,
-                    election_timeout_ticks: election_ticks(node.node_id),
-                }),
-                peers: peers
-                    .iter()
-                    .map(|peer| ReplicationPeer {
-                        node_id: peer.node_id,
-                        host: "127.0.0.1".to_string(),
-                        port: peer.repl_port,
-                    })
-                    .collect(),
+            name: Some(format!("node-{}", node.node_id)),
+            cluster: Some("cluster".to_string()),
+            channel_listen_port: Some(node.channel_port),
+            topology_version: Some(1),
+            data_plane: Some(DataPlaneCfg {
+                group: vec![DataGroupCfg {
+                    name: "grp-1".to_string(),
+                    worker_count: 1,
+                    replica: DataReplicaCfg {
+                        raft: Some(RaftReplCfg {
+                            tick_ms: RAFT_TICK_MS,
+                            election_timeout_ticks: election_ticks(node.node_id),
+                        }),
+                        stream: None,
+                        member: peers.iter().map(member).collect(),
+                    },
+                }],
+                placements: vec![],
+                rebalance_interval_ms: 0,
             }),
+            control_plane: None,
             ..Default::default()
         }
     }
@@ -572,6 +604,7 @@ impl ClusterNode {
             pg_port: self.pg_port,
             tcp_port: self.tcp_port,
             repl_port: self.repl_port,
+            channel_port: self.channel_port,
             mpk_dir: self.mpk_dir.clone(),
             data_dir: self.data_dir.clone(),
             server: None,

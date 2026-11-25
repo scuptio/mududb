@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// A scalar (non-composite) data type.
 ///
 /// Wraps a [`DataType`] whose type family is scalar; construction panics if
-/// given a non-scalar family such as `Array`, `Record`, or `Binary`.
+/// given a non-scalar family such as `Array`, `Struct`, or `Binary`.
 #[derive(Clone, Debug)]
 pub struct ScalarType {
     data_type: DataType,
@@ -67,7 +67,7 @@ impl ScalarType {
 
     /// Returns the serializable descriptor of this scalar type.
     pub fn param_info(&self) -> DataTypeInfo {
-        self.data_type.to_info()
+        crate::data_type_codec::TypeCodec::to_info(&self.data_type)
     }
 }
 

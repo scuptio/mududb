@@ -47,6 +47,11 @@ fn message_kind_values_and_header_roundtrip() {
         (MessageKind::RelationGet, 21),
         (MessageKind::RelationUpdate, 22),
         (MessageKind::RelationInsert, 23),
+        (MessageKind::CacheOpen, 24),
+        (MessageKind::CacheGet, 25),
+        (MessageKind::CachePut, 26),
+        (MessageKind::CacheDelete, 27),
+        (MessageKind::CacheTtl, 28),
     ];
     for (kind, raw) in expected {
         assert_eq!(u32::from(kind), raw);
@@ -54,7 +59,7 @@ fn message_kind_values_and_header_roundtrip() {
         assert_eq!(decode_header(&encode_header(kind)).unwrap(), kind);
     }
     assert!(MessageKind::try_from(0).is_err());
-    assert!(MessageKind::try_from(24).is_err());
+    assert!(MessageKind::try_from(29).is_err());
 }
 
 #[test]
@@ -246,7 +251,7 @@ fn query_return_variant_decodes_through_result_body() {
     let frame = encode_frame(MessageKind::Query, &variant_bytes);
     let result = decode_query_result(&frame).unwrap();
     assert!(result.result_set.eof);
-    assert_eq!(result.tuple_desc.record_fields.len(), 1);
+    assert_eq!(result.tuple_desc.struct_fields.len(), 1);
 
     let variant = UniQueryReturn::from_err(UniError {
         err_code: 9,

@@ -4,7 +4,7 @@ use crate::tuple::{datum_desc::DatumDesc, tuple_binary_desc::TupleBinaryDesc};
 use mudu::common::result::RS;
 use mudu::common::serde_utils;
 use mudu_type::data_type::DataType;
-use mudu_type::data_type_param_record::DataTypeParamRecord;
+use mudu_type::data_type_param_struct::DataTypeParamStruct;
 use serde::{Deserialize, Serialize};
 
 type FieldMappingInfo = (usize, bool, Option<u16>);
@@ -101,12 +101,12 @@ impl TupleFieldDesc {
     }
 
     /// Converts the field descriptions into a record data type named `name`.
-    pub fn to_record_type(&self, name: String) -> RS<DataType> {
+    pub fn to_struct_type(&self, name: String) -> RS<DataType> {
         let mut vec = Vec::with_capacity(self.fields.len());
         for d in self.fields.iter() {
             vec.push((d.name().to_string(), d.data_type().clone()));
         }
-        Ok(DataType::from_record(DataTypeParamRecord::new(name, vec)))
+        Ok(DataType::from_struct(DataTypeParamStruct::new(name, vec)))
     }
 }
 

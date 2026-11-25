@@ -1,181 +1,56 @@
-//! The single-threaded raft event loop.
-//!
-//! One thread per node drives the pure [`RaftCore`]:
-//!
-//! ```text
-//! loop {
-//!     match in_rx.recv_timeout(tick_dur) {
-//!         Ok(RaftIn::Net { from, msg })  => core.step_incoming(.., &mut fx),
-//!         Ok(RaftIn::Propose { .. })     => core.step_propose(.., &mut fx),
-//!         Ok(RaftIn::InstallSnapshot { .. }) => core.step_install_snapshot(.., &mut fx),
-//!         Ok(RaftIn::ForceCompact { .. })    => core.step_force_compact(&mut fx),
-//!         Ok(RaftIn::Tick) | timeout     => core.step_tick(&mut fx),
-//!         Ok(RaftIn::Stop)               => break + persist,
-//!     }
-//!     persist(fx.writes) -> wait durable; transport.send(fx.messages);
-//!     complete waiters + watchers with fx.committed;
-//!     (snapshot/compact requests are answered only after persistence)
-//! }
-//! ```
-//!
-//! Persistence runs on a separate thread that applies write batches to the
-//! [`RaftStore`] (fsync per batch by default); the event loop waits for the
-//! durability acknowledgement of a batch *before* sending the messages
-//! produced by the same step, preserving raft's write-before-respond rule.
-//!
-//! Time enters the loop only as ticks: with `manual_ticks = false` each
-//! `recv_timeout` expiry is one tick (`cfg.raft_tick_ms` per tick); with
-//! `manual_ticks = true` the loop parks on `recv()` and only injected
-//! [`RaftIn::Tick`] messages advance time (deterministic tests).
+//! Serialized asynchronous Raft driver. The core stays synchronous; every
+//! write batch is awaited before its outbound messages or results are released.
+//! At most one batch is in flight, and shutdown never cancels disk operations.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::completion::CompletionSender;
+use crate::inbox::{RaftIn, RaftInbox};
 use mudu::common::result::RS;
 use mudu::error::{ErrorCode, MuduError};
 use mudu::mudu_error;
-use mudu_sys::sync::sync_::channel::{sync_channel, SyncSender};
-use mudu_sys::sync::sync_::unbounded_channel::{ChannelSender, SyncReceiver};
 use mudu_sys::sync::SRwLock;
-use mudu_sys::task::sync::{spawn_thread_named, SJoinHandle};
-use tracing::{debug, error, trace, warn};
+use mudu_sys::tokio;
+use tracing::{debug, trace, warn};
 
-use crate::core::conf::{ConfNodeValue, ConfValue, ConfVersion, NID};
-use crate::core::message::{RaftMsg, TermIndex, WriteOp};
+use crate::api::{NodeStatus, ProposeError, ProposeResult, UpdateConfError, UpdateConfResult};
+use crate::core::conf::ConfVersion;
 use crate::core::{Effects, ProposeOutcome, RaftCore, ReConfOutcome};
 use crate::entry::ReplEntry;
-use crate::store::RaftStore;
+use crate::store::AsyncStore;
 use crate::transport::RaftTransport;
-use crate::{NodeStatus, ProposeError, ProposeResult, UpdateConfError, UpdateConfResult};
 
-/// Input message of a raft node's event loop.
-pub enum RaftIn {
-    /// An inbound raft message from a peer.
-    Net {
-        /// Sender node id.
-        from: NID,
-        /// The raft message.
-        msg: RaftMsg,
-    },
-    /// A local proposal request.
-    Propose {
-        /// Entry to replicate.
-        entry: ReplEntry,
-        /// Completion channel of the waiter.
-        resp: SyncSender<ProposeResult>,
-    },
-    /// Register a committed-entry watcher.
-    WatchCommits {
-        /// Watcher channel.
-        tx: ChannelSender<(u64, ReplEntry)>,
-    },
-    /// Register a status watcher.
-    WatchStatus {
-        /// Watcher channel.
-        tx: ChannelSender<NodeStatus>,
-    },
-    /// Install an externally produced snapshot frontier.
-    InstallSnapshot {
-        /// The snapshot frontier `(term, index)`; the log is
-        /// left-truncated at `index`.
-        frontier: TermIndex,
-        /// Completed after the frontier is durable.
-        resp: SyncSender<RS<()>>,
-    },
-    /// Force log compaction up to the current commit index.
-    ForceCompact {
-        /// Completed after the compaction is durable.
-        resp: SyncSender<RS<()>>,
-    },
-    /// Begin a joint-consensus re-configuration (leader only).
-    UpdateConf {
-        /// Membership value of the new configuration.
-        conf_value: ConfValue,
-        /// Voting nodes of the new configuration (subset of `nid_log`).
-        nid_vote: Vec<NID>,
-        /// Log-replicating nodes of the new configuration.
-        nid_log: Vec<NID>,
-        /// Acknowledged (accepted + durable, or the rejection reason)
-        /// after the new configuration is persisted.
-        ack: SyncSender<Result<ConfVersion, UpdateConfError>>,
-        /// Completed when the re-configuration commits (or fails when
-        /// leadership is lost or the node stops).
-        done: SyncSender<UpdateConfResult>,
-    },
-    /// Read the current committed and new configuration.
-    QueryConf {
-        /// Receives `(committed, new)` immediately.
-        resp: SyncSender<(ConfNodeValue, ConfNodeValue)>,
-    },
-    /// An injected tick (drives time when `manual_ticks` is set).
-    Tick,
-    /// Stop the event loop (persists everything first).
-    Stop,
-}
-
-pub(crate) struct PersistReq {
-    pub(crate) ops: Vec<WriteOp>,
-    pub(crate) ack: SyncSender<RS<()>>,
-}
+#[cfg(test)]
+#[path = "node_tests.rs"]
+mod tests;
 
 /// A deferred request response: sent only after the effects of the same
 /// step are durable. Carries the response channel, the step result, and an
 /// optional log index through which pending proposals must be completed.
-type DeferredResp = (SyncSender<RS<()>>, RS<()>, Option<u64>);
+type DeferredResp = (CompletionSender<RS<()>>, RS<()>, Option<u64>);
 
 /// A deferred re-configuration acknowledgement: the accept/reject ack is
 /// sent only after the new configuration is durable; on acceptance the
 /// completion channel is parked in `pending_reconf` until the committed
 /// configuration reaches the stamped version.
 type DeferredReConf = (
-    SyncSender<Result<ConfVersion, UpdateConfError>>,
-    SyncSender<UpdateConfResult>,
+    CompletionSender<Result<ConfVersion, UpdateConfError>>,
+    CompletionSender<UpdateConfResult>,
     RS<ReConfOutcome>,
 );
 
-/// The persist thread handle: its request channel and join handle.
-pub(crate) struct PersistHandle {
-    tx: ChannelSender<PersistReq>,
-    join: SJoinHandle<()>,
-}
-
-/// Spawns the persist thread that owns the store.
-///
-/// Applies write batches in order, fsyncing each batch (per store config),
-/// and acknowledges every batch. Exits when the request channel closes.
-pub(crate) fn spawn_persist_thread(node_id: NID, mut store: RaftStore) -> RS<PersistHandle> {
-    let (tx, rx) = mudu_sys::unbounded_channel::<PersistReq>();
-    let join = spawn_thread_named(format!("mudu_raft_persist_{node_id}"), move || loop {
-        match rx.recv() {
-            Ok(req) => {
-                let r = store.apply_batch(&req.ops);
-                if let Err(e) = &r {
-                    error!("raft persist thread {node_id}: apply batch error: {e}");
-                }
-                let _ = req.ack.send(r);
-            }
-            Err(_) => {
-                if let Err(e) = store.flush() {
-                    error!("raft persist thread {node_id}: final flush error: {e}");
-                }
-                break;
-            }
-        }
-    })?;
-    Ok(PersistHandle { tx, join })
-}
-
-pub(crate) struct RaftNode {
+/// Serialized asynchronous driver of one raft node.
+pub struct RaftNode {
     core: RaftCore,
-    in_rx: SyncReceiver<RaftIn>,
+    in_rx: RaftInbox,
     transport: Arc<dyn RaftTransport>,
-    persist_tx: Option<ChannelSender<PersistReq>>,
-    persist_join: Option<SJoinHandle<()>>,
-    pending: HashMap<u64, (u64, SyncSender<ProposeResult>)>,
-    pending_reconf: Option<(ConfVersion, SyncSender<UpdateConfResult>)>,
-    commit_watchers: Vec<ChannelSender<(u64, ReplEntry)>>,
-    status_watchers: Vec<ChannelSender<NodeStatus>>,
+    store: Box<dyn AsyncStore>,
+    pending: HashMap<u64, (u64, CompletionSender<ProposeResult>)>,
+    pending_reconf: Option<(ConfVersion, CompletionSender<UpdateConfResult>)>,
+    async_commits: Vec<tokio::sync::mpsc::Sender<(u64, ReplEntry)>>,
+    async_status: Vec<tokio::sync::watch::Sender<NodeStatus>>,
     status_shared: Arc<SRwLock<NodeStatus>>,
     last_status: NodeStatus,
     tick_dur: Duration,
@@ -183,11 +58,12 @@ pub(crate) struct RaftNode {
 }
 
 impl RaftNode {
-    pub(crate) fn new(
+    /// Constructs a driver from the recovered core, ingress, and store.
+    pub fn new(
         core: RaftCore,
-        in_rx: SyncReceiver<RaftIn>,
+        in_rx: RaftInbox,
         transport: Arc<dyn RaftTransport>,
-        persist: PersistHandle,
+        store: Box<dyn AsyncStore>,
         status_shared: Arc<SRwLock<NodeStatus>>,
         tick_dur: Duration,
         manual_ticks: bool,
@@ -197,12 +73,11 @@ impl RaftNode {
             core,
             in_rx,
             transport,
-            persist_tx: Some(persist.tx),
-            persist_join: Some(persist.join),
+            store,
             pending: HashMap::new(),
             pending_reconf: None,
-            commit_watchers: vec![],
-            status_watchers: vec![],
+            async_commits: vec![],
+            async_status: vec![],
             status_shared,
             last_status,
             tick_dur,
@@ -210,41 +85,47 @@ impl RaftNode {
         })
     }
 
-    pub(crate) fn run(mut self) -> RS<()> {
-        let r = self.run_loop();
+    /// Runs the serialized event loop until the node stops.
+    pub async fn run(mut self) -> RS<()> {
+        let r = self.run_loop().await;
         self.shutdown();
-        r
+        r?;
+        self.store.flush().await
     }
 
-    fn run_loop(&mut self) -> RS<()> {
+    async fn run_loop(&mut self) -> RS<()> {
+        let mut ticks = tokio::time::interval(self.tick_dur.max(Duration::from_millis(1)));
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticks.tick().await;
+        let mut budget = 0;
         loop {
-            let next = if self.manual_ticks {
-                self.in_rx.recv().map(Some)
-            } else {
-                self.in_rx.recv_timeout(self.tick_dur)
+            let next = tokio::select! {
+                biased;
+                _ = ticks.tick(), if !self.manual_ticks => Ok(None),
+                event = self.in_rx.recv() => match event {
+                    Some(event) => Ok(Some(event)),
+                    None => break,
+                },
             };
             let mut fx = Effects::default();
-            // Responses of snapshot/compact requests are deferred until
-            // after flush_effects so persistence precedes visibility.
-            let mut deferred: Option<DeferredResp> = None;
-            // The reconf acknowledgement is likewise deferred until the
-            // new configuration is durable.
-            let mut deferred_reconf: Option<DeferredReConf> = None;
+            let mut deferred = None;
+            let mut deferred_reconf = None;
             if !self.handle_input(next, &mut fx, &mut deferred, &mut deferred_reconf)? {
                 break;
             }
-            let flush_r = self.flush_effects(fx);
-            // Deferred responses must be sent even when persistence fails
-            // (a caller must never hang); the loop exits on flush errors
-            // only after every deferred response has been delivered.
-            let mut flush_failed = flush_r.err();
-            self.send_deferred(deferred.take(), &mut flush_failed)?;
-            self.send_deferred_reconf(deferred_reconf.take(), &mut flush_failed)?;
-            if let Some(fe) = flush_failed {
-                return Err(fe);
+            let mut flush_failed = self.flush_effects(fx).await.err();
+            self.send_deferred(deferred, &mut flush_failed)?;
+            self.send_deferred_reconf(deferred_reconf, &mut flush_failed)?;
+            if let Some(error) = flush_failed {
+                return Err(error);
             }
             self.check_reconf_completion();
             self.check_leadership();
+            budget += 1;
+            if budget == 32 {
+                tokio::task::yield_now().await;
+                budget = 0;
+            }
         }
         Ok(())
     }
@@ -261,23 +142,25 @@ impl RaftNode {
         deferred_reconf: &mut Option<DeferredReConf>,
     ) -> RS<bool> {
         match next {
+            Ok(Some(RaftIn::ReadCommitted { after, limit, resp })) => {
+                let _ = resp.send(self.core.read_committed(after, limit));
+            }
             Ok(Some(RaftIn::Net { from, msg })) => {
                 self.core.step_incoming(from, msg, fx)?;
             }
-            Ok(Some(RaftIn::Propose { entry, resp })) => match self.core.step_propose(entry, fx) {
-                ProposeOutcome::Accepted { index, term } => {
-                    self.pending.insert(index, (term, resp));
-                }
-                ProposeOutcome::NotLeader { leader_hint } => {
-                    let _ = resp.send(Err(ProposeError::not_leader(leader_hint)));
-                }
-            },
-            Ok(Some(RaftIn::WatchCommits { tx })) => {
-                self.commit_watchers.push(tx);
+            Ok(Some(RaftIn::Propose {
+                entry,
+                resp,
+                expected_conf,
+                expected_term,
+                guards,
+            })) => {
+                self.handle_proposal(entry, resp, expected_conf, expected_term, guards, fx);
             }
-            Ok(Some(RaftIn::WatchStatus { tx })) => {
-                let _ = tx.send(self.last_status.clone());
-                self.status_watchers.push(tx);
+            Ok(Some(RaftIn::WatchCommitsAsync { tx })) => self.async_commits.push(tx),
+            Ok(Some(RaftIn::WatchStatusAsync { tx })) => {
+                tx.send_replace(self.last_status.clone());
+                self.async_status.push(tx);
             }
             Ok(Some(RaftIn::InstallSnapshot { frontier, resp })) => {
                 let r = self.core.step_install_snapshot(frontier, fx);
@@ -291,12 +174,33 @@ impl RaftNode {
                 conf_value,
                 nid_vote,
                 nid_log,
+                fence,
                 ack,
                 done,
             })) => {
-                let r = self
-                    .core
-                    .step_re_conf_begin(conf_value, nid_vote, nid_log, fx);
+                let valid = fence.as_ref().is_none_or(|proof| {
+                    proof.term == self.core.term()
+                        && proof.committed_index == self.core.commit_index()
+                        && proof.committed_index == self.core.last_log_index()
+                        && proof.membership.matches(
+                            self.core.raft_conf().conf_node_value_committed(),
+                            self.core.raft_conf().conf_node_value_new(),
+                        )
+                        && proof.guards.len() <= 256
+                        && proof
+                            .guards
+                            .iter()
+                            .all(crate::admission::AdmissionGuard::is_valid)
+                });
+                let r = if valid {
+                    self.core
+                        .step_re_conf_begin(conf_value, nid_vote, nid_log, fx)
+                } else {
+                    Err(mudu_error!(
+                        ErrorCode::ResourceBusy,
+                        "membership catch-up proof is stale"
+                    ))
+                };
                 *deferred_reconf = Some((ack, done, r));
             }
             Ok(Some(RaftIn::QueryConf { resp })) => {
@@ -321,6 +225,45 @@ impl RaftNode {
             }
         }
         Ok(true)
+    }
+
+    fn handle_proposal(
+        &mut self,
+        entry: ReplEntry,
+        resp: CompletionSender<ProposeResult>,
+        expected_conf: Option<crate::stream::MembershipVersion>,
+        expected_term: Option<u64>,
+        guards: Vec<crate::admission::AdmissionGuard>,
+        fx: &mut Effects,
+    ) {
+        let invalid_proof = expected_conf.is_some_and(|version| {
+            !version.matches(
+                self.core.raft_conf().conf_node_value_committed(),
+                self.core.raft_conf().conf_node_value_new(),
+            ) || entry
+                .payload_term()
+                .is_some_and(|term| term != self.core.term())
+        });
+        if self.pending.len() >= 1024
+            || invalid_proof
+            || expected_term.is_some_and(|term| term != self.core.term())
+            || guards.len() > 256
+            || guards.iter().any(|guard| !guard.is_valid())
+        {
+            let _ = resp.send(Err(ProposeError::from_error(mudu_error!(
+                ErrorCode::ResourceBusy,
+                "raft pending limit reached or payload proof is stale"
+            ))));
+            return;
+        }
+        match self.core.step_propose(entry, fx) {
+            ProposeOutcome::Accepted { index, term } => {
+                self.pending.insert(index, (term, resp));
+            }
+            ProposeOutcome::NotLeader { leader_hint } => {
+                let _ = resp.send(Err(ProposeError::not_leader(leader_hint)));
+            }
+        }
     }
 
     /// Delivers a deferred snapshot/compact response after the effects
@@ -393,19 +336,10 @@ impl RaftNode {
     }
 
     /// Persists writes (waiting for durability), sends messages, then
-    /// delivers committed entries and status updates.
-    fn flush_effects(&mut self, mut fx: Effects) -> RS<()> {
+    /// publishes status before delivering committed entries.
+    async fn flush_effects(&mut self, mut fx: Effects) -> RS<()> {
         if !fx.writes.is_empty() {
-            let persist_tx = self.persist_tx.as_ref().ok_or_else(|| {
-                mudu_error!(ErrorCode::InvalidState, "raft persist thread is gone")
-            })?;
-            let (ack_tx, ack_rx) = sync_channel(1);
-            persist_tx.send(PersistReq {
-                ops: std::mem::take(&mut fx.writes),
-                ack: ack_tx,
-            })?;
-            // wait for the batch to be durable before sending any message
-            ack_rx.recv()??;
+            self.store.apply_batch(&fx.writes).await?;
         }
         for (to, msg) in std::mem::take(&mut fx.messages) {
             if let Err(e) = self.transport.send(to, msg) {
@@ -417,14 +351,31 @@ impl RaftNode {
                 );
             }
         }
+        // Publish the durable state before waking any proposal waiter or
+        // commit watcher: callers may immediately read status after a
+        // notification and must not observe the previous commit index.
+        self.update_status()?;
         for (index, entry) in std::mem::take(&mut fx.committed) {
             if let Some((term, resp)) = self.pending.remove(&index) {
                 let _ = resp.send(Ok((index, term)));
             }
-            self.commit_watchers
-                .retain(|tx| tx.send((index, entry.clone())).is_ok());
+            let mut saturated = false;
+            self.async_commits
+                .retain(|tx| match tx.try_send((index, entry.clone())) {
+                    Ok(()) => true,
+                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => false,
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                        saturated = true;
+                        false
+                    }
+                });
+            if saturated {
+                return Err(mudu_error!(
+                    ErrorCode::ResourceBusy,
+                    "raft commit subscriber lagged; recovery required"
+                ));
+            }
         }
-        self.update_status()?;
         Ok(())
     }
 
@@ -517,26 +468,30 @@ impl RaftNode {
         if status != self.last_status {
             self.last_status = status.clone();
             *self.status_shared.write()? = status.clone();
-            self.status_watchers
+            self.async_status
                 .retain(|tx| tx.send(status.clone()).is_ok());
         }
         Ok(())
     }
 
     fn shutdown(&mut self) {
+        // Fail closed even on disk or subscriber failure. A stale leader
+        // status must never keep the data-plane serving gate open.
+        let mut stopped = self.last_status.clone();
+        stopped.role = crate::core::role::RaftRole::Follower;
+        stopped.leader_id = None;
+        if let Ok(mut status) = self.status_shared.write() {
+            *status = stopped.clone();
+        }
+        for tx in &self.async_status {
+            let _ = tx.send(stopped.clone());
+        }
         for (_, (_, resp)) in self.pending.drain() {
             let _ = resp.send(Err(ProposeError::stopped()));
         }
         if let Some((_, done)) = self.pending_reconf.take() {
             let _ = done.send(Err(UpdateConfError::stopped()));
         }
-        // close the persist channel; the persist thread drains queued
-        // batches and exits
-        drop(self.persist_tx.take());
-        if let Some(join) = self.persist_join.take() {
-            if join.join().is_err() {
-                error!("raft node {} persist thread panicked", self.core.node_id());
-            }
-        }
+        self.in_rx.close();
     }
 }

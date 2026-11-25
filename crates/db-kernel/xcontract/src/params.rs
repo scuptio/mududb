@@ -26,6 +26,11 @@ pub struct WorkerXContractParams {
     pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     /// Id of the server instance hosting this worker.
     pub server_instance_id: ServerInstanceId,
+    /// Cluster routing directory; `None` keeps single-group behavior.
+    pub cluster_router: Option<Arc<dyn ::catalog::contract::cluster_router::ClusterRouter>>,
+    /// Epoch oracle shared by every worker of the node; `None` keeps the
+    /// pre-epoch behavior (phase 0 installs a `LocalEpochOracle` always).
+    pub epoch_oracle: Option<Arc<dyn ::catalog::contract::epoch_oracle::EpochOracle>>,
 }
 
 /// Construction parameters for
@@ -55,4 +60,9 @@ pub struct WorkerXContractWorkerLogParams {
     pub async_runtime: Option<Arc<dyn AsyncIoProvider>>,
     /// Id of the server instance hosting this worker.
     pub server_instance_id: ServerInstanceId,
+    /// Cluster routing directory; `None` keeps single-group behavior.
+    pub cluster_router: Option<Arc<dyn ::catalog::contract::cluster_router::ClusterRouter>>,
+    /// Epoch oracle shared by every worker of the node; `None` keeps the
+    /// pre-epoch behavior (phase 0 installs a `LocalEpochOracle` always).
+    pub epoch_oracle: Option<Arc<dyn ::catalog::contract::epoch_oracle::EpochOracle>>,
 }

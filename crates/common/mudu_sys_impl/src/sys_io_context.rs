@@ -66,3 +66,52 @@ pub fn default_sys_io_context() -> Arc<SysIoContext> {
     static DEFAULT: OnceLock<Arc<SysIoContext>> = OnceLock::new();
     DEFAULT.get_or_init(SysIoContext::tokio).clone()
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::contract::async_mode::AsyncMode;
+    use crate::contract::file_options::FileOptions;
+    use crate::imp::fs::SysFile;
+
+    #[tokio::test]
+    async fn cloned_contexts_and_files_share_the_same_backend() {
+        let first = default_sys_io_context();
+        let second = default_sys_io_context();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.provider().mode(), AsyncMode::Tokio);
+        assert!(Arc::ptr_eq(&first.provider_arc(), &second.provider_arc()));
+        let independent = SysIoContext::new(first.provider_arc());
+        assert!(Arc::ptr_eq(&first.fs(), &independent.fs()));
+        let root = std::env::temp_dir().join(format!("sys-context-{}", crate::random::uuid_v4()));
+        first.fs_sync().create_dir_all(&root).unwrap();
+        let path = root.join("shared");
+        let file = SysFile::new(
+            first
+                .fs()
+                .open(&path, FileOptions::read_write_create())
+                .await
+                .unwrap(),
+        );
+        let clone = file.clone();
+        file.write_all_at(0, b"shared").await.unwrap();
+        clone.fsync().await.unwrap();
+        assert_eq!(clone.file_len().await.unwrap(), 6);
+        assert_eq!(clone.read_exact_at(0, 6).await.unwrap(), b"shared");
+        #[cfg(unix)]
+        assert!(clone.as_raw_fd().is_some());
+        clone.close().await.unwrap();
+        drop(clone);
+        drop(file);
+        first.fs_sync().remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn iouring_context_selects_the_requested_provider() {
+        let context = SysIoContext::iouring();
+        assert_eq!(context.provider().mode(), AsyncMode::IoUring);
+        assert!(Arc::ptr_eq(&context.fs(), &context.provider_arc().fs_arc()));
+    }
+}

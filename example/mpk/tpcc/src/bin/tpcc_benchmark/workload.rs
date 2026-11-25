@@ -1,4 +1,4 @@
-use crate::topology::{effective_partition_count, partition_index_for_warehouse, partition_ranges};
+use crate::topology::partition_ranges;
 use crate::{Args, TpccOp, Workload};
 use std::time::Duration;
 
@@ -27,24 +27,6 @@ pub(crate) fn value_for(index: usize, modulo: i32) -> i32 {
 /// Per-terminal think time slept between transactions; `None` when disabled.
 pub(crate) fn think_time(args: &Args) -> Option<Duration> {
     (args.think_time_ms > 0).then(|| Duration::from_millis(args.think_time_ms))
-}
-
-#[allow(dead_code)]
-fn new_order_lines(
-    index: usize,
-    warehouse_id: i32,
-    warehouse_count: i32,
-    item_count: i32,
-    local_only: bool,
-) -> (Vec<i32>, Vec<i32>, Vec<i32>) {
-    new_order_lines_with_count(
-        index,
-        warehouse_id,
-        warehouse_count,
-        item_count,
-        local_only,
-        0,
-    )
 }
 
 #[allow(clippy::manual_is_multiple_of)]
@@ -86,22 +68,6 @@ pub(crate) fn warehouse_for_op(op_index: usize, terminal_id: usize, args: &Args)
         return value_for(op_index, args.warehouses);
     }
     value_for(terminal_id, args.warehouses)
-}
-
-/// Mirrors the terminal→worker mapping used by the workload loops
-/// (run_sync_workload / run_tcp_multi_port).
-#[allow(dead_code)]
-fn terminal_worker_index(args: &Args, terminal_id: usize, worker_count: usize) -> usize {
-    if args.warehouse_partitioned && worker_count > 0 {
-        let ranges = partition_ranges(
-            args.warehouses,
-            effective_partition_count(args, worker_count),
-        );
-        partition_index_for_warehouse(value_for(terminal_id, args.warehouses), &ranges)
-            % worker_count
-    } else {
-        terminal_id % worker_count.max(1)
-    }
 }
 
 pub(crate) fn seckill_op_args(

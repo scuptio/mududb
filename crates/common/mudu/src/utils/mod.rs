@@ -26,6 +26,11 @@ pub mod json;
 #[cfg(test)]
 mod json_test;
 
+/// MSSP frame header layout.
+pub mod mssp_frame;
+#[cfg(test)]
+mod mssp_frame_test;
+
 /// MessagePack serialization helpers.
 pub mod msg_pack;
 

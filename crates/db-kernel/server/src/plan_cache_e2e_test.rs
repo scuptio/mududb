@@ -77,6 +77,7 @@ async fn build_worker(dirs: &TestDirs) -> WorkerRuntime {
         log_chunk_size: 4096,
         log_batching: WorkerLogBatching::default(),
         wal_sync_policy: WalSyncPolicy::Commit,
+        queue_limits: (65536, 64 * 1024 * 1024),
         procedure_runtime: None,
         registry,
         async_runtime: None,
@@ -85,6 +86,8 @@ async fn build_worker(dirs: &TestDirs) -> WorkerRuntime {
         repl_leader_hint: None,
         raft_share: None,
         archive_dir: None,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .await
     .unwrap();
@@ -307,7 +310,7 @@ fn plan_cache_e2e_ddl_invalidation() {
         assert_eq!(rows[0].values()[0].expect_string(), "x");
 
         // Dropping the table entirely invalidates the cached SELECT: the
-        // rebind fails with EntityNotFound instead of reading stale metadata.
+        // rebind fails with ObjectNotFound instead of reading stale metadata.
         exec(local, session, "DROP TABLE d", ()).await;
         let result = local
             .query(
@@ -318,10 +321,10 @@ fn plan_cache_e2e_ddl_invalidation() {
             )
             .await;
         let err = match result {
-            Ok(_) => panic!("expected EntityNotFound after DROP TABLE"),
+            Ok(_) => panic!("expected ObjectNotFound after DROP TABLE"),
             Err(err) => err,
         };
-        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }

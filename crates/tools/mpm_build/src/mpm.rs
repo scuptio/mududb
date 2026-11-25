@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "mpm", about = "Build a MuduDB project")]
+#[command(name = "mpm", version, about = "Build a MuduDB project")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

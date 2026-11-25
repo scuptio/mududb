@@ -26,7 +26,7 @@
   <ItemGroup>
     <PackageReference Include="BytecodeAlliance.Componentize.DotNet.Wasm.SDK" Version="0.8.0-preview00011" />
     <PackageReference Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler.LLVM" Version="10.0.0-rc.1.26357.1" />
-    <!-- The mgen-generated record codecs (src/types/) and the mtp-generated
+    <!-- The mgen-generated struct codecs (src/types/) and the mtp-generated
          adapter use only the raw MessagePackReader/MessagePackWriter paths:
          WASI-safe. The static MessagePackSerializer paths are NOT (their
          MessagePackSecurity static initializer needs a RNG WASI does not

@@ -1,5 +1,5 @@
 use super::discover_procedures;
-use crate::python::procedure::{PyParam, PyProcedure, PyValueType, normalize_hint};
+use crate::python::types::{PyParam, PyProcedure, PyValueType, normalize_hint};
 use mudu::error::ErrorCode;
 use std::error::Error;
 
@@ -383,7 +383,7 @@ def update_profile(session: UniOid, user_id: int, profile: Profile, note: Option
     let params = &procs[0].params;
     assert_eq!(params[1].value_type, PyValueType::Int64);
     match &params[2].value_type {
-        PyValueType::Record(custom) => {
+        PyValueType::Struct(custom) => {
             assert_eq!(custom.name, "Profile");
             assert_eq!(custom.name_snake, "profile");
         }
@@ -403,7 +403,7 @@ def update_profile(session: UniOid, user_id: int, profile: Profile, note: Option
     }
     match &params[5].value_type {
         PyValueType::Option(inner) => match inner.as_ref() {
-            PyValueType::Record(custom) => {
+            PyValueType::Struct(custom) => {
                 assert_eq!(custom.name, "Address");
                 assert_eq!(custom.name_snake, "address");
             }
@@ -413,7 +413,7 @@ def update_profile(session: UniOid, user_id: int, profile: Profile, note: Option
     }
     assert!(params[5].value_type.is_nullable());
     match &procs[0].return_value_types[0] {
-        PyValueType::Record(custom) => assert_eq!(custom.name, "Profile"),
+        PyValueType::Struct(custom) => assert_eq!(custom.name, "Profile"),
         other => return Err(format!("expected a record return type, got {other:?}").into()),
     }
     Ok(())
@@ -435,7 +435,7 @@ def f(a: typing.Optional[int], b: None | Profile, c: Optional[Optional[int]], d:
     );
     match &params[1].value_type {
         PyValueType::Option(inner) => {
-            assert!(matches!(inner.as_ref(), PyValueType::Record(_)));
+            assert!(matches!(inner.as_ref(), PyValueType::Struct(_)));
         }
         other => return Err(format!("expected an option of record, got {other:?}").into()),
     }

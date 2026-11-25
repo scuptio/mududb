@@ -18,7 +18,7 @@
 #include "mududb/types/UniOid.h"
 #include "mududb/types/UniSqlStmt.h"
 #include "mududb/types/UniSqlParam.h"
-#include "mududb/types/UniRecordType.h"
+#include "mududb/types/UniStructType.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +36,7 @@ struct uni_query_argv {
     uni_oid oid;
     uni_sql_stmt query;
     uni_sql_param param_list;
-    uni_record_type param_desc;
+    uni_struct_type param_desc;
     bool param_desc_is_null;
 };
 
@@ -54,11 +54,11 @@ MP_INLINE void uni_query_argv_encode(mp_writer *w, const uni_query_argv *value) 
     uni_sql_param_encode(w, &(value->param_list));
     if (!value->param_desc_is_null) {
         mpw_u64(w, 4u);
-        uni_record_type_encode(w, &(value->param_desc));
+        uni_struct_type_encode(w, &(value->param_desc));
     }
 }
 
-/* Decode one record into `out`, borrowing nothing from the input: every
+/* Decode one struct into `out`, borrowing nothing from the input: every
  * string, blob, array and boxed value is copied into `a`. Lenient: unknown
  * keys are skipped and missing fields keep their zero default (absent
  * `option` fields decode as null). 0 on success, -1 (with the reader's
@@ -83,7 +83,7 @@ MP_INLINE int uni_query_argv_decode(mp_reader *r, mp_arena *a, uni_query_argv *o
                         out->param_desc_is_null = 1;
                     } else {
                         out->param_desc_is_null = 0;
-                        uni_record_type_decode(r, a, &(out->param_desc));
+                        uni_struct_type_decode(r, a, &(out->param_desc));
                     }
                 } else {
                     mpr_skip(r);
@@ -97,7 +97,7 @@ MP_INLINE int uni_query_argv_decode(mp_reader *r, mp_arena *a, uni_query_argv *o
     return mpr_ok(r) ? 0 : -1;
 }
 
-/* Decode one record into freshly arena-allocated storage; 0 on failure
+/* Decode one struct into freshly arena-allocated storage; 0 on failure
  * (the reader's sticky error is set). Boxes of this type decode through
  * this function, so headers referencing it by pointer never need its
  * `sizeof`. */

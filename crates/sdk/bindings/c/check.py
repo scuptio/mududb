@@ -11,7 +11,7 @@ import tempfile
 def check(cc='clang', cxx='clang++'):
     root = Path(__file__).resolve().parent
     headers = sorted((root / 'mududb/codec').glob('*.h')) + sorted((root / 'mududb/types').glob('*.h'))
-    runtime = [root / 'mududb/codec' / name for name in ('mpack.c', 'mpack_alloc.c', 'record_bridge.c')]
+    runtime = [root / 'mududb/codec' / name for name in ('mpack.c', 'mpack_alloc.c', 'struct_bridge.c')]
     flags = ['-I.', '-Wall', '-Wextra', '-Werror', '-g']
     if sys.platform == 'win32':
         flags += ['-D_CRT_SECURE_NO_WARNINGS']

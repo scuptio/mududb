@@ -21,6 +21,22 @@ pub trait AsyncFs: Send + Sync {
     /// Read the entries of the directory at `path`.
     async fn read_dir(&self, path: &Path) -> RS<Vec<PathBuf>>;
 
+    /// Persist directory entries after file creation, rename or removal.
+    async fn sync_dir(&self, _path: &Path) -> RS<()> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "async directory sync is not implemented"
+        ))
+    }
+
+    /// Atomically rename within a filesystem. Sync affected directories for durability.
+    async fn rename(&self, _from: &Path, _to: &Path) -> RS<()> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "async rename is not implemented"
+        ))
+    }
+
     /// Read the entire contents of the file at `path`.
     async fn read_all(&self, path: &Path) -> RS<Vec<u8>> {
         let file = self.open(path, FileOptions::read_only()).await?;

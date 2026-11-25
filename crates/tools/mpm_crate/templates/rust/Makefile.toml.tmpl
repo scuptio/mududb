@@ -10,13 +10,13 @@ PROFILE = "release"
 WASM_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.wasm"
 PACKAGE_TARGET = "${CARGO_MAKE_WORKING_DIRECTORY}/target/${TARGET}/${PROFILE}/${PACKAGE_NAME}.mpk"
 
-# Generate typed entity bindings from the DDL schema into src/rust (one file
+# Generate typed object bindings from the DDL schema into src/rust (one file
 # per table; declare each new file with `pub mod <table>;` in
 # src/rust/mod.rs).
 [tasks.generate]
 command = "mgen"
 args = [
-    "entity",
+    "object",
     "--input-source-files", "${CARGO_MAKE_WORKING_DIRECTORY}/sql/ddl.sql",
     "--output-source-folder", "${CARGO_MAKE_WORKING_DIRECTORY}/src/rust",
     "--type-desc", "${CARGO_MAKE_WORKING_DIRECTORY}/package/type.desc.json",

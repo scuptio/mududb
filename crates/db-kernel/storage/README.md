@@ -23,7 +23,10 @@ server-side crates (`worker`, `xcontract`, `repl`, `server`) and the
   visible-meta/value/range reads and write-conflict detection), and
   `write.rs` (row and delta writes, tuple-id allocation).
 - `time_series` — time-series file storage: versioned records in a chain of
-  slotted pages.
+  slotted pages. Page residency, eviction and writeback are delegated to the
+  shared `page_buffer` clock cache (thread-confined, reached through a
+  mailbox shell); the physical WAL stream above it keeps the WAL-first
+  durability contract.
 - `prepared_commit` — prepared commit payload and the commit-sequencer
   interface.
 - `tuple_build` — tuple-building and delta-assignment codec helpers shared by

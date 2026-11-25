@@ -5,7 +5,6 @@ mod tests {
     use super::super::wasi_context_component::{
         WasiContextComponent, build_wasi_component_context, sync_host,
     };
-    use ::catalog::contract::message_bus_api::MessageBusRef;
     use ::catalog::contract::meta_mgr::MetaMgr;
     use ::catalog::contract::worker_snapshot::KvItem;
     use ::conn::worker_local::{WorkerExecute, WorkerLocal, WorkerLocalRef};
@@ -27,6 +26,7 @@ mod tests {
     use mudu_contract::database::result_set::ResultSetAsync;
     use mudu_contract::database::sql_params::SQLParams;
     use mudu_contract::database::sql_stmt::SQLStmt;
+    use mudu_utils::channel::ChannelEndpointRef;
     use std::sync::Arc;
     use sync_host::mududb::api::system::Host;
     use wasmtime_wasi::WasiView;
@@ -203,7 +203,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn message_bus(&self) -> MessageBusRef {
+        fn worker_channel(&self) -> ChannelEndpointRef {
             unimplemented!()
         }
 
@@ -269,5 +269,224 @@ mod tests {
         ) -> RS<u64> {
             unimplemented!()
         }
+    }
+    #[test]
+    fn sync_host_relation_methods_round_trip() {
+        use crate::interface::kernel_test::{relation_context, relation_worker_local};
+        use mudu_binding::codec::syscall_payload::{
+            decode_relation_get_result, decode_relation_insert_result,
+            decode_relation_update_result, encode_relation_get_request,
+            encode_relation_insert_request, encode_relation_update_request,
+        };
+        use mudu_contract::database::sql::Context;
+
+        let sid = UniOid::from_oid(91);
+        let wl = relation_worker_local();
+        relation_context(sid.to_oid(), wl.clone());
+        let mut ctx = build_wasi_component_context(Some(wl));
+
+        let out = ctx
+            .relation_insert(encode_relation_insert_request(
+                sid.clone(),
+                "t",
+                &[(0, &b"k"[..])],
+                &[(1, &b"v"[..])],
+            ))
+            .unwrap();
+        decode_relation_insert_result(&out).unwrap();
+        let out = ctx
+            .relation_get(encode_relation_get_request(
+                sid.clone(),
+                "t",
+                &[(0, &b"k"[..])],
+                &[1],
+            ))
+            .unwrap();
+        assert_eq!(
+            decode_relation_get_result(&out).unwrap(),
+            Some(vec![Some(b"v".to_vec())])
+        );
+        let out = ctx
+            .relation_update(encode_relation_update_request(
+                sid.clone(),
+                "t",
+                &[(0, &b"k"[..])],
+                &[(1, &b"w"[..])],
+                &[],
+            ))
+            .unwrap();
+        assert_eq!(decode_relation_update_result(&out).unwrap(), 1);
+        Context::remove(sid.to_oid());
+    }
+
+    #[test]
+    fn sync_host_fs_methods_round_trip() {
+        use crate::interface::kernel_test::{fs_worker_local, task_context};
+        use mudu_binding::codec::syscall_payload::{
+            decode_fs_close_result, decode_fs_fstat_result, decode_fs_fsync_result,
+            decode_fs_lseek_result, decode_fs_open_result, decode_fs_pread_result,
+            decode_fs_pwrite_result, decode_fs_read_result, decode_fs_readdir_result,
+            decode_fs_stat_result, decode_fs_write_result, encode_fs_close_request,
+            encode_fs_fstat_request, encode_fs_fsync_request, encode_fs_lseek_request,
+            encode_fs_open_request, encode_fs_pread_request, encode_fs_pwrite_request,
+            encode_fs_read_request, encode_fs_readdir_request, encode_fs_stat_request,
+            encode_fs_write_request,
+        };
+        use mudu_binding::universal::uni_fs_open_argv::UniFsOpenArgv;
+        use mudu_contract::database::sql::Context;
+
+        let sid = UniOid::from_oid(92);
+        let wl = fs_worker_local();
+        task_context(sid.to_oid(), wl.clone());
+        let mut ctx = build_wasi_component_context(Some(wl));
+
+        let out = ctx
+            .fs_open(encode_fs_open_request(&UniFsOpenArgv {
+                session: sid.clone(),
+                oid: UniOid::from_oid(2),
+                path: "data.bin".to_string(),
+                flags: 0,
+            }))
+            .unwrap();
+        let fd = decode_fs_open_result(&out).unwrap();
+        let out = ctx.fs_write(encode_fs_write_request(fd, b"AB")).unwrap();
+        assert_eq!(decode_fs_write_result(&out).unwrap(), 2);
+        let out = ctx.fs_lseek(encode_fs_lseek_request(fd, 0, 0)).unwrap();
+        assert_eq!(decode_fs_lseek_result(&out).unwrap(), 0);
+        let out = ctx.fs_read(encode_fs_read_request(fd, 8)).unwrap();
+        assert_eq!(decode_fs_read_result(&out).unwrap(), b"ABllo-fs".to_vec());
+        let out = ctx.fs_pread(encode_fs_pread_request(fd, 0, 2)).unwrap();
+        assert_eq!(decode_fs_pread_result(&out).unwrap(), b"AB".to_vec());
+        let out = ctx
+            .fs_pwrite(encode_fs_pwrite_request(fd, 0, b"zz"))
+            .unwrap();
+        decode_fs_pwrite_result(&out).unwrap();
+        let out = ctx.fs_fstat(encode_fs_fstat_request(fd)).unwrap();
+        assert_eq!(decode_fs_fstat_result(&out).unwrap().length, 8);
+        let out = ctx.fs_fsync(encode_fs_fsync_request(fd)).unwrap();
+        decode_fs_fsync_result(&out).unwrap();
+        let out = ctx
+            .fs_stat(encode_fs_stat_request(UniOid::from_oid(2), "data.bin"))
+            .unwrap();
+        assert_eq!(decode_fs_stat_result(&out).unwrap().length, 8);
+        let out = ctx
+            .fs_readdir(encode_fs_readdir_request(UniOid::from_oid(2), "/"))
+            .unwrap();
+        assert_eq!(decode_fs_readdir_result(&out).unwrap().len(), 1);
+        let out = ctx.fs_close(encode_fs_close_request(fd)).unwrap();
+        decode_fs_close_result(&out).unwrap();
+        Context::remove(sid.to_oid());
+    }
+
+    #[test]
+    fn sync_host_open_close_track_resources() {
+        use crate::interface::kernel_test::worker_local;
+
+        let mut ctx = build_wasi_component_context(Some(worker_local()));
+        let out = ctx.open(encode_open_request(UniOid::from_oid(0))).unwrap();
+        let session = decode_open_result(&out).unwrap();
+        assert_ne!(session, 0);
+        let out = ctx
+            .close(encode_close_request(UniOid::from_oid(session)))
+            .unwrap();
+        decode_close_result(&out).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod async_drive_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::super::wasi_context_component::async_host::{drive_plain, drive_tracked};
+    use crate::interface::kernel_test::{fs_worker_local, task_context, worker_local};
+    use crate::service::invocation_limits::InvocationContext;
+    use mudu_binding::codec::syscall_payload::{
+        decode_fs_open_result, decode_open_result, decode_put_result, encode_fs_open_request,
+        encode_open_request, encode_put_request,
+    };
+    use mudu_binding::universal::uni_fs_open_argv::UniFsOpenArgv;
+    use mudu_binding::universal::uni_oid::UniOid;
+    use mudu_contract::database::sql::Context;
+
+    #[tokio::test]
+    async fn drive_plain_prepares_calls_and_leaves() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+        // The handler runs inside the budget window: put through the KV mock.
+        let wl = worker_local();
+        let sid = UniOid::from_oid(8_200_201);
+        task_context(sid.to_oid(), wl);
+        let out = drive_plain(
+            &control,
+            "put",
+            encode_put_request(sid.clone(), b"k", b"v"),
+            None,
+            |i, w, _c| async move {
+                crate::service::kernel_function_p2_async::async_host_put(i, w).await
+            },
+        )
+        .await
+        .unwrap();
+        decode_put_result(&out).unwrap();
+        Context::remove(sid.to_oid());
+    }
+
+    #[tokio::test]
+    async fn drive_plain_rejects_over_budget_reads() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+        let over = mudu_binding::codec::syscall_payload::encode_fs_read_request(
+            3,
+            (control.limits.max_output_bytes + 1) as u32,
+        );
+        let err = drive_plain(&control, "fs_read", over, None, |_i, _w, _c| async move {
+            Vec::new()
+        })
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("output budget"));
+    }
+
+    #[tokio::test]
+    async fn drive_tracked_records_opens_for_cleanup() {
+        let control = InvocationContext::new(Default::default()).unwrap();
+        let wl = fs_worker_local();
+        task_context(1, wl.clone());
+
+        let out = drive_tracked(
+            &control,
+            "open",
+            encode_open_request(UniOid::from_oid(0)),
+            Some(wl.clone()),
+            |i, w, _c| async move {
+                crate::service::kernel_function_p2_async::async_host_open(i, w).await
+            },
+        )
+        .await
+        .unwrap();
+        assert!(decode_open_result(&out).is_ok());
+
+        let out = drive_tracked(
+            &control,
+            "fs_open",
+            encode_fs_open_request(&UniFsOpenArgv {
+                session: UniOid::from_oid(1),
+                oid: UniOid::from_oid(2),
+                path: "data.bin".to_string(),
+                flags: 0,
+            }),
+            Some(wl.clone()),
+            |i, w, _c| async move {
+                crate::service::kernel_function_p2_async::async_host_fs_open(i, w).await
+            },
+        )
+        .await
+        .unwrap();
+        assert!(decode_fs_open_result(&out).is_ok());
+        {
+            let resources = control.resources.lock().unwrap();
+            assert_eq!(resources.sessions.len(), 1);
+            assert_eq!(resources.files.len(), 1);
+        }
+        // Cleanup closes both tracked handles without error.
+        control.cleanup_resources().await.unwrap();
+        Context::remove(1);
     }
 }

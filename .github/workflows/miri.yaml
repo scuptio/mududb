@@ -24,9 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
+        id: checkout_code
         uses: actions/checkout@v5
 
+      - name: Initialize job report
+        id: initialize_job_report
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python3 script/ci/workflow_report.py init
+
       - name: Free disk space
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run free_disk_space bash {0}
+        id: free_disk_space
         if: env.ACT != 'true'
         run: |
           df -h
@@ -37,25 +46,32 @@ jobs:
           df -h
 
       - name: Setup pinned nightly tooling Rust
+        id: setup_pinned_nightly_tooling_rust
         uses: ./.github/actions/rust-nightly-setup
 
       - name: Install Miri
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run install_miri bash {0}
+        id: install_miri
         run: rustup component add miri --toolchain "${NIGHTLY_TOOLCHAIN}"
 
       - name: Run Miri tests
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run run_miri_tests bash {0}
+        id: run_miri_tests
         run: |
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
           {
             for group in crates/common crates/db-kernel crates/sdk crates/tools; do
               echo "=== Miri tests: ${group} ==="
-              (cd "${group}" && cargo +${NIGHTLY_TOOLCHAIN} miri test --workspace -- --test-threads=1)
+              (cd "${group}" && cargo +"${NIGHTLY_TOOLCHAIN}" miri test --workspace -- --test-threads=1)
             done
           } 2>&1 | tee ${{ github.workspace }}/logs/nightly-miri.log
         env:
           MIRIFLAGS: "-Zmiri-disable-isolation"
 
       - name: Local reproduction command
+        shell: python3 -c "import os,runpy; runpy.run_path(os.environ['MUDU_WORKFLOW_REPORT'],run_name='__main__')" run local_reproduction_command bash {0}
+        id: local_reproduction_command
         if: failure()
         run: |
           echo "To reproduce locally:"
@@ -64,3 +80,11 @@ jobs:
           echo "  rustup component add miri --toolchain \${NIGHTLY_TOOLCHAIN}"
           echo "  cd crates/<group>   # one of: common db-kernel sdk tools"
           echo "  MIRIFLAGS=\"-Zmiri-disable-isolation\" cargo +\${NIGHTLY_TOOLCHAIN} miri test --workspace -- --test-threads=1"
+      - name: Report job failures
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REPORT_STEPS: ${{ toJSON(steps) }}
+          REPORT_MATRIX: ${{ toJSON(matrix) }}
+        run: python3 script/ci/workflow_report.py report

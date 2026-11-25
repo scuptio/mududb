@@ -39,8 +39,13 @@ impl SyncClient {
     }
 
     fn connect_stream(addr: SocketAddr) -> RS<SStdTcpStream> {
-        let stream = connect_tcp(addr)
-            .map_err(|e| mudu_error!(ErrorCode::Network, "connect io_uring tcp server error", e))?;
+        let stream = connect_tcp(addr).map_err(|e| {
+            mudu_error!(
+                ErrorCode::Network,
+                format!("connect io_uring tcp server error: addr={addr}"),
+                e
+            )
+        })?;
         stream
             .set_nodelay(true)
             .map_err(|e| mudu_error!(ErrorCode::Network, "set tcp nodelay error", e))?;
@@ -389,11 +394,13 @@ impl SyncClient {
 mod tests {
     use super::*;
     use mudu_contract::protocol::{
-        GetResponse, ProcedureInvokeResponse, PutResponse, RangeScanResponse, SessionCloseResponse,
-        SessionCreateResponse, encode_get_response, encode_procedure_invoke_response,
-        encode_put_response, encode_range_scan_response, encode_session_close_response,
-        encode_session_create_response,
+        GetResponse, LeaderHint, ProcedureInvokeResponse, PutResponse, RangeScanResponse,
+        ServerResponse, SessionCloseResponse, SessionCreateResponse, encode_error_response,
+        encode_get_response, encode_merror_response_with_leader_hint,
+        encode_procedure_invoke_response, encode_put_response, encode_range_scan_response,
+        encode_server_response, encode_session_close_response, encode_session_create_response,
     };
+    use mudu_contract::tuple::tuple_field_desc::TupleFieldDesc;
     use mudu_sys::net::sync::StdTcpListener;
     use mudu_sys::task::sync::spawn_thread;
 
@@ -586,5 +593,209 @@ mod tests {
         let closed = client.close_session(session_id).unwrap();
         assert!(closed);
         server.join().unwrap();
+    }
+
+    fn read_frame(socket: &mut SStdTcpStream) -> Frame {
+        let mut header = [0u8; HEADER_LEN];
+        socket.read_exact(&mut header).unwrap();
+        let payload_len = FrameHeader::decode_header_bytes(&header)
+            .unwrap()
+            .payload_len() as usize;
+        let mut body = vec![0u8; payload_len];
+        socket.read_exact(&mut body).unwrap();
+        let mut request = Vec::from(header);
+        request.extend_from_slice(&body);
+        Frame::decode(&request).unwrap()
+    }
+
+    type Responder = Box<dyn Fn(&Frame) -> Vec<u8> + Send>;
+
+    fn serve_sequence(listener: StdTcpListener, mut responders: Vec<Responder>) -> impl FnOnce() {
+        move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            for respond in responders.drain(..) {
+                let frame = read_frame(&mut socket);
+                let response = respond(&frame);
+                socket.write_all(&response).unwrap();
+                socket.flush().unwrap();
+            }
+        }
+    }
+
+    fn ok_query_response(frame: &Frame) -> Vec<u8> {
+        encode_server_response(
+            frame.header().request_id(),
+            &ServerResponse::new(TupleFieldDesc::new(vec![]), vec![], 3, None),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn client_query_execute_and_batch_roundtrip() {
+        let Some(listener) = bind_test_listener() else {
+            return;
+        };
+        let addr = listener.local_addr().unwrap();
+        let server = spawn_thread(serve_sequence(
+            listener,
+            vec![
+                Box::new(ok_query_response) as _,
+                Box::new(ok_query_response) as _,
+                Box::new(ok_query_response) as _,
+                Box::new(ok_query_response) as _,
+                Box::new(ok_query_response) as _,
+            ],
+        ))
+        .unwrap();
+
+        let mut client = SyncClient::connect(addr).unwrap();
+        assert_eq!(client.query("app", "select 1").unwrap().affected_rows(), 3);
+        assert_eq!(
+            client
+                .query_with_oid(7, "app", "select 2")
+                .unwrap()
+                .affected_rows(),
+            3
+        );
+        assert_eq!(
+            client
+                .execute("app", "update t set x = 1")
+                .unwrap()
+                .affected_rows(),
+            3
+        );
+        assert_eq!(
+            client
+                .execute_with_oid_params(7, "app", "update t set x = 2", Vec::new())
+                .unwrap()
+                .affected_rows(),
+            3
+        );
+        assert_eq!(
+            client
+                .batch("app", "insert into t values (1)")
+                .unwrap()
+                .affected_rows(),
+            3
+        );
+        assert_eq!(client.addr(), addr);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn client_error_frame_maps_to_mudu_error() {
+        let Some(listener) = bind_test_listener() else {
+            return;
+        };
+        let addr = listener.local_addr().unwrap();
+        let server = spawn_thread(serve_sequence(
+            listener,
+            vec![Box::new(|frame: &Frame| {
+                encode_error_response(frame.header().request_id(), "boom happened").unwrap()
+            }) as _],
+        ))
+        .unwrap();
+
+        let mut client = SyncClient::connect(addr).unwrap();
+        let err = client.query("app", "select 1").unwrap_err();
+        assert!(format!("{err}").contains("boom happened"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn client_ignores_leader_hint_pointing_to_itself() {
+        let Some(listener) = bind_test_listener() else {
+            return;
+        };
+        let addr = listener.local_addr().unwrap();
+        let port = addr.port();
+        let server = spawn_thread(serve_sequence(
+            listener,
+            vec![Box::new(move |frame: &Frame| {
+                encode_merror_response_with_leader_hint(
+                    frame.header().request_id(),
+                    &mudu_error!(ErrorCode::Internal, "not the leader"),
+                    LeaderHint::new("127.0.0.1", port),
+                )
+                .unwrap()
+            }) as _],
+        ))
+        .unwrap();
+
+        let mut client = SyncClient::connect(addr).unwrap();
+        // A self-hint must not redirect; the error frame surfaces as-is.
+        let err = client.get(1, b"k".to_vec()).unwrap_err();
+        assert!(format!("{err}").contains("not the leader"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn client_follows_leader_hint_and_replays_request() {
+        let Some(leader_listener) = bind_test_listener() else {
+            return;
+        };
+        let Some(follower_listener) = bind_test_listener() else {
+            return;
+        };
+        let leader_addr = leader_listener.local_addr().unwrap();
+        let follower_addr = follower_listener.local_addr().unwrap();
+
+        let follower = spawn_thread(serve_sequence(
+            follower_listener,
+            vec![Box::new(move |frame: &Frame| {
+                encode_merror_response_with_leader_hint(
+                    frame.header().request_id(),
+                    &mudu_error!(ErrorCode::Internal, "not the leader"),
+                    LeaderHint::new("127.0.0.1", leader_addr.port()),
+                )
+                .unwrap()
+            }) as _],
+        ))
+        .unwrap();
+        let leader = spawn_thread(serve_sequence(
+            leader_listener,
+            vec![Box::new(|frame: &Frame| {
+                encode_get_response(
+                    frame.header().request_id(),
+                    &GetResponse::new(Some(b"from-leader".to_vec())),
+                )
+                .unwrap()
+            }) as _],
+        ))
+        .unwrap();
+
+        let mut client = SyncClient::connect(follower_addr).unwrap();
+        let value = client.get(3, b"key".to_vec()).unwrap();
+        assert_eq!(value, Some(b"from-leader".to_vec()));
+        assert_eq!(client.addr(), leader_addr);
+        follower.join().unwrap();
+        leader.join().unwrap();
+    }
+
+    #[test]
+    fn client_put_failure_response_is_an_error() {
+        let Some(listener) = bind_test_listener() else {
+            return;
+        };
+        let addr = listener.local_addr().unwrap();
+        let server = spawn_thread(serve_sequence(
+            listener,
+            vec![Box::new(|frame: &Frame| {
+                encode_put_response(frame.header().request_id(), &PutResponse::new(false)).unwrap()
+            }) as _],
+        ))
+        .unwrap();
+
+        let mut client = SyncClient::connect(addr).unwrap();
+        let err = client.put(1, b"k".to_vec(), b"v".to_vec()).unwrap_err();
+        assert!(format!("{err}").contains("remote put operation returned failure"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn client_connect_refused_is_network_error() {
+        // The discard port is never listening.
+        let addr: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        assert!(SyncClient::connect(addr).is_err());
     }
 }

@@ -38,3 +38,31 @@ impl StopRx {
         self.inner.changed().await.is_ok()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::stop_channel;
+
+    #[test]
+    fn stop_flips_the_flag_for_all_receivers() {
+        let (tx, rx) = stop_channel();
+        let rx_clone = rx.clone();
+        assert!(!rx.is_stopped());
+        assert!(!rx_clone.is_stopped());
+        tx.stop();
+        assert!(rx.is_stopped());
+        assert!(rx_clone.is_stopped());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn changed_observes_stop_and_sender_drop() {
+        let (tx, mut rx) = stop_channel();
+        tx.stop();
+        assert!(rx.changed().await);
+
+        let (tx, mut rx) = stop_channel();
+        drop(tx);
+        assert!(!rx.changed().await);
+    }
+}

@@ -8,7 +8,7 @@ using System.Collections.Generic;
 
 
 
-// Records shared by the funcs below; note that the tree-sitter-wit
+// Structs shared by the funcs below; note that the tree-sitter-wit
 
 [MessagePackFormatter(typeof(MuOidFormatter))]
 public struct MuOid {
@@ -36,7 +36,7 @@ public class MuOidFormatter : IMessagePackFormatter<MuOid>
 {
     public void Serialize(ref MessagePackWriter writer, MuOid value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(2);
         
@@ -126,7 +126,7 @@ public class MuErrorFormatter : IMessagePackFormatter<MuError>
 {
     public void Serialize(ref MessagePackWriter writer, MuError value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(3);
         
@@ -253,7 +253,7 @@ public class MuEntryFormatter : IMessagePackFormatter<MuEntry>
 {
     public void Serialize(ref MessagePackWriter writer, MuEntry value, MessagePackSerializerOptions options)
     {
-        // The record encodes as a MessagePack map keyed by the 1-based field
+        // The struct encodes as a MessagePack map keyed by the 1-based field
         // numbers (WIT declaration order).
         writer.WriteMapHeader(2);
         
@@ -411,7 +411,7 @@ public readonly struct SyscallResult<T>
 /// kind) followed by a single MessagePack body. Request bodies are
 /// integer-keyed MessagePack maps of the WIT-declared arguments (1-based
 /// parameter numbers); result bodies are `[ok_tag, value]` pairs with `0` =
-/// ok and `1` = err; unit results use the `[0, 0]` placeholder form. Record
+/// ok and `1` = err; unit results use the `[0, 0]` placeholder form. Struct
 /// arguments nest as their own integer-keyed maps.
 ///
 /// Error style: frame/header/structural violations (bad magic, unsupported
@@ -1125,7 +1125,7 @@ public static class UniCodec
         if (type == typeof(byte[]))
         {
             // Func-level blobs are MessagePack bin; the array-of-int form is
-            // accepted leniently (it is the record-context shape of
+            // accepted leniently (it is the struct-context shape of
             // `list<u8>`).
             if (reader.NextMessagePackType == MessagePackType.Array)
             {

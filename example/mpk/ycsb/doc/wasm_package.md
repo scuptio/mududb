@@ -25,13 +25,7 @@ If `cargo-make` is missing:
 cargo install cargo-make
 ```
 
-If the transpiler script dependencies are missing:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install tomli-w toml
-```
+The transpiler uses Python 3.11+ and its standard library; no pip packages are required.
 
 ## 2. Build
 

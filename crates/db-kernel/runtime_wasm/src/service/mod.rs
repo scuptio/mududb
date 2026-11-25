@@ -42,7 +42,7 @@ pub mod wt_instance_pre;
 
 mod wt_runtime;
 
-mod kernel_function_p2;
+pub(crate) mod kernel_function_p2;
 #[cfg(test)]
 mod kernel_function_p2_test;
 /// Runtime option structures.
@@ -54,7 +54,7 @@ mod wt_runtime_component;
 
 /// Application list types.
 pub mod app_list;
-mod kernel_function_p2_async;
+pub(crate) mod kernel_function_p2_async;
 #[cfg(test)]
 mod kernel_function_p2_async_test;
 #[cfg(test)]
@@ -68,8 +68,8 @@ mod invocation_executor;
 /// Resource limits and cancellation for procedure invocations.
 pub mod invocation_limits;
 mod invocation_memory;
-mod invocation_query;
-mod invocation_resources;
+pub(crate) mod invocation_query;
+pub(crate) mod invocation_resources;
 #[cfg(test)]
 mod invocation_test_component;
 

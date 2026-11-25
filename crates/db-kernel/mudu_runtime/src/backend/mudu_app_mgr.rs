@@ -1,4 +1,4 @@
-use crate::backend::app_mgr::AppMgr;
+use crate::backend::app_mgr::{AppMgr, ListOption};
 use crate::backend::mudud_cfg::{MuduDBCfg, ServerMode};
 use ::conn::worker_local::WorkerLocalRef;
 use ::worker::async_func_runtime::AsyncFuncInvoker;
@@ -83,7 +83,7 @@ impl AsyncFuncInvoker for MuduProcInvoker {
         let runtime = self.runtime.read()?.clone();
         let app = runtime.app(app_name.clone()).await.ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such application for procedure invoke: {}", app_name)
             )
         })?;
@@ -118,18 +118,6 @@ impl AsyncFuncInvoker for MuduProcInvoker {
             (Ok(_), Err(task_end_err)) => Err(task_end_err),
         }
     }
-}
-
-/// Options for listing applications.
-#[derive(Default)]
-pub struct ListOption {
-    /// Optional application-name filter.
-    ///
-    /// When this list is empty, the implementation must return all
-    /// applications visible to the manager. When it is non-empty, the
-    /// implementation must only return the named applications that currently
-    /// exist.
-    pub names: Vec<String>,
 }
 
 /// MuduDB application manager implementation.
@@ -236,7 +224,7 @@ impl AppMgr for MuduAppMgr {
         let package_path = find_package_path_by_app_name(&self.cfg.mpk_path, &app_name)?
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such app {}", app_name)
                 )
             })?;
@@ -289,6 +277,7 @@ async fn create_runtime_from_cfg(
             async_runtime: async_runtime
                 .or_else(|| RuntimeOpt::build_async_runtime(cfg.server_mode)),
             defer_initdb,
+            trusted_key_fingerprints: cfg.trusted_key_fingerprints.clone(),
         },
     )
     .await

@@ -1,4 +1,4 @@
-use crate::imp::native::linux::io_uring::iouring::SockAddrBuf;
+use crate::imp::native::linux::io_uring::sock_addr_buf::SockAddrBuf;
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::os::fd::RawFd;

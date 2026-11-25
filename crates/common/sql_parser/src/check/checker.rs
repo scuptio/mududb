@@ -14,8 +14,8 @@ use crate::ast::stmt_type::{StmtCommand, StmtType};
 use crate::ast::stmt_update::{AssignedValue, StmtUpdate};
 use crate::check::diagnostic::{SqlDiagnostic, SqlSeverity};
 use mudu::error::ErrorCode;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_binding::table::column_def::ColumnDef;
-use mudu_binding::table::table_def::TableDef;
 use tree_sitter::Node;
 
 /// SQL keywords whose constructs are valid SQL but outside the subset the
@@ -76,8 +76,11 @@ const BEYOND_SUBSET_KEYWORDS: &[&str] = &[
 ///   [`SqlSeverity::Uncovered`]; other conversion failures yield
 ///   [`SqlSeverity::Error`] unless a beyond-subset keyword is present;
 /// - unknown tables/columns yield [`SqlSeverity::Error`].
-pub fn check_sql(sql: &str, schema: &[TableDef]) -> Vec<SqlDiagnostic> {
+pub fn check_sql(sql: &str, schema: &[ClassDef]) -> Vec<SqlDiagnostic> {
     let mut diagnostics = Vec::new();
+    if let Some(diagnostics) = check_queue_sql(sql, schema) {
+        return diagnostics;
+    }
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_sql::LANGUAGE.into();
     if parser.set_language(&language).is_err() {
@@ -156,6 +159,34 @@ pub fn check_sql(sql: &str, schema: &[TableDef]) -> Vec<SqlDiagnostic> {
     diagnostics
 }
 
+fn check_queue_sql(sql: &str, schema: &[ClassDef]) -> Option<Vec<SqlDiagnostic>> {
+    let mut diagnostics = Vec::new();
+    let words: Vec<_> = sql
+        .split_whitespace()
+        .take(2)
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let custom_queue = matches!(words.first().map(String::as_str), Some("receive" | "ack"))
+        || matches!(words.as_slice(), [first, second] if (first == "create" || first == "drop") && (second == "queue" || second == "consumer"));
+    if custom_queue {
+        match SQLParser::new().and_then(|parser| parser.parse(sql)) {
+            Ok(statements) => {
+                for stmt in statements.stmts() {
+                    check_stmt(stmt, schema, sql, &mut diagnostics);
+                }
+            }
+            Err(err) => diagnostics.push(SqlDiagnostic::new(
+                SqlSeverity::Error,
+                err.message().to_string(),
+                1,
+                1,
+            )),
+        }
+        return Some(diagnostics);
+    }
+    None
+}
+
 /// Count the `?` parameter placeholders in one parsed statement.
 ///
 /// Placeholders are counted in `INSERT` value rows, `UPDATE` assignments
@@ -207,15 +238,15 @@ pub fn count_params(stmt: &StmtType) -> usize {
 /// (unqualified) names, `*` expands to the table's columns in DDL order when
 /// the table is present in `schema` (and degrades to a literal `"*"`
 /// otherwise), and function terms are reported as `"<func>"`.
-pub fn select_result_shape(select: &StmtSelect, schema: &[TableDef]) -> Vec<String> {
-    let table_def = find_table(schema, select.get_table_reference().name());
+pub fn select_result_shape(select: &StmtSelect, schema: &[ClassDef]) -> Vec<String> {
+    let class_def = find_table(schema, select.get_table_reference().name());
     let mut shape = Vec::new();
     for term in select.get_select_term_list() {
         match term.field() {
             SelectField::Column(name) => {
                 let raw = name.name();
                 if raw.is_empty() {
-                    match table_def {
+                    match class_def {
                         Some(def) => shape.extend(
                             def.table_columns()
                                 .iter()
@@ -254,7 +285,7 @@ fn classify_conversion_error(sql: &str, message: &str, code: ErrorCode) -> (SqlS
 
 fn check_stmt(
     stmt: &StmtType,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
@@ -266,11 +297,11 @@ fn check_stmt(
 
 fn check_select(
     select: &StmtSelect,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
-    let Some(table_def) = check_table(
+    let Some(class_def) = check_table(
         select.get_table_reference().name(),
         schema,
         sql,
@@ -285,7 +316,7 @@ fn check_select(
                     check_column_ref(
                         name,
                         select.get_table_reference().name(),
-                        table_def,
+                        class_def,
                         sql,
                         diagnostics,
                     );
@@ -296,7 +327,7 @@ fn check_select(
                     check_column_ref(
                         name,
                         select.get_table_reference().name(),
-                        table_def,
+                        class_def,
                         sql,
                         diagnostics,
                     );
@@ -308,7 +339,7 @@ fn check_select(
         check_compare(
             predicate,
             select.get_table_reference().name(),
-            table_def,
+            class_def,
             sql,
             diagnostics,
         );
@@ -317,7 +348,7 @@ fn check_select(
 
 fn check_command(
     command: &StmtCommand,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
@@ -325,31 +356,106 @@ fn check_command(
         StmtCommand::Insert(insert) => check_insert(insert, schema, sql, diagnostics),
         StmtCommand::Update(update) => check_update(update, schema, sql, diagnostics),
         StmtCommand::Delete(delete) => check_delete(delete, schema, sql, diagnostics),
+        StmtCommand::Receive(receive) => {
+            check_table(receive.name(), schema, sql, diagnostics);
+            if receive.count() == Some(0) {
+                diagnostics.push(SqlDiagnostic::new(
+                    SqlSeverity::Error,
+                    "RECEIVE count must be positive".to_string(),
+                    1,
+                    1,
+                ));
+            }
+        }
+        StmtCommand::Ack(ack) => {
+            check_table(ack.name(), schema, sql, diagnostics);
+        }
+        StmtCommand::DropQueue(drop) => {
+            check_table(drop.name(), schema, sql, diagnostics);
+        }
+        StmtCommand::CreateConsumer(create) => {
+            check_table(create.queue(), schema, sql, diagnostics);
+        }
+        StmtCommand::DropConsumer(drop) => {
+            check_table(drop.queue(), schema, sql, diagnostics);
+        }
+        StmtCommand::CreateQueue(create) => {
+            if let crate::ast::stmt_create_queue::QueuePayload::Like(name) = create.payload() {
+                check_table(name, schema, sql, diagnostics);
+            }
+            check_queue_partition(create, schema, sql, diagnostics);
+        }
         _ => {}
+    }
+}
+
+/// Validates the optional sharding clause of a `CREATE QUEUE`: exactly one
+/// referenced column, and that column must belong to the payload (declared
+/// columns, or the columns of the `LIKE` source table when it is known).
+fn check_queue_partition(
+    create: &crate::ast::stmt_create_queue::StmtCreateQueue,
+    schema: &[ClassDef],
+    sql: &str,
+    diagnostics: &mut Vec<SqlDiagnostic>,
+) {
+    let Some(partition) = create.partition() else {
+        return;
+    };
+    if partition.reference_columns().len() != 1 {
+        diagnostics.push(SqlDiagnostic::new(
+            SqlSeverity::Error,
+            "CREATE QUEUE partition clause must reference exactly one payload column".to_string(),
+            1,
+            1,
+        ));
+        return;
+    }
+    let column = &partition.reference_columns()[0];
+    let known = match create.payload() {
+        crate::ast::stmt_create_queue::QueuePayload::Columns(columns) => Some(
+            columns
+                .iter()
+                .any(|def| def.column_name().eq_ignore_ascii_case(column)),
+        ),
+        crate::ast::stmt_create_queue::QueuePayload::Like(table) => {
+            find_table(schema, table).map(|class_def| find_column(class_def, column).is_some())
+        }
+    };
+    if known == Some(false) {
+        let (line, column_index) = locate_identifier(sql, column).unwrap_or((1, 1));
+        diagnostics.push(SqlDiagnostic::new(
+            SqlSeverity::Error,
+            format!(
+                "partition column '{column}' is not a payload column of queue '{}'",
+                create.name()
+            ),
+            line,
+            column_index,
+        ));
     }
 }
 
 fn check_insert(
     insert: &StmtInsert,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
-    let Some(table_def) = check_table(insert.table_name(), schema, sql, diagnostics) else {
+    let Some(class_def) = check_table(insert.class_name(), schema, sql, diagnostics) else {
         return;
     };
     for column in insert.columns() {
-        check_column_ref_name(column, insert.table_name(), table_def, sql, diagnostics);
+        check_column_ref_name(column, insert.class_name(), class_def, sql, diagnostics);
     }
 }
 
 fn check_update(
     update: &StmtUpdate,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
-    let Some(table_def) = check_table(
+    let Some(class_def) = check_table(
         update.get_table_reference().name(),
         schema,
         sql,
@@ -361,7 +467,7 @@ fn check_update(
         check_column_ref_name(
             assignment.get_column_reference(),
             update.get_table_reference().name(),
-            table_def,
+            class_def,
             sql,
             diagnostics,
         );
@@ -369,7 +475,7 @@ fn check_update(
             check_expr(
                 expr,
                 update.get_table_reference().name(),
-                table_def,
+                class_def,
                 sql,
                 diagnostics,
             );
@@ -379,7 +485,7 @@ fn check_update(
         check_compare(
             predicate,
             update.get_table_reference().name(),
-            table_def,
+            class_def,
             sql,
             diagnostics,
         );
@@ -388,11 +494,11 @@ fn check_update(
 
 fn check_delete(
     delete: &StmtDelete,
-    schema: &[TableDef],
+    schema: &[ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
-    let Some(table_def) = check_table(
+    let Some(class_def) = check_table(
         delete.get_table_reference().name(),
         schema,
         sql,
@@ -404,7 +510,7 @@ fn check_delete(
         check_compare(
             predicate,
             delete.get_table_reference().name(),
-            table_def,
+            class_def,
             sql,
             diagnostics,
         );
@@ -412,82 +518,82 @@ fn check_delete(
 }
 
 fn check_table<'a>(
-    table_name: &str,
-    schema: &'a [TableDef],
+    class_name: &str,
+    schema: &'a [ClassDef],
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
-) -> Option<&'a TableDef> {
-    if table_name.is_empty() {
+) -> Option<&'a ClassDef> {
+    if class_name.is_empty() {
         return None;
     }
-    let table_def = find_table(schema, table_name);
-    if table_def.is_none() {
-        let (line, column) = locate_identifier(sql, table_name).unwrap_or((1, 1));
+    let class_def = find_table(schema, class_name);
+    if class_def.is_none() {
+        let (line, column) = locate_identifier(sql, class_name).unwrap_or((1, 1));
         diagnostics.push(SqlDiagnostic::new(
             SqlSeverity::Error,
-            format!("unknown table '{table_name}': not found in the schema"),
+            format!("unknown table '{class_name}': not found in the schema"),
             line,
             column,
         ));
     }
-    table_def
+    class_def
 }
 
 fn check_compare(
     compare: &crate::ast::expr_compare::ExprCompare,
-    table_name: &str,
-    table_def: &TableDef,
+    class_name: &str,
+    class_def: &ClassDef,
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
     for item in [compare.left(), compare.right()] {
         if let ExprItem::ItemName(name) = item {
-            check_column_ref(name, table_name, table_def, sql, diagnostics);
+            check_column_ref(name, class_name, class_def, sql, diagnostics);
         }
     }
 }
 
 fn check_expr(
     expr: &ExprType,
-    table_name: &str,
-    table_def: &TableDef,
+    class_name: &str,
+    class_def: &ClassDef,
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
     match expr {
         ExprType::Value(item) => {
             if let ExprItem::ItemName(name) = item.as_ref() {
-                check_column_ref(name, table_name, table_def, sql, diagnostics);
+                check_column_ref(name, class_name, class_def, sql, diagnostics);
             }
         }
         ExprType::Compare(compare) => {
-            check_compare(compare, table_name, table_def, sql, diagnostics);
+            check_compare(compare, class_name, class_def, sql, diagnostics);
         }
         ExprType::Logical(logical) => {
-            check_expr(logical.left(), table_name, table_def, sql, diagnostics);
-            check_expr(logical.right(), table_name, table_def, sql, diagnostics);
+            check_expr(logical.left(), class_name, class_def, sql, diagnostics);
+            check_expr(logical.right(), class_name, class_def, sql, diagnostics);
         }
         ExprType::Arithmetic(arithmetic) => {
-            check_expr(arithmetic.left(), table_name, table_def, sql, diagnostics);
-            check_expr(arithmetic.right(), table_name, table_def, sql, diagnostics);
+            check_expr(arithmetic.left(), class_name, class_def, sql, diagnostics);
+            check_expr(arithmetic.right(), class_name, class_def, sql, diagnostics);
         }
     }
 }
 
 fn check_column_ref(
     name: &ExprName,
-    table_name: &str,
-    table_def: &TableDef,
+    class_name: &str,
+    class_def: &ClassDef,
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
-    check_column_ref_name(name.name(), table_name, table_def, sql, diagnostics);
+    check_column_ref_name(name.name(), class_name, class_def, sql, diagnostics);
 }
 
 fn check_column_ref_name(
     raw_name: &str,
-    table_name: &str,
-    table_def: &TableDef,
+    class_name: &str,
+    class_def: &ClassDef,
     sql: &str,
     diagnostics: &mut Vec<SqlDiagnostic>,
 ) {
@@ -499,13 +605,13 @@ fn check_column_ref_name(
         None => (None, raw_name),
     };
     if let Some(qualifier) = qualifier {
-        if !qualifier.eq_ignore_ascii_case(table_name) {
+        if !qualifier.eq_ignore_ascii_case(class_name) {
             let (line, column) = locate_identifier(sql, raw_name).unwrap_or((1, 1));
             diagnostics.push(SqlDiagnostic::new(
                 SqlSeverity::Error,
                 format!(
                     "unknown table qualifier '{qualifier}' in '{raw_name}': \
-                     the statement targets table '{table_name}'"
+                     the statement targets table '{class_name}'"
                 ),
                 line,
                 column,
@@ -513,13 +619,13 @@ fn check_column_ref_name(
             return;
         }
     }
-    if find_column(table_def, column_name).is_none() {
+    if find_column(class_def, column_name).is_none() {
         let (line, column) = locate_identifier(sql, raw_name).unwrap_or((1, 1));
         diagnostics.push(SqlDiagnostic::new(
             SqlSeverity::Error,
             format!(
                 "unknown column '{column_name}' in table '{}'",
-                table_def.table_name()
+                class_def.class_name()
             ),
             line,
             column,
@@ -556,15 +662,15 @@ fn count_params_expr(expr: &ExprType) -> usize {
 
 /// Find a table by name using ASCII case-insensitive comparison; SQL
 /// identifiers are case-insensitive.
-pub fn find_table<'a>(schema: &'a [TableDef], table_name: &str) -> Option<&'a TableDef> {
+pub fn find_table<'a>(schema: &'a [ClassDef], class_name: &str) -> Option<&'a ClassDef> {
     schema
         .iter()
-        .find(|def| def.table_name().eq_ignore_ascii_case(table_name))
+        .find(|def| def.class_name().eq_ignore_ascii_case(class_name))
 }
 
 /// Find a column by name using ASCII case-insensitive comparison.
-pub fn find_column<'a>(table_def: &'a TableDef, column_name: &str) -> Option<&'a ColumnDef> {
-    table_def
+pub fn find_column<'a>(class_def: &'a ClassDef, column_name: &str) -> Option<&'a ColumnDef> {
+    class_def
         .table_columns()
         .iter()
         .find(|column| column.column_name().eq_ignore_ascii_case(column_name))

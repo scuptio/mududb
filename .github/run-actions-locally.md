@@ -44,8 +44,56 @@ including the host `target/`, are excluded from the copy by default.
 The existing image and containers are reused (`--pull=false`, `--reuse=true`,
 `--rm=false`). This preserves container build caches without building or pulling
 a new runner image each time. Removing the container and its workspace storage
-loses those caches. The wrapper captures console output in local `logs/`;
-workflow-generated files stay inside the container.
+loses those caches. The wrapper captures each invocation into a unique local
+`logs/act/<timestamp>-<id>/` directory. Workflow-generated files stay inside
+the container; the wrapper derives complete per-job and failed-step logs from
+the streamed console output, so diagnosing failures does not require Docker access.
+
+The final report prints the expanded matrix job (for example
+`Build - ubuntu-latest - crates/db-kernel-2`), failed step, failed Rust test names,
+an error excerpt including panic context, and absolute local log paths:
+
+- `summary.txt` and `summary.json`: all job outcomes and failure details.
+- `*.console.log`: original invocation output, including setup errors.
+- Per-job and `*-failure-*.log` files: complete output for each job/failed step.
+- `failures.log`: full failed/unfinished job output and failed invocation output.
+
+Reports use step outcomes and process exit codes; an application `ERROR` printed
+inside a successful test does not itself mark the job failed. Missing/truncated
+job results are explicitly reported instead of being treated as success. Preflight
+failures also retain a log and summary. Each run keeps its own directory so a retry
+does not overwrite the original failure.
+
+```bash
+bash script/ci/act.sh -j build
+bash script/ci/act.sh --log-dir /tmp/mududb-act -j build
+bash script/ci/act.sh --help
+```
+
+When invoking `act` directly, every job with local steps in this repository's
+workflows has an `always()` report. It prints the job/matrix, failed step IDs,
+failed test names, error context (including diagnostics before `Error:`), and
+absolute **runner/container** paths. Reports and complete command logs live in
+`logs/ci/<job>/run-<unique-id>/`: `summary.txt`, `summary.json`, `failures.log`,
+and `<step-id>.log`. Reused act containers get a fresh directory each run.
+
+For example, `act -W .github/workflows/ci-hardening.yaml -j workspace-invariants`
+now ends its job steps with the offending source file and line-limit diagnostic,
+not just `Job 'workspace-invariants' failed`. Use `docker cp` to export the printed
+directory, or use `act.sh` for automatic host logs and a cross-job final report.
+
+`script/ci/workflow_report.py` captures stdout/stderr using the original Bash or
+Python command and preserves its exit status. Only failed step outcomes enter
+the report; expected `ERROR` messages in passing tests are not failures.
+`continue-on-error` steps are explicitly marked `ALLOWED FAILURE`. GitHub Actions
+also receives the same report in its job summary.
+
+The report runs before action post-cleanup hooks, so post-hook failures and act
+engine failures still require the wrapper's outer report. If checkout fails or
+the runner is forcibly terminated, the repository's report script may not run.
+Third-party `uses:` action failures identify the step, but their internal output
+is available in the console rather than a captured command log. The original
+failed step still determines the job failure; reporting never turns it into success.
 
 Before starting any job, the wrapper checks that tracked and non-ignored
 untracked source files are readable and their directories accessible. It also
@@ -180,7 +228,10 @@ The repository provides `script/ci/act.sh`, which wraps `act` and captures logs 
 ./script/ci/act.sh --help
 ```
 
-For each run, the script writes a log file under `logs/` and prints a final summary. If anything failed, it extracts the last matching error lines so you do not have to scroll through the full `act` output.
+For each run, the script writes a log file under `logs/` and prints a final
+summary (`script/ci/act_summary.py`): per-invocation and per-job pass/fail
+status with durations, the failed step of each failed job, and a short error
+excerpt, so you do not have to scroll through the full `act` output.
 
 ### Log files from workflow steps
 
@@ -336,6 +387,19 @@ runs. Each retained job workspace keeps its own `target/`; it does not share the
 host's Cargo target directory. Cargo registry caching is also configured by the
 workflows. Exporting host `CARGO_HOME` or `RUSTUP_HOME` alone does not mount those
 directories into act containers.
+
+### Stale files in reused containers
+
+act copies the checkout into each retained container additively: files deleted
+or renamed upstream (including a `foo.rs` split into `foo/mod.rs`) stay behind
+in the container copy and can fail later builds (for example E0761 "file for
+module found at both"). `act.sh` counters this in preflight
+(`act_preflight.py`): before every run it computes the paths git history
+reports as deleted (with rename detection off) and removes them from every
+running act container whose `WorkingDir` is this checkout, printing one line
+per swept container. The sweep never touches untracked paths that still exist
+locally. Stopped containers are skipped — `docker rm` them if one causes
+trouble.
 
 ---
 

@@ -285,7 +285,7 @@ impl TestContext {
         // The ready barrier fires only after the deferred initdb drain has
         // completed, so a ready server implies auto-loaded packages have
         // their tables.
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        wait_until_backend_ready(ready_waiter, "backend", backend_startup_timeout())?;
         println!("  [server] Server ready.");
         Ok(RunningServer {
             stop,
@@ -330,7 +330,7 @@ impl TestContext {
             .and_then(|row| row_string(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("user name not found for user_id={user_id}")
                 )
             })
@@ -345,7 +345,7 @@ impl TestContext {
             .and_then(|row| row_i64(row, 1))
             .ok_or_else(|| {
                 mudu::mudu_error!(
-                    mudu::error::ErrorCode::EntityNotFound,
+                    mudu::error::ErrorCode::ObjectNotFound,
                     format!("wallet balance not found for user_id={user_id}")
                 )
             })

@@ -75,6 +75,11 @@ pub struct RuntimeOpt {
     /// `drain_initdb`. The install/reload paths keep this `false` and execute
     /// initdb immediately.
     pub defer_initdb: bool,
+    /// Trusted signer fingerprints (ed25519 public-key SHA-256, hex). When
+    /// non-empty, package loading requires at least one valid signature from a
+    /// trusted fingerprint; when empty, signatures are still verified but any
+    /// valid signature is accepted.
+    pub trusted_key_fingerprints: Vec<String>,
 }
 
 impl RuntimeOpt {
@@ -112,6 +117,7 @@ impl Default for RuntimeOpt {
             sever_mode: Default::default(),
             async_runtime: None,
             defer_initdb: false,
+            trusted_key_fingerprints: Vec::new(),
         }
     }
 }
@@ -125,6 +131,7 @@ impl std::fmt::Debug for RuntimeOpt {
             .field("sever_mode", &self.sever_mode)
             .field("has_async_runtime", &self.async_runtime.is_some())
             .field("defer_initdb", &self.defer_initdb)
+            .field("trusted_key_fingerprints", &self.trusted_key_fingerprints)
             .finish()
     }
 }

@@ -15,12 +15,12 @@ use mudu_type::data_value::DataValue;
 use mudu_type::type_family::TypeFamily;
 
 use ::catalog::contract::fs_type::FsTypeDesc;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 /// Partition id shared by all meta catalog relations.
 pub(crate) const FS_TYPE_CATALOG_PARTITION_ID: OID = 0;
@@ -31,8 +31,8 @@ const FS_TYPE_CATALOG_NAME_COLUMN_ID: OID = 0x50001;
 const FS_TYPE_CATALOG_ENTRY_COLUMN_ID: OID = 0x50002;
 
 /// Build the schema of the filesystem type catalog table.
-pub(crate) fn fs_type_catalog_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn fs_type_catalog_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         FS_TYPE_CATALOG_TABLE_ID,
         FS_TYPE_CATALOG_TABLE_NAME.to_string(),
         vec![
@@ -40,7 +40,9 @@ pub(crate) fn fs_type_catalog_schema() -> SchemaTable {
                 FS_TYPE_CATALOG_NAME_COLUMN_ID,
                 "name".to_string(),
                 TypeFamily::String,
-                DataType::default_for(TypeFamily::String).to_info(),
+                mudu_type::data_type_codec::TypeCodec::to_info(&DataType::default_for(
+                    TypeFamily::String,
+                )),
             ),
             SchemaColumn::new_with_oid(
                 FS_TYPE_CATALOG_ENTRY_COLUMN_ID,
@@ -136,6 +138,7 @@ pub(crate) async fn load_fs_types_from_catalog(relation: &Relation) -> RS<Vec<Fs
         )
         .await?;
     let mut fs_types = Vec::with_capacity(rows.len());
+    let mut ids = std::collections::BTreeSet::new();
     for (key, value) in rows {
         let fs_type = decode_fs_type_catalog_value(&value)?;
         if encode_fs_type_catalog_key(fs_type.name())? != key {
@@ -145,6 +148,14 @@ pub(crate) async fn load_fs_types_from_catalog(relation: &Relation) -> RS<Vec<Fs
                     "fs type catalog key does not match fs type name {}",
                     fs_type.name()
                 )
+            ));
+        }
+        if fs_type.fs_id() != catalog::contract::derive_oid::derive_fs_id(fs_type.name())
+            || !ids.insert(fs_type.fs_id())
+        {
+            return Err(mudu::mudu_error!(
+                mudu::error::ErrorCode::CorruptedData,
+                "filesystem type catalog identity mismatch or collision"
             ));
         }
         fs_types.push(fs_type);

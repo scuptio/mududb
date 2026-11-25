@@ -2,6 +2,7 @@
 mod tests {
     use crate::data_type_fn_param::FnParam;
     use crate::type_family::TypeFamily;
+    use crate::type_family_ext::TypeFamilyExt;
 
     #[test]
     fn fn_param_display_and_debug_use_derived_format() {

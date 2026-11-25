@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mududb.errors import MuduError
 from mududb.generated.uni_data_value import UniDataValueScalar
 from mududb.generated.uni_query_result import UniQueryResult
-from mududb.generated.uni_record_type import UniRecordField, UniRecordType
+from mududb.generated.uni_struct_type import UniStructField, UniStructType
 from mududb.generated.uni_result_set import UniResultSet
 from mududb.generated.uni_scalar_value import UniScalarValueI64, UniScalarValueNull, UniScalarValueString
 from mududb.generated.uni_tuple_row import UniTupleRow
@@ -25,8 +25,8 @@ def _text(v):
 
 def _sample():
     return UniQueryResult(
-        tuple_desc=UniRecordType(
-            record_fields=[UniRecordField(field_name="id"), UniRecordField(field_name="name")]
+        tuple_desc=UniStructType(
+            struct_fields=[UniStructField(field_name="id"), UniStructField(field_name="name")]
         ),
         result_set=UniResultSet(
             eof=True,

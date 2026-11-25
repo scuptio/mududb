@@ -56,7 +56,7 @@ impl HttpApi for LegacyHttpApi {
             .await
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("procedure detail error, no such app {}", app_name)
                 )
             })?;

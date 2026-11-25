@@ -23,8 +23,8 @@ namespace mududb.tests;
 /// <see cref="MsspCorpus.AssertVector"/>. There is no re-encode pin: the
 /// bytes are intentionally non-canonical. The covered categories are
 /// int-width-widening, int-unsigned-marker, int-wide-negative,
-/// record-key-order, record-unknown-field, map-noninteger-key,
-/// request-missing-param and record-missing-fields. This test only reads the
+/// struct-key-order, struct-unknown-field, map-noninteger-key,
+/// request-missing-param and struct-missing-fields. This test only reads the
 /// fixture — it never writes it.
 /// </summary>
 public class LenientDecodeCorpusTests
@@ -53,7 +53,7 @@ public class LenientDecodeCorpusTests
     // ---- supplementary pins not representable in the corpus ----
 
     [Fact]
-    public void MissingRecordFieldsDecodeToTypeDefaults()
+    public void MissingStructFieldsDecodeToTypeDefaults()
     {
         byte[] emptyMap = [0x80];
 
@@ -79,7 +79,7 @@ public class LenientDecodeCorpusTests
     public void MissingRequestArgumentsDecodeToTypeDefaults()
     {
         // `get(oid, key)` with only parameter 2 present: {2: bin "k"} — the
-        // missing oid argument decodes to the zeroed record, not an error.
+        // missing oid argument decodes to the zeroed struct, not an error.
         byte[] partial = [0x81, 0x02, 0xC4, 0x01, 0x6B];
         var (defaultOid, partialKey) = SyscallPayload.DecodeRequestBody<UniOid, byte[]>(partial);
         Assert.Equal(default(UniOid), defaultOid);

@@ -127,7 +127,7 @@ impl ParseContext {
         self.sys_call.contains(name)
     }
 
-    /// Record the end position of a call inside `fn_name`.
+    /// Struct the end position of a call inside `fn_name`.
     pub fn add_func_call_end_position(
         &mut self,
         fn_name: String,
@@ -143,7 +143,7 @@ impl ParseContext {
         }
     }
 
-    /// Record that `caller` calls `callee`.
+    /// Struct that `caller` calls `callee`.
     pub fn add_call_dependency(&mut self, caller: &str, callee: &str) {
         if let Some(set) = self.call_dependencies.get_mut(callee) {
             set.insert(caller.to_owned());

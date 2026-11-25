@@ -3,3 +3,9 @@
 
 pub(crate) mod procedures;
 pub mod wallets;
+
+#[cfg(test)]
+mod procedures_test;
+
+#[cfg(test)]
+mod wallets_test;

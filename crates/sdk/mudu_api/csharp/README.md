@@ -119,7 +119,7 @@ Database path selection:
 
 ## Facade (`mududb.db` / `mududb.sql` / `mududb.result`)
 
-The canonical guest facade (`doc/dev/binding_api_surface.md`, section
+The canonical guest facade (`doc/en/binding_api_surface.md`, section
 "Canonical facade surface") sits on top of the sys tier: `mududb.db.Database`
 is the session handle, `mududb.sql.SqlStmt` / `mududb.sql.SqlParams` carry the
 statement and its values, and `mududb.result.ResultSet` / `mududb.result.Row`

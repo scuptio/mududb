@@ -1,7 +1,7 @@
 use crate::routing::RoutingMode;
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::storage::page::page_block_ref::DEFAULT_PAGE_SIZE;
 use ::wal::worker_log::WalSyncPolicy;
+use mudu::channel::ServerInstanceId;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
@@ -13,6 +13,8 @@ use std::time::Duration;
 // Replication config moved down to `::catalog::repl_cfg` so the `repl`
 // layer does not depend on the server config.
 pub use ::catalog::repl_cfg::{ReplMode, ReplNodeCfg, ReplPeerCfg, ReplRole};
+
+use ::catalog::contract::cluster_topology::ClusterTopology;
 
 /// Default group-commit batching window: how long a queued commit batch may
 /// age before the flush driver flushes it, when byte/frame watermarks are
@@ -95,8 +97,14 @@ pub struct ServerCfg {
     routing_mode: RoutingMode,
     page_size: usize,
     log_batching_max_wait: Duration,
+    queue_limits: (u64, u64),
     wal_sync_policy: WalSyncPolicy,
     replication: Option<ReplNodeCfg>,
+    /// Static cluster topology plus this node's cluster node id.
+    cluster: Option<(u64, ClusterTopology)>,
+    /// Enables the sparse epoch protocol in the control plane (P4 rollout;
+    /// off by default).
+    sparse_epoch: bool,
     backup: Option<BackupCfg>,
 }
 
@@ -129,9 +137,28 @@ impl ServerCfg {
             page_size: DEFAULT_PAGE_SIZE,
             log_batching_max_wait: DEFAULT_LOG_BATCHING_MAX_WAIT,
             wal_sync_policy: WalSyncPolicy::Commit,
+            queue_limits: (65536, 64 * 1024 * 1024),
             replication: None,
+            cluster: None,
+            sparse_epoch: false,
             backup: None,
         })
+    }
+
+    /// Configures positive per-queue message and payload-byte caps.
+    pub fn with_queue_limits(mut self, messages: u64, bytes: u64) -> RS<Self> {
+        if messages == 0 || bytes == 0 {
+            return Err(mudu_error!(
+                ErrorCode::InvalidArgument,
+                "queue limits must be positive"
+            ));
+        }
+        self.queue_limits = (messages, bytes);
+        Ok(self)
+    }
+    /// Per-queue message and encoded payload byte caps.
+    pub fn queue_limits(&self) -> (u64, u64) {
+        self.queue_limits
     }
 
     /// Overrides the WAL chunk size in bytes (default 64 MiB).
@@ -164,10 +191,18 @@ impl ServerCfg {
         self
     }
 
-    /// Attaches a primary-replica replication configuration. `None` keeps the
+    /// Attaches a stream replication configuration. `None` keeps the
     /// server in single-node mode (no replication components are started).
     pub fn with_replication(mut self, replication: Option<ReplNodeCfg>) -> Self {
         self.replication = replication;
+        self
+    }
+
+    /// Attaches the static cluster topology (multi-node-group scale-out):
+    /// the topology plus this node's cluster node id. `None` keeps the
+    /// server as a single self-contained group.
+    pub fn with_cluster(mut self, cluster: Option<(u64, ClusterTopology)>) -> Self {
+        self.cluster = cluster;
         self
     }
 
@@ -175,6 +210,13 @@ impl ServerCfg {
     /// backup-free (WAL GC behaves as before).
     pub fn with_backup(mut self, backup: Option<BackupCfg>) -> Self {
         self.backup = backup;
+        self
+    }
+
+    /// Enables or disables the sparse epoch protocol (P4 rollout; off by
+    /// default).
+    pub fn with_sparse_epoch(mut self, sparse_epoch: bool) -> Self {
+        self.sparse_epoch = sparse_epoch;
         self
     }
 
@@ -318,8 +360,35 @@ impl ServerCfg {
         self.replication.as_ref()
     }
 
+    /// The static cluster topology of this server, when enabled.
+    pub fn cluster(&self) -> Option<&ClusterTopology> {
+        self.cluster.as_ref().map(|(_, topology)| topology)
+    }
+
+    /// This node's cluster node id, when cluster mode is enabled.
+    pub fn cluster_node_id(&self) -> Option<u64> {
+        self.cluster.as_ref().map(|(node_id, _)| *node_id)
+    }
+
+    /// Whether this node is a dedicated control-plane node (it belongs to the
+    /// control set but to no data group, so it runs no business workers).
+    pub fn is_control_node(&self) -> bool {
+        match (self.cluster(), self.cluster_node_id()) {
+            (Some(topology), Some(node_id)) => {
+                topology.role_of(node_id)
+                    == Some(::catalog::contract::cluster_topology::NodeRole::ControlPlane)
+            }
+            _ => false,
+        }
+    }
+
     /// The backup / PITR configuration of this server, when enabled.
     pub fn backup(&self) -> Option<&BackupCfg> {
         self.backup.as_ref()
+    }
+
+    /// Whether the sparse epoch protocol is enabled in the control plane.
+    pub fn sparse_epoch(&self) -> bool {
+        self.sparse_epoch
     }
 }

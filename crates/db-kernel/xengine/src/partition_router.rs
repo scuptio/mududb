@@ -37,7 +37,7 @@ impl PartitionRouter {
     ///
     /// A table without a partition binding resolves to
     /// [`DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID`]; a partitioned table
-    /// whose key matches no partition yields `ErrorCode::EntityNotFound`.
+    /// whose key matches no partition yields `ErrorCode::ObjectNotFound`.
     pub async fn route_exact_partition(
         &self,
         table_id: OID,
@@ -83,7 +83,7 @@ impl PartitionRouter {
         }
 
         Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no partition matched table {} key", table_id)
         ))
     }
@@ -126,7 +126,7 @@ impl PartitionRouter {
     }
 
     /// Returns the partition of `rule` owning the key given as textual bound
-    /// values `key_values`, or `ErrorCode::EntityNotFound` when no partition
+    /// values `key_values`, or `ErrorCode::ObjectNotFound` when no partition
     /// matches.
     pub fn route_rule_exact_partition(
         &self,
@@ -155,7 +155,7 @@ impl PartitionRouter {
             }
         }
         Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no partition matched rule {}", rule.name)
         ))
     }
@@ -240,7 +240,7 @@ fn partition_overlaps(
         .find(|partition| partition.partition_id == partition_id)
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such partition {}", partition_id)
             )
         })?;
@@ -264,7 +264,10 @@ fn partition_overlaps(
     Ok(start_ok && end_ok)
 }
 
-fn build_route_tuple_desc(table_desc: &TableDesc, ref_attrs: &[usize]) -> RS<TupleBinaryDesc> {
+/// The tuple layout of a table's partition-route key (the projection of
+/// the key columns to the partition-key attributes). Shared with the
+/// split/merge redistribution path.
+pub fn build_route_tuple_desc(table_desc: &TableDesc, ref_attrs: &[usize]) -> RS<TupleBinaryDesc> {
     let mut fields = ref_attrs
         .iter()
         .map(|attr| {
@@ -286,7 +289,7 @@ fn build_route_tuple(table_desc: &TableDesc, ref_attrs: &[usize], key: &VecDatum
             .find_map(|(current_attr, binary)| (*current_attr == *attr).then(|| binary.clone()))
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("missing partition route attribute {}", attr)
                 )
             })?;
@@ -315,7 +318,13 @@ fn build_route_bound_tuple(
     }
 }
 
-fn build_partition_bound_tuple(route_desc: &TupleBinaryDesc, values: &[Vec<u8>]) -> RS<Vec<u8>> {
+/// Builds the comparison tuple of one partition bound from its textual
+/// values (the catalog's stored form), typed by the route descriptor.
+/// Shared with the split/merge redistribution path.
+pub fn build_partition_bound_tuple(
+    route_desc: &TupleBinaryDesc,
+    values: &[Vec<u8>],
+) -> RS<Vec<u8>> {
     if route_desc.field_count() != values.len() {
         return Err(mudu_error!(
             ErrorCode::InvalidTuple,
@@ -388,8 +397,8 @@ mod tests {
     use super::*;
     use ::catalog::contract::partition_rule::RangePartitionDef;
     use ::catalog::contract::partition_rule_binding::TablePartitionBinding;
+    use ::catalog::contract::schema_class::SchemaClass;
     use ::catalog::contract::schema_column::SchemaColumn;
-    use ::catalog::contract::schema_table::SchemaTable;
     use ::catalog::contract::table_info::TableInfo;
     use async_trait::async_trait;
     use mudu::common::id::AttrIndex;
@@ -412,7 +421,7 @@ mod tests {
                 Ok(self.table_desc.clone())
             } else {
                 Err(mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such table {}", oid)
                 ))
             }
@@ -422,7 +431,7 @@ mod tests {
             Ok((self.table_desc.name() == name).then(|| self.table_desc.clone()))
         }
 
-        async fn create_table(&self, _schema: &SchemaTable) -> RS<()> {
+        async fn create_table(&self, _schema: &SchemaClass) -> RS<()> {
             Ok(())
         }
 
@@ -441,7 +450,7 @@ mod tests {
             match &self.rule {
                 Some(rule) if rule.oid == oid => Ok(rule.clone()),
                 _ => Err(mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such partition rule {}", oid)
                 )),
             }
@@ -459,7 +468,7 @@ mod tests {
     }
 
     fn test_table_desc() -> Arc<TableDesc> {
-        TableInfo::new(SchemaTable::new(
+        TableInfo::new(SchemaClass::new(
             "t".to_string(),
             vec![
                 SchemaColumn::new(
@@ -482,7 +491,7 @@ mod tests {
     }
 
     fn test_table_desc_two_key_cols() -> Arc<TableDesc> {
-        TableInfo::new(SchemaTable::new(
+        TableInfo::new(SchemaClass::new(
             "t2".to_string(),
             vec![
                 SchemaColumn::new(
@@ -625,7 +634,7 @@ mod tests {
                     )
                     .await
                     .unwrap_err();
-                assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+                assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
             }
         })
         .unwrap()

@@ -52,3 +52,45 @@ impl AsyncStream for AsyncTokioStream {
         self.inner.set_nodelay(true)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::AsyncTokioStream;
+    use crate::contract::async_stream::AsyncStream;
+    use crate::imp::net::async_tokio::{bind_tcp, connect_tcp};
+    use crate::net::async_::AsyncTcpStream;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stream_connect_read_write_shutdown() {
+        let listener = bind_tcp("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _peer) = listener.accept().await.unwrap();
+            let mut stream = AsyncTcpStream::new(stream);
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).await.unwrap();
+            stream.write_all(&buf).await.unwrap();
+        });
+
+        let mut stream = AsyncTokioStream::connect(addr).await.unwrap();
+        stream.set_nodelay().unwrap();
+        let _fd = stream.as_raw_fd();
+        stream.write_all(b"ping").await.unwrap();
+        let mut buf = [0u8; 4];
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(n, 4);
+        assert_eq!(&buf, b"ping");
+        stream.shutdown().await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stream_new_wraps_a_backend_stream() {
+        let listener = bind_tcp("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let backend = connect_tcp(addr).await.unwrap();
+        let _stream = AsyncTokioStream::new(backend);
+    }
+}

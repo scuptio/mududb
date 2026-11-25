@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reproducible MuduDB development environment setup for Ubuntu/Debian.
-# This script installs system dependencies, rustup, the pinned stable and
-# nightly Rust toolchains, a local Python venv, and cargo-make.
+# Reproducible MuduDB development environment setup for Ubuntu/Debian:
+# system packages (sudo apt), rustup, the pinned stable and nightly Rust
+# toolchains, Python packages, and cargo-make.
+#
+# Scope: this is the new-machine bootstrap. For day-to-day checks ("is my
+# toolchain still complete?") and user-level tool installs, use
+# `cargo make doctor` / `cargo make doctor -- install` instead — they never
+# touch sudo.
+#
+# Flags:
+#   --system-pip   install Python packages system-wide (pip --break-system-packages)
+#                  instead of creating .venv — for deployment/container machines
+#                  (script/shell/install_deps.sh is a thin wrapper for this mode).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -12,9 +22,17 @@ log_info() { echo "[INFO] $*"; }
 log_success() { echo "[SUCCESS] $*"; }
 log_error() { echo "[ERROR] $*" >&2; }
 
+SYSTEM_PIP=0
+for arg in "$@"; do
+    case "${arg}" in
+        --system-pip) SYSTEM_PIP=1 ;;
+        *) log_error "unknown argument: ${arg} (supported: --system-pip)"; exit 2 ;;
+    esac
+done
+
 install_system_deps() {
     log_info "Installing system dependencies..."
-    if command -v sudo >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
         SUDO="sudo"
     else
         SUDO=""
@@ -31,7 +49,12 @@ install_system_deps() {
         clang \
         libclang-dev \
         llvm-dev \
-        pkgconf
+        pkgconf \
+        iproute2 \
+        git
+    # Ensure SSL root certificates are current (fixes Docker git SSL errors).
+    ${SUDO} apt-get install -y --reinstall ca-certificates || true
+    ${SUDO} update-ca-certificates || true
 }
 
 install_rustup() {
@@ -70,21 +93,35 @@ install_nightly_toolchain() {
     cargo "+${NIGHTLY_TOOLCHAIN}" --version
 }
 
-install_python_venv() {
-    log_info "Setting up Python virtual environment..."
-    cd "${PROJECT_ROOT}"
-    if [[ ! -d .venv ]]; then
-        python3 -m venv .venv
+install_python_packages() {
+    # tomli-w is required by script/build/transpiler.py, which the example
+    # Makefile.tomls invoke with the `python3` found on PATH.
+    if [[ "${SYSTEM_PIP}" -eq 1 ]]; then
+        log_info "Installing Python packages system-wide..."
+        python3 -m pip install --break-system-packages tomli-w
+    else
+        log_info "Setting up Python virtual environment (.venv)..."
+        cd "${PROJECT_ROOT}"
+        if [[ ! -d .venv ]]; then
+            python3 -m venv .venv
+        fi
+        .venv/bin/python -m pip install --upgrade pip
+        .venv/bin/python -m pip install tomli-w
     fi
-    # shellcheck source=/dev/null
-    source .venv/bin/activate
-    python -m pip install --upgrade pip
-    python -m pip install toml tomli-w
 }
 
 install_cargo_make() {
     log_info "Installing cargo-make..."
-    cargo install cargo-make
+    cargo install cargo-make --locked
+}
+
+configure_cargo() {
+    # Use system git for fetching (more robust SSL handling than libgit2).
+    mkdir -p "${HOME}/.cargo"
+    grep -q "git-fetch-with-cli" "${HOME}/.cargo/config.toml" 2>/dev/null || cat >> "${HOME}/.cargo/config.toml" <<'CARGOEOF'
+[net]
+git-fetch-with-cli = true
+CARGOEOF
 }
 
 main() {
@@ -92,13 +129,16 @@ main() {
     install_rustup
     install_stable_toolchain
     install_nightly_toolchain
-    install_python_venv
+    install_python_packages
     install_cargo_make
+    configure_cargo
 
     log_success "Development environment is ready."
-    log_info "Activate the Python venv with: source ${PROJECT_ROOT}/.venv/bin/activate"
-    log_info "Run checks with: cargo build, cargo test, cargo clippy, cargo doc"
-    log_info "Run auxiliary checks with the pinned nightly from ${PROJECT_ROOT}/.rust-nightly-version"
+    if [[ "${SYSTEM_PIP}" -eq 0 ]]; then
+        log_info "Activate the Python venv with: source ${PROJECT_ROOT}/.venv/bin/activate"
+    fi
+    log_info "Verify the toolchain any time with: cargo make doctor"
+    log_info "Run checks with: cargo make check; run tests with: cargo make test"
 }
 
 main "$@"

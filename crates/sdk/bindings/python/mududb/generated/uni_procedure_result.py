@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -164,10 +164,10 @@ class UniProcedureResult:
     return_list: list[UniDataValue] = field(default_factory=list)
 
 
-# MSSP wire conversion: the record encodes as a MessagePack map keyed by the
+# MSSP wire conversion: the struct encodes as a MessagePack map keyed by the
 # 1-based field numbers (WIT declaration order). Decode is lenient: unknown
 # keys are skipped and missing fields fall back to the type default (proto3
-# semantics). `bytes` fields encode as arrays of u8 (the record-context form
+# semantics). `bytes` fields encode as arrays of u8 (the struct-context form
 # of `list<u8>`), NOT as MessagePack bin.
 def uni_procedure_result_to_value(x: UniProcedureResult) -> dict:
     return {
@@ -179,7 +179,7 @@ def uni_procedure_result_from_value(v) -> UniProcedureResult:
     x = UniProcedureResult()
     for _key, _val in _expect_map(v).items():
         if isinstance(_key, bool) or not isinstance(_key, int):
-            # non-integer keys are not record fields; skip them
+            # non-integer keys are not struct fields; skip them
             continue
         if _key == 1:
             x.return_list = [uni_data_value_from_value(_e0) for _e0 in _expect_list(_val)]
@@ -188,7 +188,7 @@ def uni_procedure_result_from_value(v) -> UniProcedureResult:
 
 
 # Sibling-module imports live at the END of the module on purpose: WIT type
-# references can be mutually recursive across files (e.g. uni-record-type <
+# references can be mutually recursive across files (e.g. uni-struct-type <
 # -> uni-data-type), and bottom imports make every name resolvable once the
 # import graph settles. All uses are deferred (function bodies, default
 # factories, lazily-evaluated annotations), so this is safe.

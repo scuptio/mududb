@@ -17,9 +17,9 @@ fn int_column(name: &str) -> ColumnDef {
 }
 
 #[test]
-fn new_stores_table_name() {
+fn new_stores_class_name() {
     let stmt = StmtCreateTable::new("users".to_string());
-    assert_eq!(stmt.table_name(), "users");
+    assert_eq!(stmt.class_name(), "users");
     assert!(stmt.column_def().is_empty());
 }
 

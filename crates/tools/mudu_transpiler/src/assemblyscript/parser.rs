@@ -1,7 +1,7 @@
 //! Tree-sitter parser for the AssemblyScript front-end.
 
-use crate::assemblyscript::procedure::{
-    AsParam, AsProcedure, AsValueType, normalize_type_name, validate_as_record_result_fields,
+use crate::assemblyscript::types::{
+    AsParam, AsProcedure, AsValueType, normalize_type_name, validate_as_struct_result_fields,
 };
 use crate::common::ident::is_valid_identifier;
 use crate::common::type_registry::{TypeDefKind, TypeRegistry};
@@ -199,7 +199,7 @@ fn parse_parameter(
 }
 
 /// The return type resolves like a parameter type; `Result<T>` unwraps to
-/// `T` with the error arm flagged. Record and scalar (plus OID) returns are
+/// `T` with the error arm flagged. Struct and scalar (plus OID) returns are
 /// supported; enum and option returns are rejected (v1: the wire result
 /// carries no ordinal/nullable metadata for them).
 fn parse_return_type(
@@ -240,12 +240,12 @@ fn resolve_return_value_type(
                 "AssemblyScript procedure result does not support the option type '{return_type}' (v1: option parameters only)"
             )
         )),
-        AsValueType::Record(_) => {
+        AsValueType::Struct(_) => {
             if let Some(registry) = type_registry
-                && let Some(TypeDefKind::Record(record)) =
+                && let Some(TypeDefKind::Struct(record)) =
                     registry.resolve(inner.rsplit('.').next().unwrap_or(inner))
             {
-                validate_as_record_result_fields(registry, record)?;
+                validate_as_struct_result_fields(registry, record)?;
             }
             Ok(value_type)
         }

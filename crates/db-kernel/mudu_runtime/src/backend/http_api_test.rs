@@ -13,7 +13,6 @@ mod tests {
     use mudu_contract::tuple::tuple_datum::TupleDatum;
     use mudu_sys::contract::async_io_provider::AsyncIoProvider;
     use serde_json::{Map, Value};
-    use std::io::{Cursor, Write};
     use std::sync::Arc;
 
     use runtime_wasm::service::app_inst::AppInst;
@@ -156,25 +155,23 @@ mod tests {
         assert_eq!(err.ec(), ErrorCode::Decode);
     }
 
-    // Miri flags Stacked-Borrows UB inside zlib-rs (used by zip/flate2) when
-    // the DeflateEncoder drops its internal writer, so run this test natively.
-    #[cfg_attr(miri, ignore)]
     #[test]
     fn mpk_package_name_reads_package_cfg_json() {
-        let mut buf = Vec::new();
-        {
-            let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
-            let options = zip::write::SimpleFileOptions::default();
-            zip.start_file("package.cfg.json", options).unwrap();
-            zip.write_all(br#"{"name":"demo-app"}"#).unwrap();
-            zip.finish().unwrap();
-        }
-        assert_eq!(mpk_package_name(&buf).unwrap(), "demo-app");
+        let input = mudu_caf::build::BuildInput {
+            name: "demo-app".to_string(),
+            version: "0.1.0".to_string(),
+            interface_bytes: Vec::new(),
+            payloads: vec![],
+            components: vec![],
+            sign_seed: None,
+        };
+        let bytes = mudu_caf::build::assemble(&input).unwrap().bytes;
+        assert_eq!(mpk_package_name(&bytes).unwrap(), "demo-app");
     }
 
     #[test]
     fn mpk_package_name_returns_none_for_invalid_archive() {
-        assert!(mpk_package_name(b"not a zip").is_none());
+        assert!(mpk_package_name(b"not a caf").is_none());
     }
 
     #[test]
@@ -204,7 +201,7 @@ mod tests {
         let desc = sample_desc();
         let map = Map::new();
         let err = to_param(&map, desc.param_desc().fields()).unwrap_err();
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     }
 
     #[tokio::test]
@@ -241,7 +238,7 @@ mod tests {
         let result =
             runtime_get_app_and_desc(Arc::new(EmptyRuntime), "missing", "mod1", "proc1").await;
         match result {
-            Err(err) => assert_eq!(err.ec(), ErrorCode::EntityNotFound),
+            Err(err) => assert_eq!(err.ec(), ErrorCode::ObjectNotFound),
             Ok(_) => panic!("expected error"),
         }
     }

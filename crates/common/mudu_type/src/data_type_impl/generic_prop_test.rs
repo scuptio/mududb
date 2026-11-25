@@ -1,6 +1,7 @@
 use crate::data_type::DataType;
 use crate::datum::DatumDyn;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::Unstructured;
 
 const SEED_COUNT: u64 = 32;
@@ -20,7 +21,7 @@ fn supported_scalar_type_ids() -> &'static [TypeFamily] {
 }
 
 fn supported_complex_type_ids() -> &'static [TypeFamily] {
-    &[TypeFamily::Array, TypeFamily::Record]
+    &[TypeFamily::Array, TypeFamily::Struct]
 }
 
 fn seed_bytes(seed: u64, len: usize) -> Vec<u8> {
@@ -268,6 +269,46 @@ fn supported_complex_printable_values_parse_back() {
                 id
             );
             assert_textual_roundtrip(id, &dt, &value);
+        }
+    }
+}
+
+/// The family-level fixed-length flag must agree with the parametrized
+/// binary length function for every generated parameter object.
+/// Regression test: the `_schema_class` fuzz target found that `Numeric`
+/// declared `fixed_length: None` while `fn_numeric_len` always returns
+/// a fixed 16-byte length.
+#[test]
+fn family_fixed_len_flag_matches_parametrized_type_len() {
+    let all = [
+        TypeFamily::I32,
+        TypeFamily::I64,
+        TypeFamily::F32,
+        TypeFamily::F64,
+        TypeFamily::String,
+        TypeFamily::U128,
+        TypeFamily::I128,
+        TypeFamily::Numeric,
+        TypeFamily::Date,
+        TypeFamily::Time,
+        TypeFamily::Timestamp,
+        TypeFamily::TimestampTz,
+        TypeFamily::Array,
+        TypeFamily::Struct,
+        TypeFamily::Binary,
+    ];
+    for &id in &all {
+        for seed in 0..SEED_COUNT {
+            let bytes = seed_bytes(seed ^ (id.to_u32() as u64) << 8, SEED_BYTES_LEN);
+            let mut u = Unstructured::new(&bytes);
+            let dt = id.fn_arb_param()(&mut u).unwrap();
+            assert_eq!(
+                id.is_fixed_len(),
+                id.fn_send_type_len()(&dt).unwrap().is_some(),
+                "fixed-length flag mismatch for {:?} with param {:?}",
+                id,
+                dt
+            );
         }
     }
 }

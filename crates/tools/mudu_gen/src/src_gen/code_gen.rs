@@ -10,7 +10,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
-use mudu_binding::table::table_def::TableDef;
+use mudu_binding::table::class_def::ClassDef;
 use mudu_binding::universal::uni_data_type::UniDataType;
 use mudu_binding::universal::uni_type_desc::UniTypeDesc;
 use sql_parser::parser::ddl_parser::DDLParser;
@@ -24,7 +24,7 @@ pub struct GenResult {
     /// User-defined record types produced during generation.
     ///
     /// Key: record name; value: the corresponding [`UniDataType`].
-    pub used_defined_record_type: UniTypeDesc,
+    pub used_defined_struct_type: UniTypeDesc,
 
     /// Generated source files.
     ///
@@ -35,15 +35,15 @@ pub struct GenResult {
 impl GenResult {
     fn new() -> Self {
         Self {
-            used_defined_record_type: Default::default(),
+            used_defined_struct_type: Default::default(),
             source_code: Default::default(),
         }
     }
 
     /// Merge another generation result into `self`.
     pub fn extend(&mut self, other: Self) {
-        self.used_defined_record_type
-            .extend(other.used_defined_record_type);
+        self.used_defined_struct_type
+            .extend(other.used_defined_struct_type);
         self.source_code.extend(other.source_code);
     }
 }
@@ -113,8 +113,8 @@ impl CodeGen {
         Self::_generate_message(text, &lang_kind, &namespace, cfg)
     }
 
-    /// Generate entity code from DDL SQL text.
-    pub fn generate_entity_code_from_ddl_sql(
+    /// Generate object code from DDL SQL text.
+    pub fn generate_object_code_from_ddl_sql(
         text: &str,
         lang: &str,
         gen_ty_def: bool,
@@ -123,17 +123,42 @@ impl CodeGen {
         Self::_generate_from_sql(text, &lang_kind, gen_ty_def)
     }
 
-    fn _generate_record_type(record_list: &[TableDef], ty_def: &mut UniTypeDesc) -> RS<()> {
+    /// Generate WIT from DDL SQL text (the wit backend).
+    ///
+    /// Length/precision are dropped; field names are projected to kebab-case.
+    /// `package` and `interface` name the emitted WIT module.
+    pub fn generate_wit_from_ddl(text: &str, package: &str, interface: &str) -> RS<String> {
+        let parser = DDLParser::new()?;
+        let records = parser.parse(text)?;
+        Ok(crate::src_gen::wit_emit::emit_wit_module(
+            &records, package, interface,
+        ))
+    }
+
+    /// Generate message types (the wire backend) from DDL SQL text by
+    /// projecting to WIT and reusing the WIT→language codec generator.
+    pub fn generate_wire_from_ddl(
+        text: &str,
+        lang: &str,
+        namespace: Option<String>,
+        package: &str,
+        interface: &str,
+    ) -> RS<String> {
+        let wit = Self::generate_wit_from_ddl(text, package, interface)?;
+        Self::generate_message_code_from_wit(&wit, lang, namespace)
+    }
+
+    fn _generate_struct_type(record_list: &[ClassDef], ty_def: &mut UniTypeDesc) -> RS<()> {
         let mut vec = Vec::with_capacity(record_list.len());
         for table in record_list.iter() {
-            let ty = table.to_record_type()?;
-            vec.push(UniDataType::Record(ty));
+            let ty = table.to_struct_type()?;
+            vec.push(UniDataType::Struct(ty));
         }
         let vec = UniDataType::rewrite_inline(vec)?;
         for ty in vec {
             match &ty {
-                UniDataType::Record(r) => {
-                    ty_def.types.insert(to_pascal_case(&r.record_name), ty);
+                UniDataType::Struct(r) => {
+                    ty_def.types.insert(to_pascal_case(&r.struct_name), ty);
                 }
                 _ => {
                     return Err(mudu_error!(
@@ -149,27 +174,32 @@ impl CodeGen {
     fn _generate_from_sql(text: &str, lang: &LangKind, gen_ty_def: bool) -> RS<GenResult> {
         let ml_parser = DDLParser::new()?;
         let mut gen_result = GenResult::default();
-        let vec_table_def = ml_parser.parse(text)?;
-        Self::__generate_entity(&vec_table_def, lang, &mut gen_result.source_code)?;
+        let vec_class_def = ml_parser.parse(text)?;
+        Self::__generate_object(&vec_class_def, lang, &mut gen_result.source_code)?;
         if gen_ty_def {
-            Self::_generate_record_type(&vec_table_def, &mut gen_result.used_defined_record_type)?
+            Self::_generate_struct_type(&vec_class_def, &mut gen_result.used_defined_struct_type)?
         }
         Ok(gen_result)
     }
 
-    fn __generate_entity(
-        record_def: &Vec<TableDef>,
+    fn __generate_object(
+        record_def: &Vec<ClassDef>,
         lang: &LangKind,
         source_content: &mut HashMap<String, String>,
     ) -> RS<()> {
         let render = create_render(lang);
         for schema in record_def {
-            let table_name = schema.table_name().clone();
-            let kind = TemplateKind::Entity(schema.clone());
+            if schema.kind().is_type() || schema.kind().is_cache() {
+                // Type/Cache objects project to WIT only; no object/CRUD is
+                // generated for them.
+                continue;
+            }
+            let class_name = schema.class_name().clone();
+            let kind = TemplateKind::Object(schema.clone());
             let mut template = AbstractTemplate::new();
             template.elements.push(kind);
             let source = render.render(template)?;
-            source_content.insert(table_name, source);
+            source_content.insert(class_name, source);
         }
         Ok(())
     }
@@ -208,7 +238,7 @@ impl CodeGen {
         }
         for record_def in &wit_dat.records {
             code_gen_cfg.type_kinds.insert(
-                to_pascal_case(&record_def.record_name),
+                to_pascal_case(&record_def.struct_name),
                 "record".to_string(),
             );
         }
@@ -242,11 +272,11 @@ impl CodeGen {
             template.elements.push(kind);
         }
         for record_def in wit_dat.records {
-            let kind = TemplateKind::Record((record_def, code_gen_cfg.clone()));
+            let kind = TemplateKind::Struct((record_def, code_gen_cfg.clone()));
             template.elements.push(kind);
         }
-        for table_def in wit_dat.tables {
-            let kind = TemplateKind::Table((table_def, code_gen_cfg.clone()));
+        for class_def in wit_dat.tables {
+            let kind = TemplateKind::Table((class_def, code_gen_cfg.clone()));
             template.elements.push(kind);
         }
         if code_gen_cfg.with_func_codec && !wit_dat.functions.is_empty() {
@@ -346,57 +376,84 @@ mod test {
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn generate_entity_code_from_ddl_sql_produces_rust() {
+    fn generate_object_code_from_ddl_sql_produces_rust() {
         let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
         let GenResult {
             source_code,
-            used_defined_record_type,
-        } = CodeGen::generate_entity_code_from_ddl_sql(sql, "rust", false).unwrap();
+            used_defined_struct_type,
+        } = CodeGen::generate_object_code_from_ddl_sql(sql, "rust", false).unwrap();
         assert!(source_code.contains_key("t"));
-        assert!(used_defined_record_type.types.is_empty());
+        assert!(used_defined_struct_type.types.is_empty());
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn generate_entity_code_from_ddl_sql_produces_csharp() {
+    fn generate_object_code_from_ddl_sql_produces_csharp() {
         let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
         let GenResult { source_code, .. } =
-            CodeGen::generate_entity_code_from_ddl_sql(sql, "csharp", false).unwrap();
-        let entity = source_code.get("t").expect("an entity per table");
-        assert!(entity.contains("internal sealed class T"));
-        assert!(entity.contains("public object?[] InsertParams() =>"));
+            CodeGen::generate_object_code_from_ddl_sql(sql, "csharp", false).unwrap();
+        let object = source_code.get("t").expect("an object per table");
+        assert!(object.contains("internal sealed class T"));
+        assert!(object.contains("public object?[] InsertParams() =>"));
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn generate_entity_code_from_ddl_sql_produces_assemblyscript() {
+    fn generate_object_code_from_ddl_sql_produces_assemblyscript() {
         let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
         let GenResult { source_code, .. } =
-            CodeGen::generate_entity_code_from_ddl_sql(sql, "assemblyscript", false).unwrap();
-        let entity = source_code.get("t").expect("an entity per table");
-        assert!(entity.contains("export class T {"));
-        assert!(entity.contains("insertParams(): ValueList {"));
+            CodeGen::generate_object_code_from_ddl_sql(sql, "assemblyscript", false).unwrap();
+        let object = source_code.get("t").expect("an object per table");
+        assert!(object.contains("export class T {"));
+        assert!(object.contains("insertParams(): ValueList {"));
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn generate_entity_code_from_ddl_sql_produces_python() {
+    fn generate_object_code_from_ddl_sql_produces_python() {
         let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
         let GenResult { source_code, .. } =
-            CodeGen::generate_entity_code_from_ddl_sql(sql, "python", false).unwrap();
-        let entity = source_code.get("t").expect("an entity per table");
-        assert!(entity.contains("class T:"));
-        assert!(entity.contains("def insert_params(self) -> Params:"));
+            CodeGen::generate_object_code_from_ddl_sql(sql, "python", false).unwrap();
+        let object = source_code.get("t").expect("an object per table");
+        assert!(object.contains("class T:"));
+        assert!(object.contains("def insert_params(self) -> Params:"));
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn generate_entity_code_from_ddl_sql_includes_type_def_when_requested() {
+    fn generate_object_code_from_ddl_sql_includes_type_def_when_requested() {
         let sql = "CREATE TABLE t(id INT PRIMARY KEY, name TEXT);";
         let GenResult {
-            used_defined_record_type,
+            used_defined_struct_type,
             ..
-        } = CodeGen::generate_entity_code_from_ddl_sql(sql, "rust", true).unwrap();
-        assert!(!used_defined_record_type.types.is_empty());
+        } = CodeGen::generate_object_code_from_ddl_sql(sql, "rust", true).unwrap();
+        assert!(!used_defined_struct_type.types.is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_wit_from_ddl_emits_module() {
+        let sql = "CREATE TABLE players(id BIGINT PRIMARY KEY, name VARCHAR(32) NOT NULL);";
+        let wit = CodeGen::generate_wit_from_ddl(sql, "mududb:browserquest", "types").unwrap();
+        assert!(wit.contains("package mududb:browserquest;"));
+        assert!(wit.contains("interface types {"));
+        assert!(wit.contains("record players {"));
+        assert!(wit.contains("name: string,"));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn generate_wire_from_ddl_produces_valid_rust() {
+        let sql = "CREATE TABLE t(id BIGINT PRIMARY KEY, name VARCHAR(32) NOT NULL);";
+        let src = CodeGen::generate_wire_from_ddl(
+            sql,
+            "rust",
+            Some("types".to_string()),
+            "mududb:test",
+            "types",
+        )
+        .unwrap();
+        assert!(!src.is_empty());
+        let _syntax = syn::parse_file(&src).unwrap();
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::common::ident::is_valid_identifier;
 use crate::common::type_registry::TypeRegistry;
-use crate::go::procedure::{GoParam, GoProcedure, GoValueType};
+use crate::go::types::{GoParam, GoProcedure, GoValueType};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

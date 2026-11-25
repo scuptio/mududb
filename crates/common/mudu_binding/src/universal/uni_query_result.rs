@@ -17,8 +17,8 @@ use crate::universal::mp_wire::{
     to_array, to_option, to_tuple2, to_tuple3,
 };
 use crate::universal::uni_error::UniError;
-use crate::universal::uni_record_type::UniRecordType;
 use crate::universal::uni_result_set::UniResultSet;
+use crate::universal::uni_struct_type::UniStructType;
 #[derive(Debug, Clone)]
 pub enum UniQueryReturn {
     Ok(UniQueryResult),
@@ -99,7 +99,7 @@ impl crate::universal::mp_wire::FromValue for UniQueryReturn {
 }
 #[derive(Debug, Clone)]
 pub struct UniQueryResult {
-    pub tuple_desc: UniRecordType,
+    pub tuple_desc: UniStructType,
     pub result_set: UniResultSet,
 }
 impl Default for UniQueryResult {
@@ -136,7 +136,7 @@ impl crate::universal::mp_wire::FromValue for UniQueryResult {
                 continue;
             };
             match number {
-                1 => tuple_desc = Some(UniRecordType::from_value(val)?),
+                1 => tuple_desc = Some(UniStructType::from_value(val)?),
                 2 => result_set = Some(UniResultSet::from_value(val)?),
                 _ => {}
             }

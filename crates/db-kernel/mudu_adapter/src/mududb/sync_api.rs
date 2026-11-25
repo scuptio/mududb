@@ -14,8 +14,8 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
 use mudu_client::client::client::SyncClient;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_sys::sync::SMutex;
@@ -53,7 +53,7 @@ pub fn mudu_close(session_id: OID) -> RS<()> {
 
     let entry = SESSIONS.remove_sync(&session_id).ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -114,11 +114,11 @@ pub fn mudu_range(
 }
 
 /// Executes a query on a remote Mudud session and returns the resulting record set.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     session_id: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let _trace = mudu_utils::task_trace!();
     // Send the template text (with `?` placeholders) plus the parameters so
     // identical statements share one plan-cache entry on the server.
@@ -140,7 +140,7 @@ pub fn mudu_query<R: Entity>(
         )?;
         let desc = response.row_desc().clone();
         let rows = response.rows().to_vec();
-        Ok(EntitySet::new(
+        Ok(ObjectSet::new(
             Arc::new(LocalResultSet::new(rows)),
             Arc::new(desc),
         ))

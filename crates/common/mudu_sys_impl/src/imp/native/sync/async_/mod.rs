@@ -219,3 +219,46 @@ impl Notifier {
         NotifyWait { inner: self.inner }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{notify_wait, NotifyWait};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn notify_wait_state_machine() {
+        let wait = NotifyWait::default();
+        let (notifier, waiter) = notify_wait();
+        let (notifier2, waiter2) = wait.notify_wait();
+        assert!(!wait.is_notified());
+        assert!(!notifier.is_notified());
+        assert!(!notifier2.is_notified());
+
+        // A waiter registered before the notification still wakes up.
+        let waiting = tokio::spawn(async move {
+            waiter2.wait().await;
+        });
+        tokio::task::yield_now().await;
+        assert!(wait.notify_all());
+        assert!(wait.is_notified());
+        assert!(!wait.notify_all());
+        waiting.await.unwrap();
+
+        // Late waiters resolve immediately.
+        wait.as_waiter().wait().await;
+        wait.notified().await;
+
+        // Handles convert back into the combined NotifyWait.
+        let _combined: NotifyWait = notifier.into();
+        let _combined2: NotifyWait = notifier2.into();
+        let _combined3: NotifyWait = waiter.into();
+    }
+
+    #[test]
+    fn notify_wait_new_with_name() {
+        let wait = NotifyWait::new_with_name("named".to_string());
+        assert!(!wait.is_notified());
+        assert!(wait.notify_all());
+        assert!(wait.is_notified());
+    }
+}

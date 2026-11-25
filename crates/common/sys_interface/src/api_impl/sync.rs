@@ -22,13 +22,13 @@ use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
     feature = "component-model",
     not(feature = "async")
 )))]
-use mudu_contract::database::entity::Entity;
+use mudu_contract::database::object::Object;
 #[cfg(not(all(
     target_arch = "wasm32",
     feature = "component-model",
     not(feature = "async")
 )))]
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::sql::Context;
 #[cfg(not(all(
@@ -75,11 +75,11 @@ pub use super::sync_wasm::*;
     not(feature = "async")
 )))]
 /// Execute a query against the session.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     _oid: OID,
     _sql: &dyn SQLStmt,
     _params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     not_implemented("mudu_query")
 }
 
@@ -165,6 +165,56 @@ pub fn mudu_range(
     _end_key: &[u8],
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     not_implemented("mudu_range")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Open a volatile cache by name.
+pub fn mudu_cache_open(_name: &str) -> RS<OID> {
+    not_implemented("mudu_cache_open")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Read a cache entry.
+pub fn mudu_cache_get(_cache: OID, _key: &[u8]) -> RS<Option<Vec<u8>>> {
+    not_implemented("mudu_cache_get")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Write a cache entry.
+pub fn mudu_cache_put(_cache: OID, _key: &[u8], _value: &[u8], _ttl_secs: Option<u64>) -> RS<()> {
+    not_implemented("mudu_cache_put")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Remove a cache entry.
+pub fn mudu_cache_delete(_cache: OID, _key: &[u8]) -> RS<()> {
+    not_implemented("mudu_cache_delete")
+}
+
+#[cfg(not(all(
+    target_arch = "wasm32",
+    feature = "component-model",
+    not(feature = "async")
+)))]
+/// Read a cache entry's remaining TTL.
+pub fn mudu_cache_ttl(_cache: OID, _key: &[u8]) -> RS<Option<u64>> {
+    not_implemented("mudu_cache_ttl")
 }
 
 #[cfg(not(all(
@@ -333,7 +383,7 @@ pub fn mudu_query_bytes(query_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = query_invoke::deserialize_query_param(query_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -353,7 +403,7 @@ pub fn mudu_fetch_bytes(cursor: &[u8]) -> RS<Vec<u8>> {
     let oid = super::fetch_cursor_oid(cursor)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -372,7 +422,7 @@ pub fn mudu_command_bytes(command_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = command_invoke::deserialize_command_param(command_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -391,7 +441,7 @@ pub fn mudu_batch_bytes(batch_in: &[u8]) -> RS<Vec<u8>> {
     let (oid, stmt, params) = command_invoke::deserialize_command_param(batch_in)?;
     let context = Context::context(oid).ok_or_else(|| {
         mudu::mudu_error!(
-            mudu::error::ErrorCode::EntityNotFound,
+            mudu::error::ErrorCode::ObjectNotFound,
             format!("no such session/context {}", oid)
         )
     })?;
@@ -448,7 +498,7 @@ mod tests {
     use mudu_binding::universal::uni_result::UniResult;
     use mudu_binding::universal::uni_result_set::UniResultSet;
     use mudu_contract::database::db_conn::DBConnSync;
-    use mudu_contract::database::entity::Entity;
+    use mudu_contract::database::object::Object;
     use mudu_contract::database::result_set::ResultSet;
     use mudu_contract::database::sql::{Context, DBConn};
     use mudu_contract::database::sql_params::SQLParams;
@@ -614,7 +664,7 @@ mod tests {
         let oid = next_oid();
         let input = make_query_input(oid);
         let err = mudu_query_bytes(&input).unwrap_err();
-        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
     }
 
     #[test]
@@ -693,7 +743,7 @@ mod tests {
         let oid = next_oid();
         let cursor = serialize_cursor(oid);
         let err = mudu_fetch_bytes(&cursor).unwrap_err();
-        assert_eq!(err.ec(), mudu::error::ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), mudu::error::ErrorCode::ObjectNotFound);
     }
 
     #[test]

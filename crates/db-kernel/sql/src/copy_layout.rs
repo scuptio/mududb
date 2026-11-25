@@ -45,13 +45,13 @@ impl CopyLayout {
             for oid in oids {
                 let info = table_desc.oid2col().get(oid).ok_or_else(|| {
                     mudu_error!(
-                        ER::EntityNotFound,
+                        ER::ObjectNotFound,
                         format!("cannot find column oid {}", oid)
                     )
                 })?;
                 let position = name_to_position.get(info.name()).ok_or_else(|| {
                     mudu_error!(
-                        ER::EntityNotFound,
+                        ER::ObjectNotFound,
                         format!("cannot find column name {}", info.name())
                     )
                 })?;

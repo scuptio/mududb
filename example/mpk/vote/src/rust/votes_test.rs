@@ -1,9 +1,10 @@
-//! Unit tests for the `rust::votes::Votes` entity.
+//! Unit tests for the `rust::votes::Votes` object.
 
-use mududb::contract::database::entity::Entity;
+use mududb::contract::database::field_change::FieldChange;
+use mududb::contract::database::object::Object;
 use mududb::types::datum::{Datum, DatumDyn};
 
-use crate::rust::votes::object::Votes;
+use crate::rust::votes::object::{Votes, VotesChange, columns};
 
 fn sample_votes() -> Votes {
     Votes::new(
@@ -29,50 +30,50 @@ fn assert_same_votes(lhs: &Votes, rhs: &Votes) {
 
 #[test]
 fn votes_lifecycle() {
-    let entity = sample_votes();
-    assert_eq!(entity.vote_id, "vote_id_val");
-    assert_eq!(entity.topic, "topic_val");
-    assert_eq!(entity.end_time, 1);
+    let object = sample_votes();
+    assert_eq!(object.vote_id, "vote_id_val");
+    assert_eq!(object.topic, "topic_val");
+    assert_eq!(object.end_time, 1);
 
-    // Entity metadata
-    assert_eq!(Votes::table_name(), "votes");
+    // Object metadata
+    assert_eq!(Votes::class_name(), "votes");
     assert_eq!(Votes::TABLE_NAME, "votes");
     assert_eq!(Votes::tuple_desc().fields().len(), 7);
 
     // Datum / DatumDyn metadata
     let data_type = Votes::data_type();
-    assert_eq!(entity.type_family().unwrap(), data_type.type_family());
+    assert_eq!(object.type_family().unwrap(), data_type.type_family());
 
     // Tuple roundtrip
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     let from_tuple = Votes::from_tuple(&tuple).unwrap();
-    assert_same_votes(&from_tuple, &entity);
+    assert_same_votes(&from_tuple, &object);
 
     // Value roundtrip
-    let value = entity.to_value(&data_type).unwrap();
+    let value = object.to_value(&data_type).unwrap();
     let from_value = Votes::from_value(&value).unwrap();
-    assert_same_votes(&from_value, &entity);
+    assert_same_votes(&from_value, &object);
 
     // Binary roundtrip
-    let binary = entity.to_binary(&data_type).unwrap();
+    let binary = object.to_binary(&data_type).unwrap();
     let from_binary = Votes::from_binary(binary.as_ref()).unwrap();
-    assert_same_votes(&from_binary, &entity);
+    assert_same_votes(&from_binary, &object);
 
     // Textual roundtrip
-    let textual = entity.to_textual(&data_type).unwrap();
+    let textual = object.to_textual(&data_type).unwrap();
     let from_textual = Votes::from_textual(textual.as_str()).unwrap();
-    assert_same_votes(&from_textual, &entity);
+    assert_same_votes(&from_textual, &object);
 
     // Clone through DatumDyn
-    let cloned: Box<dyn DatumDyn> = entity.clone_boxed();
+    let cloned: Box<dyn DatumDyn> = object.clone_boxed();
     let cloned_value = cloned.to_value(&data_type).unwrap();
     let from_cloned = Votes::from_value(&cloned_value).unwrap();
-    assert_same_votes(&from_cloned, &entity);
+    assert_same_votes(&from_cloned, &object);
 }
 
 #[test]
 fn votes_nullable_fields_roundtrip() {
-    let entity = Votes::new(
+    let object = Votes::new(
         "vote_id_val".to_string(),
         None,
         "topic_val".to_string(),
@@ -81,13 +82,64 @@ fn votes_nullable_fields_roundtrip() {
         1,
         None,
     );
-    let tuple = entity.to_tuple().unwrap();
+    let tuple = object.to_tuple().unwrap();
     assert!(tuple.is_null(1));
     let restored = Votes::from_tuple(&tuple).unwrap();
-    assert_same_votes(&restored, &entity);
+    assert_same_votes(&restored, &object);
 
-    let value = entity.to_tuple_value().unwrap();
+    let value = object.to_tuple_value().unwrap();
     assert!(value.values()[1].is_null());
     let restored = Votes::from_tuple_value(&value).unwrap();
-    assert_same_votes(&restored, &entity);
+    assert_same_votes(&restored, &object);
+}
+
+#[test]
+fn votes_insert_params_and_change() {
+    let object = sample_votes();
+    let params = object.insert_params();
+    assert_eq!(params.0, "vote_id_val");
+    assert_eq!(params.1.as_deref(), Some("creator_id_val"));
+    assert_eq!(params.2, "topic_val");
+    assert_eq!(params.5, 1);
+
+    // Partial update statement
+    let update = VotesChange {
+        topic: FieldChange::Set("new_topic".to_string()),
+        max_choices: FieldChange::Set(Some(3)),
+        ..VotesChange::default()
+    };
+    let (sql, update_params) = update.update_by_pk("vote_id_val".to_string()).unwrap();
+    assert_eq!(
+        sql,
+        "UPDATE votes SET topic = ?, max_choices = ? WHERE vote_id = ?"
+    );
+    assert_eq!(update_params.len(), 3);
+    assert!(VotesChange::default().is_empty());
+    assert!(
+        VotesChange::default()
+            .update_by_pk("vote_id_val".to_string())
+            .is_none()
+    );
+
+    // Set(None) on a nullable column emits `<col> = ?` with a NULL parameter
+    let null_update = VotesChange {
+        creator_id: FieldChange::Set(None),
+        ..VotesChange::default()
+    };
+    let (null_sql, null_params) = null_update.update_by_pk("vote_id_val".to_string()).unwrap();
+    assert_eq!(
+        null_sql,
+        "UPDATE votes SET creator_id = ? WHERE vote_id = ?"
+    );
+    assert_eq!(null_params.len(), 2);
+    assert!(
+        null_params[0]
+            .to_value(&String::data_type())
+            .unwrap()
+            .is_null()
+    );
+
+    // Column name constants feed the metadata and SQL builders
+    assert_eq!(columns::VOTE_ID, "vote_id");
+    assert!(Votes::SQL_DELETE_BY_PK.contains(columns::VOTE_ID));
 }

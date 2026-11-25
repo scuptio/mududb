@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document specifies the on-disk layout of MuduDB database files, directories, and package artifacts. It binds together the lower-level contracts for [page headers](page_header_v1.md), [tuple binary format](tuple_binary_v1.md), [log frames](log_frame_v1.md), [protocol frames](protocol_frame_v1.md), [MPK manifests](mpk_manifest_v1.md), and [server configuration](mudud_cfg_v1.md).
+This document specifies the on-disk layout of MuduDB database files, directories, and package artifacts. It binds together the lower-level contracts for [page headers](page_header_v1.md), [tuple binary format](tuple_binary_v1.md), [log frames](log_frame_v1.md), [protocol frames](protocol_frame_v1.md), [MPK application packages](caf_mududb_profile_v1.md), and [server configuration](mudud_cfg_v1.md).
 
 ## Version history
 
@@ -18,7 +18,7 @@ A MuduDB deployment consists of:
 - One or more **time-series files** storing time-series data.
 - **WAL chunk files** (`*.xl`) storing write-ahead log frames.
 - An optional **MPK package** (`*.mpk`) for distribution.
-- A **server configuration file** (`mududb.toml`).
+- A **server configuration file** (`mudud.cfg`).
 
 ## Relation file layout
 
@@ -91,15 +91,18 @@ A new chunk is started when the current chunk reaches `chunk_size`. The default 
 
 ## MPK package layout
 
-An MPK package is a ZIP archive containing:
+An MPK package is a flat `.mpk` (CAF container) holding one payload tree and zero or more WASM components:
 
 ```text
+package.cfg.json
 package.desc.json
-type.desc.json
-<artifact files...>
+ddl.sql
+initdb.sql
+abi.json
+<*.wasm components>
 ```
 
-The manifest semantics are specified in [MPK Manifest Contract v1](mpk_manifest_v1.md). The package itself does not add extra framing beyond the ZIP container.
+Package contents and signing are specified in [MuduDB Application Package Contract v1](caf_mududb_profile_v1.md). The distribution form `.mpk.zip` is a deterministic ZIP export of the flat file.
 
 ## Server configuration
 
@@ -109,7 +112,7 @@ The server configuration is a TOML file. See [MuduDB Server Configuration Contra
 
 - Relation files: `{data_dir}/{partition_id}/{table_id}/`
 - WAL chunks: `{wal_dir}/{log_oid_short}/`
-- MPK packages: arbitrary path ending in `.mpk`
+- MPK packages: flat ends in `.mpk`, ZIP export ends in `.mpk.zip`
 
 ## Integrity mechanisms
 
@@ -144,9 +147,9 @@ Version `1` may be deprecated only after:
 - Tuple binary format: [tuple_binary_v1.md](tuple_binary_v1.md)
 - Log frame: [log_frame_v1.md](log_frame_v1.md)
 - Protocol frame: [protocol_frame_v1.md](protocol_frame_v1.md)
-- MPK manifest: [mpk_manifest_v1.md](mpk_manifest_v1.md)
+- MPK application package: [caf_mududb_profile_v1.md](caf_mududb_profile_v1.md)
 - Server config: [mudud_cfg_v1.md](mudud_cfg_v1.md)
 - Implementation:
-  - [`mudu_kernel/src/storage/time_series/time_series_file.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/time_series/time_series_file.rs)
-  - [`mudu_kernel/src/storage/relation/relation.rs`](../../../crates/db-kernel/mudu_kernel/src/storage/relation/relation.rs)
-  - [`mudu_kernel/src/wal/worker_wal_backend/layout.rs`](../../../crates/db-kernel/mudu_kernel/src/wal/worker_wal_backend/layout.rs)
+  - [`storage/src/time_series/time_series_file.rs`](../../../crates/db-kernel/storage/src/time_series/time_series_file.rs)
+  - [`storage/src/relation/relation/mod.rs`](../../../crates/db-kernel/storage/src/relation/relation/mod.rs)
+  - [`wal/src/worker_wal_backend/layout.rs`](../../../crates/db-kernel/wal/src/worker_wal_backend/layout.rs)

@@ -15,6 +15,7 @@
 pub mod backend;
 pub mod codec;
 pub mod config;
+mod connection;
 pub mod kv;
 pub mod local_fs;
 pub mod mududb;
@@ -27,9 +28,17 @@ pub mod postgres;
 mod postgres_test;
 pub mod result_set;
 pub mod sql;
+#[cfg(all(test, not(miri)))]
+mod sql_test;
 pub mod sqlite;
+#[cfg(all(test, not(miri)))]
+mod sqlite_test;
 pub mod state;
 pub mod syscall;
+#[cfg(all(test, not(miri)))]
+mod syscall_test;
 
 #[cfg(all(test, not(miri)))]
 mod mududb_test;
+#[cfg(all(test, not(miri)))]
+mod mududb_wire_test;

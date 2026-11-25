@@ -3,18 +3,18 @@ use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]
 /// Execute a query against the session.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     crate::inner_component::inner_query(oid, sql, params)
 }
 
@@ -87,6 +87,36 @@ pub fn mudu_range(
     end_key: &[u8],
 ) -> RS<Vec<(Vec<u8>, Vec<u8>)>> {
     crate::inner_component::inner_range(session_id, start_key, end_key)
+}
+
+#[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Open a volatile cache by name, returning its handle (catalog OID).
+pub fn mudu_cache_open(name: &str) -> RS<OID> {
+    crate::inner_component::inner_cache_open(name)
+}
+
+#[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Read a cache entry.
+pub fn mudu_cache_get(cache: OID, key: &[u8]) -> RS<Option<Vec<u8>>> {
+    crate::inner_component::inner_cache_get(cache, key)
+}
+
+#[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Write a cache entry with an optional TTL in seconds.
+pub fn mudu_cache_put(cache: OID, key: &[u8], value: &[u8], ttl_secs: Option<u64>) -> RS<()> {
+    crate::inner_component::inner_cache_put(cache, key, value, ttl_secs)
+}
+
+#[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Remove a cache entry.
+pub fn mudu_cache_delete(cache: OID, key: &[u8]) -> RS<()> {
+    crate::inner_component::inner_cache_delete(cache, key)
+}
+
+#[cfg(all(feature = "component-model", not(feature = "async")))]
+/// Read a cache entry's remaining TTL in seconds.
+pub fn mudu_cache_ttl(cache: OID, key: &[u8]) -> RS<Option<u64>> {
+    crate::inner_component::inner_cache_ttl(cache, key)
 }
 
 #[cfg(all(feature = "component-model", not(feature = "async")))]

@@ -43,7 +43,7 @@ The core premise of a modern hardware-optimized architecture is:
 
 ## 2. Core Design Principles
 
-**Status: implemented** — the io_uring backend realizes this target shape: one control plane plus per-partition workers, each owning its ring, local queues, connection table and executor (`crates/db-kernel/mudu_kernel/src/server/`).
+**Status: implemented** — the io_uring backend realizes this target shape: one control plane plus per-partition workers, each owning its ring, local queues, connection table and executor (`crates/db-kernel/server/src/linux/`).
 
 This style of architecture usually follows these principles:
 
@@ -108,7 +108,7 @@ The typical target shape is:
 
 ## 3. The Role of io_uring
 
-**Status: implemented** — the io_uring backend (`server/linux/server_iouring.rs`, `worker_ring_loop.rs`) ships as the selectable `ServerMode::IOUring` next to the Tokio backend.
+**Status: implemented** — the io_uring backend (`crates/db-kernel/server/src/linux/server_iouring.rs`, `crates/db-kernel/server/src/linux/worker_ring_loop/`) ships as the selectable `ServerMode::IOUring` next to the Tokio backend.
 
 `io_uring` is the foundation of this architecture. It is not just “a faster async socket API”. It turns I/O from “blocking syscalls plus sleeping threads” into a unified “submission queue plus completion queue plus user-space event loop” model.
 
@@ -327,7 +327,7 @@ The correct order is:
 
 ## 7. Batching, Backpressure, and Pipelining
 
-**Status: partially implemented** — batched submission and completion exist in the io_uring worker loop and the WAL backend (`server/linux/worker_ring_loop.rs`, `wal/worker_wal_backend/batching.rs`); first-class backpressure is planned / under development.
+**Status: partially implemented** — batched submission and completion exist in the io_uring worker loop and the WAL backend (`crates/db-kernel/server/src/linux/worker_ring_loop/`, `crates/db-kernel/wal/src/worker_wal_backend/batching.rs`); bounded task polling exists in the worker loop, and cluster transport has message/byte budgets with a reserved control lane (`crates/db-kernel/server/src/server/cluster_transport.rs`). These are scoped mechanisms, not a uniform end-to-end backpressure guarantee.
 
 Another key property of a modern hardware-optimized architecture is batching.
 

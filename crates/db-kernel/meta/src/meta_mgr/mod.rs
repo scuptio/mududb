@@ -1,6 +1,8 @@
 mod apply;
 mod ddl;
 mod lookup;
+mod recovery;
+mod references;
 #[cfg(test)]
 mod tests;
 mod trait_impl;
@@ -31,13 +33,14 @@ use crate::partition_placement_catalog::{
 use crate::partition_rule_catalog::{
     load_partition_rules_from_catalog, open_partition_rule_catalog,
 };
+use crate::queue_consumer::{queue_consumer_schema, QUEUE_CONSUMER_TABLE_NAME};
 use crate::schema_catalog::{load_schemas_from_catalog, open_schema_catalog};
 use ::catalog::contract::app_schema::DEFAULT_SCHEMA;
 use ::catalog::contract::fs_type::FsTypeDesc;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::TablePartitionBinding;
 use ::catalog::contract::table_info::TableInfo;
-use ::storage::relation::relation::Relation;
+use ::storage::relation::SharedCatalogRelation as Relation;
 
 type MetaMgrRegistry = HashMap<String, Vec<Weak<MetaMgrImpl>>>;
 type DdlLockRegistry = HashMap<String, Weak<AMutex<()>>>;
@@ -115,7 +118,6 @@ pub struct MetaMgrImpl {
     placement_by_partition_id: scc::HashMap<OID, OID>,
     fs_type_by_name: scc::HashMap<String, FsTypeDesc>,
     fs_type_by_id: scc::HashMap<u64, FsTypeDesc>,
-    next_fs_id: AtomicU64,
 }
 
 impl MetaMgrImpl {
@@ -128,6 +130,10 @@ impl MetaMgrImpl {
     }
 
     pub(crate) async fn initialize_inner(&self) -> RS<()> {
+        let _ddl_guard = self.ddl_lock.lock().await;
+        if self.catalog.lock()?.is_some() {
+            return Ok(());
+        }
         let path = PathBuf::from(&self.path);
         if !mudu_sys::fs::sync::path_exists(&path) {
             mudu_sys::fs::sync::create_dir_all(&path)?;
@@ -141,34 +147,6 @@ impl MetaMgrImpl {
         let partition_placement_catalog =
             open_partition_placement_catalog(&self.path, self.async_runtime.clone()).await?;
         let fs_type_catalog = open_fs_type_catalog(&self.path, self.async_runtime.clone()).await?;
-        for schema in load_schemas_from_catalog(&schema_catalog).await? {
-            self.apply_create_table_local(&schema)?;
-        }
-        for rule in load_partition_rules_from_catalog(&partition_rule_catalog).await? {
-            self.apply_create_partition_rule_local(&rule);
-        }
-        for binding in load_partition_bindings_from_catalog(&partition_binding_catalog).await? {
-            self.apply_bind_table_partition_local(&binding);
-        }
-        for placement in
-            load_partition_placements_from_catalog(&partition_placement_catalog).await?
-        {
-            self.apply_partition_placement_local(&placement);
-        }
-        for desc in load_fs_types_from_catalog(&fs_type_catalog).await? {
-            self.apply_create_fs_type_local(&desc);
-        }
-        // Register the built-in `_fs_object` system table so it resolves like
-        // any user table and its relations get bootstrapped from the schema
-        // list. It is not persisted in the schema catalog; a user table with
-        // the same name fails as a duplicate. It lives in the default schema,
-        // so applications reach it through the search-path fallback.
-        if !self
-            .table
-            .contains_sync(&(DEFAULT_SCHEMA.to_string(), FS_OBJECT_TABLE_NAME.to_string()))
-        {
-            self.apply_create_table_local(&fs_object_schema())?;
-        }
         let catalog = CatalogRelation {
             schema_catalog: Arc::new(schema_catalog),
             partition_rule_catalog: Arc::new(partition_rule_catalog),
@@ -176,7 +154,9 @@ impl MetaMgrImpl {
             partition_binding_catalog: Arc::new(partition_binding_catalog),
             fs_type: Arc::new(fs_type_catalog),
         };
+        let image = recovery::CatalogImage::load(&catalog).await?;
         let mut guard = self.catalog.lock()?;
+        image.publish(self);
         *guard = Some(catalog);
         Ok(())
     }
@@ -210,7 +190,6 @@ impl MetaMgrImpl {
             placement_by_partition_id: Default::default(),
             fs_type_by_name: Default::default(),
             fs_type_by_id: Default::default(),
-            next_fs_id: AtomicU64::new(1),
         };
         // this.initialize_inner().await?;
         Ok(this)

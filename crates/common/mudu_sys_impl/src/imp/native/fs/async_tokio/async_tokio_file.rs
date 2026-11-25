@@ -33,6 +33,10 @@ impl AsyncFile for AsyncTokioFile {
         self.inner.fsync().await
     }
 
+    async fn set_len(&self, len: u64) -> RS<()> {
+        self.inner.set_len(len).await
+    }
+
     async fn file_len(&self) -> RS<u64> {
         self.inner.file_len().await
     }

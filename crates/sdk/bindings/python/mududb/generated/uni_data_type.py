@@ -58,7 +58,7 @@ def _bool_checked(v):
     # A bool crosses the Mudu procedure byte pipe as an i32 (0/1): the host's
     # uni-data-value vocabulary has no Bool case (its desc declares the I32
     # family). Accept the integer form so the generated codecs can decode
-    # host-supplied records.
+    # host-supplied structs.
     if isinstance(v, int) and v in (0, 1):
         return bool(v)
     raise _type_error("bool", v)
@@ -100,7 +100,7 @@ def _bytes_checked(v):
 
 
 def _blob_to_array_value(v):
-    # record-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
+    # struct-context list<u8>: a MessagePack ARRAY of u8, not a bin blob
     if isinstance(v, (bytes, bytearray)):
         return list(bytes(v))
     if isinstance(v, (list, tuple)):
@@ -162,7 +162,7 @@ def _expect_seq(v, n):
 class UniDataTypeKind(IntEnum):
     SCALAR = 0
     ARRAY = 1
-    RECORD = 2
+    STRUCT = 2
     OPTION = 3
     TUPLE = 4
     RESULT = 5
@@ -195,9 +195,9 @@ class UniDataTypeArray(UniDataType):
     inner: UniDataType = field(default_factory=lambda: UniDataType.default())
 
 @dataclass
-class UniDataTypeRecord(UniDataType):
-    kind = UniDataTypeKind.RECORD
-    inner: UniRecordType = field(default_factory=lambda: UniRecordType())
+class UniDataTypeStruct(UniDataType):
+    kind = UniDataTypeKind.STRUCT
+    inner: UniStructType = field(default_factory=lambda: UniStructType())
 
 @dataclass
 class UniDataTypeOption(UniDataType):
@@ -237,8 +237,8 @@ def uni_data_type_to_value(x: UniDataType) -> list:
         return [0, uni_scalar_to_value(x.inner)]
     elif isinstance(x, UniDataTypeArray):
         return [1, uni_data_type_to_value(x.inner)]
-    elif isinstance(x, UniDataTypeRecord):
-        return [2, uni_record_type_to_value(x.inner)]
+    elif isinstance(x, UniDataTypeStruct):
+        return [2, uni_struct_type_to_value(x.inner)]
     elif isinstance(x, UniDataTypeOption):
         return [3, uni_data_type_to_value(x.inner)]
     elif isinstance(x, UniDataTypeTuple):
@@ -265,7 +265,7 @@ def uni_data_type_from_value(v) -> UniDataType:
     elif _tag == 1:
         return UniDataTypeArray(uni_data_type_from_value(v[1]))
     elif _tag == 2:
-        return UniDataTypeRecord(uni_record_type_from_value(v[1]))
+        return UniDataTypeStruct(uni_struct_type_from_value(v[1]))
     elif _tag == 3:
         return UniDataTypeOption(uni_data_type_from_value(v[1]))
     elif _tag == 4:
@@ -285,10 +285,10 @@ def uni_data_type_from_value(v) -> UniDataType:
 
 
 # Sibling-module imports live at the END of the module on purpose: WIT type
-# references can be mutually recursive across files (e.g. uni-record-type <
+# references can be mutually recursive across files (e.g. uni-struct-type <
 # -> uni-data-type), and bottom imports make every name resolvable once the
 # import graph settles. All uses are deferred (function bodies, default
 # factories, lazily-evaluated annotations), so this is safe.
 from .uni_scalar import UniScalar, uni_scalar_from_value, uni_scalar_to_value
-from .uni_record_type import UniRecordType, uni_record_type_from_value, uni_record_type_to_value
+from .uni_struct_type import UniStructType, uni_struct_type_from_value, uni_struct_type_to_value
 from .uni_result_type import UniResultType, uni_result_type_from_value, uni_result_type_to_value

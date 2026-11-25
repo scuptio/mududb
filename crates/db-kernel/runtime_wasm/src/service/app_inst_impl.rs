@@ -226,7 +226,7 @@ impl AppInstImplInner {
     pub fn describe_procedure(&self, mod_name: &str, proc_name: &str) -> RS<Arc<ProcDesc>> {
         let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such module named {} {}", mod_name, proc_name)
             )
         })?;
@@ -251,7 +251,8 @@ impl AppInstImplInner {
         // Acquire before transaction setup. The managed task retains the permit
         // even when the client drops its response future.
         let permit = Admission::acquire(&self.package_cfg.name, &self.limits)?;
-        let control = InvocationContext::new(self.limits.clone())?;
+        let control =
+            InvocationContext::new_with_app_name(self.limits.clone(), Some(self.name().clone()))?;
         let mut cancel = CancelOnDrop(Some(control.clone()));
         let inner = self.clone();
         let module = mod_name.to_owned();
@@ -385,7 +386,7 @@ impl AppInstImplInner {
         .await?;
         self._conn.insert_sync(task_id, db_conn).map_err(|_e| {
             mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 format!("existing such task {} connection", task_id)
             )
         })?;
@@ -442,7 +443,7 @@ impl AppInstImplInner {
         trace.watch("procedure.pre_invoke.stage", "lookup");
         let procedure = self.procedure(mod_name, proc_name).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("procedure {}/{} not found", mod_name, proc_name)
             )
         })?;
@@ -451,7 +452,7 @@ impl AppInstImplInner {
         let (param, new_tx) = if is_xid_invalid(&existing_xid) {
             let conn = self.connection(task_id).ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no such task named {}", task_id)
                 )
             })?;
@@ -540,8 +541,8 @@ async fn is_schema_initialized(
     async_runtime: Option<Arc<dyn AsyncIoProvider>>,
 ) -> RS<bool> {
     let conn = new_conn(db_path, app_name, enable_async, server_mode, async_runtime).await?;
-    for table_name in schema_mgr.table_names() {
-        let verify_sql = format!("SELECT 1 FROM {} LIMIT 1;", table_name);
+    for class_name in schema_mgr.class_names() {
+        let verify_sql = format!("SELECT 1 FROM {} LIMIT 1;", class_name);
         if conn.execute_silent(verify_sql).await.is_err() {
             return Ok(false);
         }

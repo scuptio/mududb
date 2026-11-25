@@ -1,6 +1,6 @@
 use super::io::{ensure_time_series_file_exists_async, page_offset};
 use super::page::{empty_page_image, finalize_page_image_checksum, stamp_page_image_lsn};
-use super::{TimeSeriesFile, TimeSeriesFileIdentity};
+use super::{TimeSeriesFile, TimeSeriesFileIdobject};
 use crate::page::page_block_ref::{PageBlockRef, PAGE_SIZE};
 use crate::page::page_block_ref_mut::PageBlockRefMut;
 use ::wal::lsn::LSN;
@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 pub(super) async fn new_relation_wal_backend(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
 ) -> RS<ChunkedWorkerLogBackend> {
     new_relation_wal_backend_with_provider(
         base_path,
@@ -39,7 +39,7 @@ pub(super) async fn new_relation_wal_backend(
 
 pub(super) async fn new_relation_wal_backend_with_provider(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     provider: Arc<dyn AsyncIoProvider>,
 ) -> RS<ChunkedWorkerLogBackend> {
     scoped_task_trace!();
@@ -54,7 +54,7 @@ pub(super) async fn new_relation_wal_backend_with_provider(
     ChunkedWorkerLogBackend::new_direct_with_provider(layout, provider).await
 }
 
-fn time_series_log_oid(identity: &TimeSeriesFileIdentity) -> OID {
+fn time_series_log_oid(identity: &TimeSeriesFileIdobject) -> OID {
     identity.partition_id.rotate_left(17)
         ^ identity.table_id.rotate_left(53)
         ^ (identity.file_index as u128).rotate_left(97)
@@ -63,7 +63,7 @@ fn time_series_log_oid(identity: &TimeSeriesFileIdentity) -> OID {
 
 pub(super) async fn recover_relation_file(
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     backend: &ChunkedWorkerLogBackend,
 ) -> RS<()> {
     recover_relation_file_async(default_sys_io_context().fs(), base_path, identity, backend).await
@@ -72,7 +72,7 @@ pub(super) async fn recover_relation_file(
 pub(super) async fn recover_relation_file_async(
     fs: Arc<dyn AsyncFs>,
     base_path: &Path,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
     backend: &ChunkedWorkerLogBackend,
 ) -> RS<()> {
     scoped_task_trace!();
@@ -150,7 +150,10 @@ async fn apply_recovered_page_delta(
     let offset = page_offset(delta.page_id)?;
     let disk_image = read_recoverable_page_image(file, offset).await?;
     if let Some(disk_image) = disk_image.as_ref() {
-        if PageBlockRef::new(disk_image).header()?.lsn() >= batch_lsn {
+        if !super::delta_value::replay_needed(
+            PageBlockRef::new(disk_image).header()?.lsn().as_u64(),
+            batch_lsn.as_u64(),
+        ) {
             return Ok(());
         }
     }
@@ -186,7 +189,7 @@ async fn read_recoverable_page_image(file: &dyn AsyncFile, offset: u64) -> RS<Op
 /// Builds the page image the delta's upserts are applied onto: either the
 /// fresh page the delta's `init` fully defines, or the validated on-disk
 /// image with the delta's link updates and removes applied.
-fn recovered_base_image(delta: &PageDelta, disk_image: Option<Vec<u8>>) -> RS<Vec<u8>> {
+pub(super) fn recovered_base_image(delta: &PageDelta, disk_image: Option<Vec<u8>>) -> RS<Vec<u8>> {
     if let Some(init) = delta.init.as_ref() {
         // The delta fully defines a page allocated by this batch, so it is
         // rebuilt from scratch: the page is absent, or the on-disk image
@@ -224,48 +227,65 @@ fn recovered_base_image(delta: &PageDelta, disk_image: Option<Vec<u8>>) -> RS<Ve
                     )
                 )
             })?;
-        PageBlockRefMut::new(&mut image).delete_record(slot_index)?;
+        apply_record_change(
+            &mut image,
+            key.timestamp,
+            key.tuple_id,
+            Some(slot_index),
+            super::delta_value::Change::Remove,
+        )?;
     }
     Ok(image)
 }
 
 /// Applies the delta's upserts in order with the same page primitives the
 /// write path uses.
-fn apply_recovered_upserts(image: &mut [u8], delta: &PageDelta) -> RS<()> {
+pub(super) fn apply_recovered_upserts(image: &mut [u8], delta: &PageDelta) -> RS<()> {
     for record in &delta.upserts {
         let slot_index =
             PageBlockRef::new(image).find_slot_index(record.timestamp, record.tuple_id)?;
-        match slot_index {
-            Some(slot_index) => {
-                PageBlockRefMut::new(image).update_record(
-                    slot_index,
-                    record.timestamp,
-                    record.tuple_id,
-                    &record.payload,
-                )?;
-            }
-            None => {
-                let insert = PageBlockRefMut::new(image).insert_record(
-                    record.timestamp,
-                    record.tuple_id,
-                    &record.payload,
-                );
-                match insert {
-                    Ok(_) => {}
-                    Err(err) if err.ec() == ErrorCode::InsufficientBufferSpace => {
-                        // The replayed insert order can pack a page slightly
-                        // worse than the order the writer used (record
-                        // alignment padding is order-dependent); compacting
-                        // reclaims the fragmentation before one retry.
-                        PageBlockRefMut::new(image).compact()?;
-                        PageBlockRefMut::new(image).insert_record(
-                            record.timestamp,
-                            record.tuple_id,
-                            &record.payload,
-                        )?;
-                    }
-                    Err(err) => return Err(err),
+        apply_record_change(
+            image,
+            record.timestamp,
+            record.tuple_id,
+            slot_index,
+            super::delta_value::Change::Set(record.payload.clone()),
+        )?;
+    }
+    Ok(())
+}
+
+/// Applies the verified per-key semantics using the ordinary page primitives.
+fn apply_record_change(
+    image: &mut [u8],
+    timestamp: u64,
+    tuple_id: u64,
+    slot_index: Option<usize>,
+    change: super::delta_value::Change<Vec<u8>>,
+) -> RS<()> {
+    let old = slot_index
+        .map(|index| {
+            PageBlockRef::new(image)
+                .record_bytes(index)
+                .map(<[u8]>::to_vec)
+        })
+        .transpose()?;
+    let value = super::delta_value::apply(old, change);
+    match (slot_index, value) {
+        (Some(index), None) => PageBlockRefMut::new(image).delete_record(index)?,
+        (None, None) => {}
+        (Some(index), Some(payload)) => {
+            PageBlockRefMut::new(image).update_record(index, timestamp, tuple_id, &payload)?;
+        }
+        (None, Some(payload)) => {
+            match PageBlockRefMut::new(image).insert_record(timestamp, tuple_id, &payload) {
+                Ok(_) => {}
+                Err(err) if err.ec() == ErrorCode::InsufficientBufferSpace => {
+                    // Alignment fragmentation can differ between writer and replay order.
+                    PageBlockRefMut::new(image).compact()?;
+                    PageBlockRefMut::new(image).insert_record(timestamp, tuple_id, &payload)?;
                 }
+                Err(err) => return Err(err),
             }
         }
     }
@@ -311,7 +331,7 @@ impl AsyncWorkerLogRecoveryHandler<PLBatch> for RelationWalRecoveryHandler {
 
 pub(super) async fn append_file_create_async(
     backend: &ChunkedWorkerLogBackend,
-    identity: &TimeSeriesFileIdentity,
+    identity: &TimeSeriesFileIdobject,
 ) -> RS<()> {
     let writer = new_pl_batch_writer(backend.clone());
     writer

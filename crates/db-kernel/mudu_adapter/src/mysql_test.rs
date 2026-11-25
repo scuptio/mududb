@@ -23,7 +23,7 @@ fn with_connection_env<T>(value: &str, f: impl FnOnce() -> RS<T>) -> RS<T> {
 
 #[test]
 fn mudu_open_reports_database_error_when_mysql_url_missing() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("sqlite://./mysql_test.db", || {
         let err = match mysql::mudu_open() {
@@ -38,7 +38,7 @@ fn mudu_open_reports_database_error_when_mysql_url_missing() -> RS<()> {
 
 #[test]
 fn mudu_open_reports_database_error_when_mysql_url_invalid() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mysql://this is not a valid url", || {
         let err = match mysql::mudu_open() {
@@ -53,7 +53,7 @@ fn mudu_open_reports_database_error_when_mysql_url_invalid() -> RS<()> {
 
 #[test]
 fn mudu_open_async_reports_database_error_when_mysql_url_invalid() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     with_connection_env("mysql://this is not a valid url", || {
         mudu_sys::task::async_::block_on_tokio_current_thread(async {
@@ -70,14 +70,14 @@ fn mudu_open_async_reports_database_error_when_mysql_url_invalid() -> RS<()> {
 }
 
 #[test]
-fn mudu_close_reports_entity_not_found_for_unknown_session() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+fn mudu_close_reports_object_not_found_for_unknown_session() -> RS<()> {
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
     let err = match mysql::mudu_close(0xDEAD_BEEF_u128) {
-        Ok(_) => panic!("expected entity not found error"),
+        Ok(_) => panic!("expected object not found error"),
         Err(e) => e,
     };
-    assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+    assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     Ok(())
 }
 

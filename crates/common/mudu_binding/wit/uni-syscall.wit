@@ -32,4 +32,9 @@ interface universal {
     relation-get: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, select: list<u64>) -> result<option<list<option<list<u8>>>>, uni-error>;
     relation-update: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, values: list<tuple<u64, list<u8>>>, deltas: list<tuple<u64, u8, list<u8>>>) -> result<u64, uni-error>;
     relation-insert: func(oid: uni-oid, table: string, key: list<tuple<u64, list<u8>>>, values: list<tuple<u64, list<u8>>>) -> result<_, uni-error>;
+    cache-open: func(name: string) -> result<uni-oid, uni-error>;
+    cache-get: func(cache: uni-oid, key: list<u8>) -> result<option<list<u8>>, uni-error>;
+    cache-put: func(cache: uni-oid, key: list<u8>, value: list<u8>, ttl-secs: option<u64>) -> result<_, uni-error>;
+    cache-delete: func(cache: uni-oid, key: list<u8>) -> result<_, uni-error>;
+    cache-ttl: func(cache: uni-oid, key: list<u8>) -> result<option<u64>, uni-error>;
 }

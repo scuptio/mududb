@@ -2,6 +2,7 @@ use crate::data_type::DataType;
 use crate::data_type_fn_arbitrary::FnArbitrary;
 use crate::data_type_impl::data_type_create::create_string_type;
 use crate::data_value::DataValue;
+use crate::datum::data_value_from_datum;
 use crate::type_error::TyEC;
 use crate::type_error::TyErr;
 use arbitrary::{Arbitrary, Unstructured};
@@ -37,7 +38,7 @@ pub fn param_len(ty: &DataType) -> Result<u32, TyErr> {
 pub fn fn_char_arb_val(u: &mut Unstructured, param: &DataType) -> arbitrary::Result<DataValue> {
     let length = param_len(param).unwrap();
     let s = _arbitrary_string(u, length as usize)?;
-    DataValue::from_datum(s, param).map_err(|_| arbitrary::Error::IncorrectFormat)
+    data_value_from_datum(s, param).map_err(|_| arbitrary::Error::IncorrectFormat)
 }
 
 pub fn fn_char_arb_printable(u: &mut Unstructured, param: &DataType) -> arbitrary::Result<String> {

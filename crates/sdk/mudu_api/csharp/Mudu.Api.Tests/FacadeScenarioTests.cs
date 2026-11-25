@@ -11,7 +11,7 @@ namespace mududb.tests;
 
 /// <summary>
 /// Cross-language facade consistency scenario
-/// (`doc/dev/binding_api_surface.md`, section "Behavioral consistency
+/// (`doc/en/binding_api_surface.md`, section "Behavioral consistency
 /// scenario"), assertion-identical with the Rust
 /// `crates/sdk/mududb/tests/facade_scenario.rs`. Runs against the in-process
 /// mock backend (SQLite + in-memory fs).

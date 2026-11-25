@@ -4,11 +4,11 @@
 //! flat layout and the prefix-match rule documented in
 //! [`super::fs_service`]. It runs in two modes:
 //!
-//! - [`FsGc::recover_scan`] runs once at startup after WAL replay with a
+//! - `FsGc::recover_scan` runs once at startup after WAL replay with a
 //!   see-everything snapshot. A generation is kept iff its object row exists,
 //!   points at that generation, and is SEALED; everything else (aborted
 //!   writes, replaced generations, rows that never committed) is removed.
-//! - [`FsGc::gc_once`] runs periodically against a horizon snapshot: an
+//! - `FsGc::gc_once` runs periodically against a horizon snapshot: an
 //!   object whose row is visible at the horizon keeps the row's current
 //!   generation and loses every other generation; an object with no visible
 //!   row (deleted, or never committed) loses all of its generations.
@@ -40,7 +40,7 @@ use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::worker_snapshot::WorkerSnapshot;
 use ::meta::fs_object::FS_OBJECT_STATE_SEALED;
 use ::meta::fs_type_catalog::fs_storage_base;
-use ::xcontract::WorkerXContract;
+use ::xcontract::contract::WorkerXContract;
 
 /// Interval between two fs GC rounds.
 pub const FS_GC_INTERVAL: Duration = Duration::from_secs(60);

@@ -242,8 +242,8 @@ func hostError(uniErr *types.UniError) *uniHostError {
 
 // nativeToDatum wraps a native Go value as a UniDataValue for the syscall
 // parameter list and the procedure result. A value already in UniDataValue
-// form (the record-case envelope the mtp adapter builds for a record-typed
-// result with types.RecordFromFieldValues) passes through unchanged.
+// form (the struct-case envelope the mtp adapter builds for a struct-typed
+// result with types.StructFromFieldValues) passes through unchanged.
 func nativeToDatum(v any) (types.UniDataValue, error) {
 	switch value := v.(type) {
 	case types.UniDataValue:
@@ -269,14 +269,14 @@ func nativeToDatum(v any) (types.UniDataValue, error) {
 
 // datumToNative unwraps a scalar UniDataValue to its native Go value; every
 // integer width collapses to int64 (the procedure type table has no narrower
-// ints). Composite datums (record/array/binary cases — user-defined
+// ints). Composite datums (struct/array/binary cases — user-defined
 // procedure types) keep their UniDataValue form: the mtp adapter unwraps
-// them through the binding record bridge (types.RecordFieldValues).
+// them through the binding struct bridge (types.StructFieldValues).
 func datumToNative(datum types.UniDataValue) (any, error) {
 	scalar, ok := datum.(types.UniDataValueScalar)
 	if !ok {
 		switch datum.(type) {
-		case types.UniDataValueRecord, types.UniDataValueArray, types.UniDataValueBinary:
+		case types.UniDataValueStruct, types.UniDataValueArray, types.UniDataValueBinary:
 			return datum, nil
 		default:
 			return nil, fmt.Errorf("unsupported UniDataValue kind %T", datum)

@@ -108,22 +108,52 @@ fn revert_cmp_op_reverses_direction() {
     ));
     assert!(matches!(
         ValueCompare::revert_cmp_op(ValueCompare::LE),
-        ValueCompare::GT
-    ));
-    assert!(matches!(
-        ValueCompare::revert_cmp_op(ValueCompare::LT),
         ValueCompare::GE
     ));
     assert!(matches!(
+        ValueCompare::revert_cmp_op(ValueCompare::LT),
+        ValueCompare::GT
+    ));
+    assert!(matches!(
         ValueCompare::revert_cmp_op(ValueCompare::GE),
-        ValueCompare::LT
+        ValueCompare::LE
     ));
     assert!(matches!(
         ValueCompare::revert_cmp_op(ValueCompare::GT),
-        ValueCompare::LE
+        ValueCompare::LT
     ));
     assert!(matches!(
         ValueCompare::revert_cmp_op(ValueCompare::NE),
         ValueCompare::NE
     ));
+}
+
+#[test]
+fn revert_cmp_op_keeps_strictness_and_is_an_involution() {
+    // `literal > field` means `field < literal`: reversal swaps the direction
+    // but never the strictness, and reversing twice returns the original.
+    let ops = [
+        ValueCompare::EQ,
+        ValueCompare::LE,
+        ValueCompare::LT,
+        ValueCompare::GE,
+        ValueCompare::GT,
+        ValueCompare::NE,
+    ];
+    for op in ops {
+        let reversed = ValueCompare::revert_cmp_op(op);
+        assert!(
+            matches!(
+                (op, reversed),
+                (ValueCompare::LE, ValueCompare::GE)
+                    | (ValueCompare::LT, ValueCompare::GT)
+                    | (ValueCompare::GE, ValueCompare::LE)
+                    | (ValueCompare::GT, ValueCompare::LT)
+                    | (ValueCompare::EQ, ValueCompare::EQ)
+                    | (ValueCompare::NE, ValueCompare::NE)
+            ),
+            "unexpected reversal for {op:?}"
+        );
+        assert_eq!(ValueCompare::revert_cmp_op(reversed), op);
+    }
 }

@@ -9,7 +9,7 @@ type UniSqlParam struct {
 // UniSqlParamToValue converts x to its MSSP wire value: the
 // integer-keyed MessagePack map of the 1-based field numbers (WIT
 // declaration order). Option fields are omitted when nil (proto3 presence
-// semantics); []byte fields encode as arrays of u8 (the record-context form
+// semantics); []byte fields encode as arrays of u8 (the struct-context form
 // of list<u8>), NOT as MessagePack bin.
 func UniSqlParamToValue(x UniSqlParam) (any, error) {
 	_d := map[uint64]any{}

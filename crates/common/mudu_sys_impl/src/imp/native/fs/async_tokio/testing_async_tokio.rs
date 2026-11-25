@@ -38,9 +38,6 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn tokio_fs_remove_dir_all_removes_tree() {
-        use crate::contract::async_fs::AsyncFs;
-        use crate::imp::native::fs::async_tokio::async_tokio_fs::AsyncTokioFs;
-
         let root = temp_path("tree");
         let nested = root.join("a").join("b");
         async_::create_dir_all(&nested).await.unwrap();
@@ -52,8 +49,67 @@ mod tests {
         drop(file);
         assert!(async_::path_exists(&nested).await.unwrap());
 
-        let fs = AsyncTokioFs::new();
+        let fs = crate::imp::native::fs::tokio_fs();
         fs.remove_dir_all(&root).await.unwrap();
         assert!(!async_::path_exists(&root).await.unwrap());
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn truncate_and_atomic_publish_preserve_durable_contents() {
+        let root = temp_path("publish");
+        let fs = crate::imp::native::fs::tokio_fs();
+        fs.create_dir_all(&root).await.unwrap();
+        let temporary = root.join("snapshot.tmp");
+        let published = root.join("snapshot");
+        let file = fs
+            .open(&temporary, FileOptions::read_write_create())
+            .await
+            .unwrap();
+        file.write_all_at(0, b"validtorn").await.unwrap();
+        file.set_len(5).await.unwrap();
+        file.fsync().await.unwrap();
+        fs.rename(&temporary, &published).await.unwrap();
+        fs.sync_dir(&root).await.unwrap();
+        assert_eq!(fs.read_all(&published).await.unwrap(), b"valid");
+        assert!(!fs.path_exists(&temporary).await.unwrap());
+        drop(file);
+        fs.remove_dir_all(&root).await.unwrap();
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn filesystem_errors_and_directory_listing() {
+        let fs = crate::imp::native::fs::tokio_fs();
+        let root = temp_path("errors");
+        let missing = root.join("missing");
+        assert!(!fs.path_exists(&root).await.unwrap());
+        assert!(fs.metadata_len(&missing).await.is_err());
+        assert!(fs.read_dir(&missing).await.is_err());
+        assert!(fs.sync_dir(&missing).await.is_err());
+        assert!(fs.rename(&missing, &root).await.is_err());
+        assert!(fs.remove_dir_all(&missing).await.is_err());
+        assert!(fs.open(&missing, FileOptions::read_only()).await.is_err());
+        fs.remove_file_if_exists(&missing).await.unwrap();
+        fs.create_dir_all(&root).await.unwrap();
+        assert!(fs.read_dir(&root).await.unwrap().is_empty());
+        let path = root.join("data");
+        let file = fs
+            .open(&path, FileOptions::read_write_create())
+            .await
+            .unwrap();
+        file.write_all_at(0, b"payload").await.unwrap();
+        assert_eq!(file.file_len().await.unwrap(), 7);
+        assert_eq!(fs.metadata_len(&path).await.unwrap(), 7);
+        assert_eq!(fs.read_dir(&root).await.unwrap(), vec![path.clone()]);
+        assert!(file.read_exact_at(0, 8).await.is_err());
+        assert!(fs.create_dir_all(&path.join("child")).await.is_err());
+        assert!(fs.read_dir(&path).await.is_err());
+        assert!(fs.remove_file_if_exists(&root).await.is_err());
+        drop(file);
+        let readonly = fs.open(&path, FileOptions::read_only()).await.unwrap();
+        assert!(readonly.write_all_at(0, b"bad").await.is_err());
+        assert!(readonly.set_len(1).await.is_err());
+        assert_eq!(readonly.read_exact_at(0, 7).await.unwrap(), b"payload");
+        drop(readonly);
+        fs.remove_file_if_exists(&path).await.unwrap();
+        fs.remove_file_if_exists(&path).await.unwrap();
+        fs.remove_dir_all(&root).await.unwrap();
     }
 }

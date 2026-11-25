@@ -2,6 +2,6 @@
 pub enum TypeKind {
     Scalar,
     Array,
-    Record,
+    Struct,
     Binary,
 }

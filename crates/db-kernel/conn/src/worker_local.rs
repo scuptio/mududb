@@ -1,4 +1,3 @@
-use ::catalog::contract::message_bus_api::MessageBusRef;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::worker_snapshot::KvItem;
 use async_trait::async_trait;
@@ -9,6 +8,7 @@ use mudu_binding::universal::uni_fs_stat::UniFsStat;
 use mudu_contract::database::result_set::ResultSetAsync;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
+use mudu_utils::channel::ChannelEndpointRef;
 use std::cell::UnsafeCell;
 use std::sync::Arc;
 
@@ -78,8 +78,8 @@ pub trait WorkerLocal: Send + Sync {
     fn x_contract(&self) -> Arc<dyn XContract>;
     /// The worker's meta manager.
     fn meta_mgr(&self) -> Arc<dyn MetaMgr>;
-    /// The server's message bus.
-    fn message_bus(&self) -> MessageBusRef;
+    /// The server's channel endpoint of this worker.
+    fn worker_channel(&self) -> ChannelEndpointRef;
 
     /// Return the fs object IO service of this worker.
     ///
@@ -140,6 +140,55 @@ pub trait WorkerLocal: Send + Sync {
         start_key: &[u8],
         end_key: &[u8],
     ) -> RS<Vec<KvItem>>;
+
+    /// Opens a volatile cache by name and returns its catalog OID handle.
+    /// The bare name resolves through the caller's application schema
+    /// (`app_name` follows the same mapping as SQL: none/"default" resolve
+    /// in the default schema).
+    async fn cache_open(&self, _name: &str, _app_name: Option<&str>) -> RS<OID> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Reads a cache entry.
+    async fn cache_get(&self, _cache: OID, _key: &[u8]) -> RS<Option<Vec<u8>>> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Writes a cache entry with an optional TTL.
+    async fn cache_put(
+        &self,
+        _cache: OID,
+        _key: Vec<u8>,
+        _value: Vec<u8>,
+        _ttl_secs: Option<u64>,
+    ) -> RS<()> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Removes a cache entry.
+    async fn cache_delete(&self, _cache: OID, _key: &[u8]) -> RS<bool> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
+
+    /// Reads a cache entry's remaining TTL in seconds.
+    async fn cache_ttl(&self, _cache: OID, _key: &[u8]) -> RS<Option<u64>> {
+        Err(mudu::mudu_error!(
+            mudu::error::ErrorCode::NotImplemented,
+            "cache syscalls are not available on this worker"
+        ))
+    }
 
     /// Run a SQL query in the schema of `app_name` (`None`/sentinels map to
     /// the default schema; see `contract::app_schema::current_schema`).
@@ -215,7 +264,7 @@ pub trait WorkerLocal: Send + Sync {
     }
 
     /// Insert one relation row inside the session transaction; a duplicate
-    /// primary key fails with `EntityAlreadyExists`. The bare table name
+    /// primary key fails with `ObjectAlreadyExists`. The bare table name
     /// resolves against the schema of `app_name`.
     async fn relation_insert(
         &self,

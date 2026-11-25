@@ -94,3 +94,21 @@ impl AsRawFd for TcpListener {
         self.inner.as_raw_fd()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn listener_raw_fd_ipv6_bind_and_rebind_error() {
+        use std::os::fd::AsRawFd;
+        let listener = super::TcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let _fd = listener.as_raw_fd();
+        // A second bind on an already-listening address fails with EADDRINUSE.
+        let addr = listener.local_addr().unwrap();
+        assert!(super::TcpListener::bind(addr).is_err());
+
+        let v6 = super::TcpListener::bind("[::1]:0".parse().unwrap()).unwrap();
+        assert!(v6.local_addr().unwrap().is_ipv6());
+    }
+}

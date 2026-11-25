@@ -6,6 +6,7 @@ use crate::data_type_fn_convert::FnBase;
 use crate::data_type_param_array::DataTypeParamArray;
 use crate::data_value::DataValue;
 use crate::type_error::{TyEC, TyErr};
+use crate::type_family_ext::TypeFamilyExt;
 use mudu::utils::bin_size::BinSize;
 use mudu::utils::json::{JsonValue, from_json_str};
 use mudu::utils::msg_pack::MsgPackValue;
@@ -197,7 +198,7 @@ pub fn fn_array_default(_: &DataType) -> Result<DataValue, TyErr> {
     Ok(DataValue::from_array(vec![]))
 }
 
-fn array_param(data_type: &DataType) -> &DataTypeParamArray {
+fn array_param(data_type: &DataType) -> &DataTypeParamArray<DataType> {
     data_type.expect_array_param()
 }
 

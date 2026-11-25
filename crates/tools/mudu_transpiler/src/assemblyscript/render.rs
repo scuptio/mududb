@@ -21,7 +21,7 @@
 //! renders the integer-keyed map and `recordFromFieldValues` wraps it back
 //! into the record-case envelope, passed to `encodeProcedureOkUni`.
 
-use crate::assemblyscript::procedure::{AsParam, AsProcedure, AsValueType};
+use crate::assemblyscript::types::{AsParam, AsProcedure, AsValueType};
 use crate::common::ident::sanitize_identifier;
 use askama::Template;
 use mudu::common::result::RS;
@@ -48,7 +48,7 @@ struct AdapterTemplate<'a> {
 /// AssemblyScript types module (`--type-import`, e.g. `"./gentypes"`); it is
 /// required exactly when a procedure signature references a user-defined
 /// type from `--type-wit`.
-pub(super) fn render_adapter_source(
+pub fn render_adapter_source(
     input_path: &Path,
     output_path: &Path,
     procedures: &[AsProcedure],
@@ -115,7 +115,7 @@ impl AdapterProcedure {
         let has_values_list = !procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge());
+            .any(|param| param.value_type.uses_struct_bridge());
         let value_args = procedure
             .params
             .iter()
@@ -133,7 +133,7 @@ impl AdapterProcedure {
         };
         let (returns_record, record_codec, return_value_ctor) =
             match &procedure.return_value_type {
-                AsValueType::Record(custom) => {
+                AsValueType::Struct(custom) => {
                     (true, format!("{}Codec", custom.name), String::new())
                 }
                 scalar => (
@@ -186,7 +186,7 @@ impl AdapterArg {
 fn as_type_name(value_type: &AsValueType) -> RS<String> {
     match value_type {
         AsValueType::Text => Ok("string".to_string()),
-        AsValueType::Record(custom) => Ok(custom.name.clone()),
+        AsValueType::Struct(custom) => Ok(custom.name.clone()),
         _ => Err(invalid_shape(
             "option inner type the parser should have rejected",
         )),
@@ -209,13 +209,13 @@ fn decode_expr(value_type: &AsValueType, index: usize, has_values_list: bool) ->
         format!("MuduValue.fromUniDataValue(param.param_list[{index}])")
     };
     match value_type {
-        AsValueType::Record(custom) => Ok(format!(
+        AsValueType::Struct(custom) => Ok(format!(
             "{}Codec.decode(new MpackReader(recordFieldValues(param.param_list[{index}])))",
             custom.name
         )),
         AsValueType::Enum(custom) => Ok(format!("{base}.asInt64() as i32 as {}", custom.name)),
         AsValueType::Option(inner) => match inner.as_ref() {
-            AsValueType::Record(custom) => Ok(format!(
+            AsValueType::Struct(custom) => Ok(format!(
                 "isNullDatum(param.param_list[{index}]) ? null : {}Codec.decode(new MpackReader(recordFieldValues(param.param_list[{index}])))",
                 custom.name
             )),
@@ -241,22 +241,22 @@ fn binding_symbols(procedures: &[AsProcedure]) -> Vec<&'static str> {
         procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge())
+            .any(|param| param.value_type.uses_struct_bridge())
     });
     let any_record_return = procedures
         .iter()
-        .any(|procedure| procedure.return_value_type.uses_record_bridge());
+        .any(|procedure| procedure.return_value_type.uses_struct_bridge());
     let any_option_record_param = procedures.iter().any(|procedure| {
         procedure.params.iter().any(|param| {
-            matches!(&param.value_type, AsValueType::Option(inner) if inner.uses_record_bridge())
+            matches!(&param.value_type, AsValueType::Option(inner) if inner.uses_struct_bridge())
         })
     });
     let any_values_list = procedures.iter().any(|procedure| {
         !procedure
             .params
             .iter()
-            .any(|param| param.value_type.uses_record_bridge())
-            || !procedure.return_value_type.uses_record_bridge()
+            .any(|param| param.value_type.uses_struct_bridge())
+            || !procedure.return_value_type.uses_struct_bridge()
     });
     let mut symbols = vec![
         "Oid",
@@ -310,12 +310,12 @@ fn type_symbols(procedures: &[AsProcedure]) -> Vec<String> {
 
 fn collect_type_symbol(value_type: &AsValueType, push: &mut dyn FnMut(String)) {
     match value_type {
-        AsValueType::Record(custom) => push(format!("{}Codec", custom.name)),
+        AsValueType::Struct(custom) => push(format!("{}Codec", custom.name)),
         AsValueType::Enum(custom) => push(custom.name.clone()),
         AsValueType::Option(inner) => {
             // An option-of-record parameter annotates the decode with the
             // record class itself (`: Profile | null`), not just its codec.
-            if let AsValueType::Record(custom) = inner.as_ref() {
+            if let AsValueType::Struct(custom) = inner.as_ref() {
                 push(custom.name.clone());
             }
             collect_type_symbol(inner, push);
@@ -329,7 +329,7 @@ fn collect_type_symbol(value_type: &AsValueType, push: &mut dyn FnMut(String)) {
 /// root-level `mp2-<kebab>` byte-pipe function per procedure (the same world
 /// shape the C# guest uses). Thin wrapper over the shared
 /// [`crate::common::wit::render_wit`].
-pub(super) fn render_wit(procedures: &[AsProcedure], module_name: &str) -> String {
+pub fn render_wit(procedures: &[AsProcedure], module_name: &str) -> String {
     let names = procedures
         .iter()
         .map(|procedure| procedure.name.clone())

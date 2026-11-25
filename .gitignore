@@ -79,3 +79,7 @@ id_rsa
 id_dsa
 id_ecdsa
 id_ed25519
+
+# Lean package dependencies and compiled proofs.
+verification/lean/.lake/
+!verification/targets.toml

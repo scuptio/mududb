@@ -1,3 +1,4 @@
+use crate::contract::epoch_oracle::{CommitEpoch, EPOCH_XID_BASE};
 use crate::contract::timestamp::Timestamp;
 use mudu::common::id::OID;
 use std::sync::Arc;
@@ -10,6 +11,9 @@ pub type TimeSeq = u64;
 pub struct RunningXList {
     creator_ts: u64,
     running: Vec<u64>,
+    /// Read epoch captured at snapshot creation, when an epoch oracle drove
+    /// the snapshot (phase 0.2); `None` keeps the legacy xid visibility.
+    read_epoch: Option<CommitEpoch>,
 }
 
 /// MVCC visibility snapshot: decides which tuple versions a transaction sees.
@@ -24,6 +28,7 @@ struct _Snapshot {
     lower_un_alloc_ts: TimeSeq,
     upper_fin_ts: TimeSeq,
     running: Vec<TimeSeq>,
+    read_epoch: Option<CommitEpoch>,
 }
 
 impl Snapshot {
@@ -57,7 +62,23 @@ impl RunningXList {
         Self {
             creator_ts,
             running,
+            read_epoch: None,
         }
+    }
+
+    /// Creates the list with the read epoch the oracle reported stable at
+    /// snapshot time (epoch-driven visibility).
+    pub fn new_with_epoch(creator_ts: u64, running: Vec<u64>, read_epoch: CommitEpoch) -> Self {
+        Self {
+            creator_ts,
+            running,
+            read_epoch: Some(read_epoch),
+        }
+    }
+
+    /// The read epoch captured at snapshot creation, when present.
+    pub fn read_epoch(&self) -> Option<CommitEpoch> {
+        self.read_epoch
     }
 }
 
@@ -79,6 +100,7 @@ impl _Snapshot {
             lower_un_alloc_ts: low_ts,
             upper_fin_ts: upper_ts,
             running,
+            read_epoch: snapshot.read_epoch,
         }
     }
 
@@ -106,7 +128,24 @@ impl _Snapshot {
         }
     }
 
+    /// Epoch-driven visibility of one version edge (`c_min` or `c_max`)
+    /// stamped `ts`:
+    /// `visible ⇔ ts ≤ read_epoch` for epoch stamps (≥ `EPOCH_XID_BASE`),
+    /// while legacy xid stamps (`< EPOCH_XID_BASE`) are all committed
+    /// pre-upgrade and always visible.
+    fn is_edge_visible(&self, ts: TimeSeq, read_epoch: CommitEpoch) -> bool {
+        ts < EPOCH_XID_BASE || ts <= read_epoch
+    }
+
     fn is_tuple_visible(&self, tuple_ts: &Timestamp) -> bool {
+        if let Some(read_epoch) = self.read_epoch {
+            // Epoch mode: one comparison per edge; the running list plays no
+            // role because the epoch barrier already proves which commits
+            // landed (the doc's §6.2 simplification).
+            return self.is_edge_visible(tuple_ts.c_min(), read_epoch)
+                && (tuple_ts.c_max() == u64::MAX
+                    || !self.is_edge_visible(tuple_ts.c_max(), read_epoch));
+        }
         !self.is_visible(tuple_ts.c_max()) && self.is_visible(tuple_ts.c_min())
     }
 }

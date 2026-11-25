@@ -170,7 +170,7 @@ impl WaitLsn {
         }
     }
 
-    /// Records the lag between the last watermark advance and the waiter's
+    /// Structs the lag between the last watermark advance and the waiter's
     /// resume into the WalWakeLag stage (no-op when stats are disabled).
     fn record_wake_lag(&self) -> RS<()> {
         let lag = self.last_advance_at.lock()?.elapsed();

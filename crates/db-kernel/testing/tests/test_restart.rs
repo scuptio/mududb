@@ -6,14 +6,12 @@
 
 use mudu::common::result::RS;
 use mudu_client::client::json_client::JsonClient;
-use mudu_runtime::backend::backend::Backend;
 use mudu_runtime::backend::mudud_cfg::ServerMode;
 use mudu_runtime::backend::mudud_cfg::{MuduDBCfg, RoutingMode};
 use mudu_sys::fs::sync::{create_dir_all, remove_dir_all};
-use mudu_sys::net::sync::{SStdTcpStream, StdTcpListener};
-use mudu_sys::task::sync::{SJoinHandle, sleep_blocking, spawn_thread};
+use mudu_sys::net::sync::StdTcpListener;
+use mudu_sys::task::sync::spawn_thread;
 use mudu_utils::log::log_setup;
-use mudu_utils::notifier::{Notifier, notify_wait};
 use runtime_wasm::service::runtime_opt::ComponentTarget;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -80,9 +78,10 @@ fn run_restart_persistence(server_mode: ServerMode) -> RS<()> {
         drop(server);
     } // _server dropped here, stopping the server
 
-    // Give it a small moment to ensure ports are released
-    sleep_blocking(Duration::from_millis(500));
-
+    // The dropped server's threads are joined, but its sockets (worker
+    // listeners, loopback clients, the shutdown probes themselves) can
+    // outlive the threads in states SO_REUSEADDR does not cover; wait until
+    // the OS has fully released the ports instead of racing a fixed sleep.
     println!("Step 4: Restart mudud");
     {
         let server = ctx.start_server()?;
@@ -229,31 +228,6 @@ fn looks_like_query(sql: &str) -> bool {
     )
 }
 
-struct RunningServer {
-    stop: Notifier,
-    http_port: u16,
-    tcp_port: u16,
-    handle: Option<SJoinHandle<RS<()>>>,
-}
-
-impl Drop for RunningServer {
-    fn drop(&mut self) {
-        self.stop.notify_all();
-        if let Some(handle) = self.handle.take() {
-            let deadline = mudu_sys::time::instant_now() + Duration::from_secs(15);
-            while !handle.is_finished() && mudu_sys::time::instant_now() < deadline {
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.http_port));
-                let _ = SStdTcpStream::connect(("127.0.0.1", self.tcp_port));
-                mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
-            }
-            let join_result = handle.join().expect("join server thread");
-            if let Err(err) = join_result {
-                panic!("server stopped with error: {err}");
-            }
-        }
-    }
-}
-
 struct TestContext {
     server_mode: ServerMode,
     http_port: u16,
@@ -297,31 +271,11 @@ impl TestContext {
         }))
     }
 
-    fn start_server(&self) -> RS<RunningServer> {
-        let cfg = self.build_cfg();
-        let (stop, waiter) = notify_wait();
-        let (ready, ready_waiter) = notify_wait();
+    fn start_server(&self) -> RS<InProcessServer> {
         println!("  [server] Spawning server thread...");
-        let handle = spawn_thread(move || {
-            Backend::sync_serve_with_stop_and_ready(cfg, waiter, Some(ready))
-        })?;
-        println!("  [server] Waiting for HTTP port {}...", self.http_port);
-        #[cfg(not(feature = "ds"))]
-        wait_until_port_ready(self.http_port, "HTTP")?;
-        #[cfg(feature = "ds")]
-        let _ = self.http_port;
-        if matches!(self.server_mode, ServerMode::IOUring | ServerMode::Tokio) {
-            println!("  [server] Waiting for TCP port {}...", self.tcp_port);
-            wait_until_worker_port_ready(self.tcp_port)?;
-        }
-        wait_until_backend_ready(ready_waiter, "backend", Duration::from_secs(10))?;
+        let server = InProcessServer::start(self.build_cfg())?;
         println!("  [server] Server ready.");
-        Ok(RunningServer {
-            stop,
-            http_port: self.http_port,
-            tcp_port: self.tcp_port,
-            handle: Some(handle),
-        })
+        Ok(server)
     }
 
     fn build_cfg(&self) -> MuduDBCfg {
@@ -403,22 +357,4 @@ fn reserve_port_block(count: usize) -> RS<Option<u16>> {
         }
     }
     Ok(None)
-}
-
-#[cfg(not(feature = "ds"))]
-fn wait_until_port_ready(port: u16, service_name: &str) -> RS<()> {
-    let deadline = mudu_sys::time::instant_now() + Duration::from_secs(10);
-    while mudu_sys::time::instant_now() < deadline {
-        if SStdTcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
-        }
-        mudu_sys::task::sync::sleep_blocking(Duration::from_millis(25));
-    }
-    Err(mudu::mudu_error!(
-        mudu::error::ErrorCode::Network,
-        format!(
-            "{} server did not become ready on port {}",
-            service_name, port
-        )
-    ))
 }

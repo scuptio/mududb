@@ -3,9 +3,8 @@ use crate::fs_gc::FsGc;
 use crate::fs_service::FsService;
 use crate::routing::SessionOpenConfig;
 use crate::server_cfg::ReplRole;
-use crate::worker_registry::{WorkerIdentity, WorkerRegistry};
+use crate::worker_registry::{WorkerIdobject, WorkerPartitionAdoption, WorkerRegistry};
 use crate::worker_session_manager::{SessionContext, WorkerSessionManager};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::repl_ctrl::{RaftShareView, ReplAckWait, ReplControl};
 use ::conn::plan_cache::PlanCache;
@@ -14,8 +13,11 @@ use ::wal::worker_log::{
     ChunkedWorkerLogBackend, WalSyncPolicy, WorkerLogBatching, WorkerLogLayout,
 };
 use ::wal::xl_batch::XLBatch;
-use ::xcontract::{WorkerStorage, WorkerXContract, WorkerXContractWorkerLogParams};
+use ::xcontract::contract::WorkerXContract;
+use ::xcontract::params::WorkerXContractWorkerLogParams;
+use ::xcontract::worker_storage::WorkerStorage;
 use ::xengine::api::XContract;
+use mudu::channel::ServerInstanceId;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -25,6 +27,8 @@ use mudu_sys::contract::async_io_provider::AsyncIoProvider;
 use mudu_sys::default_sys_io_context;
 use mudu_sys::net::sync::StdTcpListener;
 use mudu_sys::net::AsyncTcpListener;
+use mudu_sys::sync::SMutex;
+use mudu_utils::channel::ServiceHandle;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -44,7 +48,7 @@ pub struct WorkerRuntime {
     server_instance_id: ServerInstanceId,
     worker_index: usize,
     worker_id: OID,
-    partition_ids: Vec<OID>,
+    partition_ids: Arc<mudu_sys::sync::SMutex<Vec<OID>>>,
     worker_count: usize,
     contract: Arc<WorkerXContract>,
     log_layout: WorkerLogLayout,
@@ -54,9 +58,15 @@ pub struct WorkerRuntime {
     fs_gc: Arc<FsGc>,
     registry: Arc<WorkerRegistry>,
     plan_cache: Arc<PlanCache>,
+    cache_store: Arc<cache::CacheStore>,
+    /// Keeps the management-plane channel service registered (RAII).
+    management_service: Arc<SMutex<Option<ServiceHandle>>>,
     repl_role: ReplRole,
     repl_leader_hint: Option<LeaderHint>,
     raft_share: Option<Arc<dyn RaftShareView>>,
+    /// Cluster routing directory when the server runs with a static cluster
+    /// topology; `Some` marks this node as part of a cluster deployment.
+    cluster_router: Option<Arc<dyn ::catalog::contract::cluster_router::ClusterRouter>>,
 }
 
 /// Backward-compatible name for callers that still refer to the historical
@@ -65,8 +75,8 @@ pub type IoUringWorker = WorkerRuntime;
 
 /// Parameters for building a [`WorkerRuntime`].
 pub struct WorkerRuntimeParams {
-    /// Identity (index, id, owned partitions) of this worker.
-    pub identity: WorkerIdentity,
+    /// Idobject (index, id, owned partitions) of this worker.
+    pub identity: WorkerIdobject,
     /// Total number of workers of the server.
     pub worker_count: usize,
     /// Directory of the worker's WAL files.
@@ -77,6 +87,8 @@ pub struct WorkerRuntimeParams {
     pub log_chunk_size: u64,
     /// Group-commit batching watermarks of the worker WAL.
     pub log_batching: WorkerLogBatching,
+    /// Per-queue message and encoded payload byte caps.
+    pub queue_limits: (u64, u64),
     /// Durability policy of the worker WAL.
     pub wal_sync_policy: WalSyncPolicy,
     /// Procedure invoker; `None` disables procedure execution.
@@ -96,6 +108,11 @@ pub struct WorkerRuntimeParams {
     pub raft_share: Option<Arc<dyn RaftShareView>>,
     /// WAL archive directory when backup/PITR archiving is enabled.
     pub archive_dir: Option<String>,
+    /// Cluster routing directory when the server runs with a static cluster
+    /// topology (multi-node-group scale-out).
+    pub cluster_router: Option<Arc<dyn ::catalog::contract::cluster_router::ClusterRouter>>,
+    /// Epoch oracle shared by every worker of the node.
+    pub epoch_oracle: Option<Arc<dyn ::catalog::contract::epoch_oracle::EpochOracle>>,
 }
 
 impl WorkerRuntime {
@@ -117,6 +134,7 @@ impl WorkerRuntime {
             log_chunk_size,
             log_batching,
             wal_sync_policy,
+            queue_limits,
             procedure_runtime,
             registry,
             async_runtime,
@@ -125,6 +143,8 @@ impl WorkerRuntime {
             repl_leader_hint,
             raft_share,
             archive_dir,
+            cluster_router,
+            epoch_oracle,
         } = config;
         let active_sessions = Arc::new(AtomicUsize::new(0));
         // The runtime currently activates only the first partition assigned to
@@ -163,23 +183,25 @@ impl WorkerRuntime {
             data_dir,
             async_runtime,
             server_instance_id,
+            cluster_router.clone(),
+            epoch_oracle,
         )
         .await?;
+        let partition_ids = Self::install_partition_adoption(&contract, &registry, &identity)?;
+        contract
+            .queue_registry()
+            .configure_limits(queue_limits.0, queue_limits.1)?;
         if let Some(share) = &raft_share {
             contract.set_raft_share(share.clone())?;
         }
-        let session_manager = Arc::new(WorkerSessionManager::new(
-            active_sessions,
-            contract.meta_mgr(),
-            contract.async_runtime(),
-        ));
+        let session_manager = Self::build_session_manager(&contract, active_sessions);
         let fs_service = Self::build_fs_service(&contract, fs_data_dir, &session_manager);
         let fs_gc = Self::build_fs_gc(&contract, &fs_service);
         Ok(Self {
             server_instance_id,
             worker_index: identity.worker_index,
             worker_id,
-            partition_ids: identity.partition_ids,
+            partition_ids,
             worker_count,
             contract: contract.clone(),
             log_layout,
@@ -189,10 +211,52 @@ impl WorkerRuntime {
             fs_gc,
             registry,
             plan_cache: Arc::new(PlanCache::new()),
+            cache_store: Arc::new(cache::CacheStore::default()),
+            management_service: Arc::new(SMutex::new(None)),
             repl_role,
             repl_leader_hint,
             raft_share,
+            cluster_router,
         })
+    }
+
+    /// Builds the worker's session manager and installs the transaction
+    /// cleanup hook: a session closed with an open transaction must not
+    /// leak its epoch registration (the cluster barrier would freeze
+    /// otherwise).
+    fn build_session_manager(
+        contract: &Arc<WorkerXContract>,
+        active_sessions: Arc<AtomicUsize>,
+    ) -> Arc<WorkerSessionManager> {
+        let session_manager = Arc::new(WorkerSessionManager::new(
+            active_sessions,
+            contract.meta_mgr(),
+            contract.async_runtime(),
+        ));
+        session_manager.set_tx_cleanup({
+            let contract = contract.clone();
+            Arc::new(move |tx| {
+                let _ = contract.worker_rollback_tx(tx);
+            })
+        });
+        session_manager
+    }
+
+    /// Installs the partition adoption hook (phase 3) on the contract and
+    /// returns the runtime's live partition set (shared with the hook; the
+    /// registry owns the durable markers).
+    fn install_partition_adoption(
+        contract: &Arc<WorkerXContract>,
+        registry: &Arc<WorkerRegistry>,
+        identity: &WorkerIdobject,
+    ) -> RS<Arc<SMutex<Vec<OID>>>> {
+        let partition_ids = Arc::new(SMutex::new(identity.partition_ids.clone()));
+        contract.set_partition_adoption(Arc::new(WorkerPartitionAdoption {
+            registry: registry.clone(),
+            worker_id: identity.worker_id,
+            partition_ids: partition_ids.clone(),
+        }))?;
+        Ok(partition_ids)
     }
 
     /// Builds the worker's WAL layout, layering batching, sync policy and the
@@ -226,6 +290,8 @@ impl WorkerRuntime {
         data_dir: String,
         async_runtime: Option<Arc<dyn AsyncIoProvider>>,
         server_instance_id: ServerInstanceId,
+        cluster_router: Option<Arc<dyn ::catalog::contract::cluster_router::ClusterRouter>>,
+        epoch_oracle: Option<Arc<dyn ::catalog::contract::epoch_oracle::EpochOracle>>,
     ) -> RS<Arc<WorkerXContract>> {
         Ok(Arc::new(
             WorkerXContract::with_worker_log_and_data_dir_and_runtime(
@@ -239,6 +305,8 @@ impl WorkerRuntime {
                     data_dir,
                     async_runtime,
                     server_instance_id,
+                    cluster_router,
+                    epoch_oracle,
                 },
             )
             .await?,
@@ -363,8 +431,11 @@ impl WorkerRuntime {
     }
 
     /// The partitions owned by this worker.
-    pub fn partition_ids(&self) -> &[OID] {
-        &self.partition_ids
+    pub fn partition_ids(&self) -> Vec<OID> {
+        self.partition_ids
+            .lock()
+            .map(|partitions| partitions.clone())
+            .unwrap_or_default()
     }
 
     /// The total number of workers of the server.
@@ -406,7 +477,7 @@ impl WorkerRuntime {
         self.raft_share.as_ref()
     }
 
-    /// Register this worker's partition-RPC handler on the message bus
+    /// Register this worker's partition-RPC handler on the worker channel
     /// exactly once (later calls are no-ops).
     pub fn ensure_partition_rpc_handler(&self) -> RS<()> {
         self.contract.ensure_partition_rpc_handler()
@@ -423,6 +494,19 @@ impl WorkerRuntime {
         self.contract.clone()
     }
 
+    /// The concrete execution contract of this worker: the queue activation
+    /// registration surface lives on `WorkerXContract` beyond the `XContract`
+    /// trait (the injected invoker type is xcontract-local).
+    pub fn worker_x_contract(&self) -> &Arc<WorkerXContract> {
+        &self.contract
+    }
+
+    /// Whether this worker has a procedure runtime configured (procedure
+    /// execution is disabled without one).
+    pub fn has_procedure_runtime(&self) -> bool {
+        self.procedure_runtime.is_some()
+    }
+
     /// The metadata manager (catalog access) of this worker.
     pub fn meta_mgr(&self) -> Arc<dyn MetaMgr> {
         self.contract.meta_mgr()
@@ -434,6 +518,14 @@ impl WorkerRuntime {
         self.contract.storage().clone()
     }
 
+    /// Point-in-time queue runtime stats of this worker: per-queue counters
+    /// plus parked `RECEIVE ... WAIT` waiter counts (observability endpoint).
+    pub fn queue_runtime_snapshot(
+        &self,
+    ) -> RS<Vec<::xcontract::queue_types::QueueRuntimeSnapshot>> {
+        self.contract.queue_runtime_snapshot()
+    }
+
     /// Installs the worker's commit sequencer on the contract (replication
     /// leader commit path); called by the server when the worker's
     /// replication tasks start.
@@ -441,19 +533,19 @@ impl WorkerRuntime {
         self.contract.set_commit_sequencer(sequencer)
     }
 
-    /// Installs the replication-mode control (write gate + sync commit
+    /// Installs the stream-mode control (write gate + sync commit
     /// path) when the server runs in stream mode.
     pub fn set_repl_ctl(&self, ctl: Arc<dyn ReplControl>) -> RS<()> {
         self.contract.set_repl_ctl(ctl)
     }
 
-    /// Installs the worker's replica-ack waiter (replication-mode primary
+    /// Installs the worker's StreamFollower ack waiter (stream-mode Primary
     /// with `sync = true`).
     pub fn set_repl_ack_waiter(&self, waiter: Arc<dyn ReplAckWait>) -> RS<()> {
         self.contract.set_repl_ack_waiter(waiter)
     }
 
-    /// The replication-mode control of this worker, when installed.
+    /// The stream-mode control of this worker, when installed.
     pub fn repl_ctl(&self) -> RS<Option<Arc<dyn ReplControl>>> {
         self.contract.repl_ctl()
     }
@@ -477,24 +569,6 @@ impl WorkerRuntime {
     /// Plan-cache hit/miss counters (diagnostics and tests only).
     pub fn plan_cache_stats(&self) -> (u64, u64) {
         self.plan_cache.stats()
-    }
-
-    /// Replay one WAL batch into storage during recovery, advancing the
-    /// snapshot watermark past the batch's maximum xid.
-    pub async fn replay_log_batch(&self, batch: XLBatch) -> RS<()> {
-        self.contract.replay_worker_log_batch(batch).await
-    }
-
-    /// Mark the end of WAL recovery after the last replayed batch.
-    pub fn finish_log_recovery(&self) -> RS<()> {
-        self.contract.finish_worker_log_recovery()
-    }
-
-    /// Recover cross-partition transactions left pending by a crash.
-    pub async fn recover_cross_partition_transactions(&self) -> RS<()> {
-        self.contract
-            .recover_pending_cross_partition_records_async()
-            .await
     }
 
     /// Open the session described by `config` for connection `conn_id`.
@@ -566,8 +640,13 @@ pub async fn adopt_worker_listener(listener: StdTcpListener) -> RS<AsyncTcpListe
     })
 }
 
+mod cache;
 mod kv;
+/// The management-plane channel service: queue activation control and queue
+/// observability served on the worker thread.
+mod management_rpc;
 mod procedure;
+mod recovery;
 mod relation_ops;
 mod session_bound;
 mod sql;
@@ -579,5 +658,8 @@ pub use session_bound::{as_worker_local_ref, new_session_bound_worker_runtime};
 // this module are skipped under Miri; worker behavior is still exercised by
 // normal `cargo test` runs.
 #[cfg(test)]
+#[path = "relation_ops_test.rs"]
+mod relation_ops_test;
+#[cfg(test)]
 #[path = "worker_test.rs"]
-mod worker_test;
+pub(crate) mod worker_test;

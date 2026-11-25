@@ -1,6 +1,6 @@
 pub mod object {
     use mududb::common::result::RS;
-    use mududb::contract::database::entity::{self, Entity};
+    use mududb::contract::database::object::{self, Object};
 
     use mududb::contract::database::field_change::FieldChange;
 
@@ -42,7 +42,7 @@ pub mod object {
         pub const OL_AMOUNT: &str = "ol_amount";
     }
 
-    // entity struct definition
+    // object struct definition
     #[derive(Debug, Clone, Default)]
     pub struct OrderLine {
         pub ol_o_id: i32,
@@ -121,7 +121,7 @@ pub mod object {
             }
         }
 
-        /// Typed bind parameters for [`SQL_INSERT`], in column declaration order.
+        /// Typed bind parameters for [`Self::SQL_INSERT`], in column declaration order.
         // The explicit full-row tuple is the point of the typed API.
         #[allow(clippy::type_complexity)]
         pub fn insert_params(
@@ -247,46 +247,46 @@ pub mod object {
         fn data_type() -> DataType {
             static ONCE_LOCK: std::sync::OnceLock<DataType> = std::sync::OnceLock::new();
             ONCE_LOCK
-                .get_or_init(entity::entity_data_type::<OrderLine>)
+                .get_or_init(object::object_data_type::<OrderLine>)
                 .clone()
         }
 
         fn from_binary(binary: &[u8]) -> RS<Self> {
-            entity::entity_from_binary(binary)
+            object::object_from_binary(binary)
         }
 
         fn from_value(value: &DataValue) -> RS<Self> {
-            entity::entity_from_value(value)
+            object::object_from_value(value)
         }
 
         fn from_textual(textual: &str) -> RS<Self> {
-            entity::entity_from_textual(textual)
+            object::object_from_textual(textual)
         }
     }
 
     impl DatumDyn for OrderLine {
         fn type_family(&self) -> RS<TypeFamily> {
-            entity::entity_type_family()
+            object::object_type_family()
         }
 
         fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-            entity::entity_to_binary(self, data_type)
+            object::object_to_binary(self, data_type)
         }
 
         fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-            entity::entity_to_textual(self, data_type)
+            object::object_to_textual(self, data_type)
         }
 
         fn to_value(&self, data_type: &DataType) -> RS<DataValue> {
-            entity::entity_to_value(self, data_type)
+            object::object_to_value(self, data_type)
         }
 
         fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-            entity::entity_clone_boxed(self)
+            object::object_clone_boxed(self)
         }
     }
 
-    impl Entity for OrderLine {
+    impl Object for OrderLine {
         fn tuple_desc() -> &'static TupleFieldDesc {
             static ONCE_LOCK: std::sync::OnceLock<TupleFieldDesc> = std::sync::OnceLock::new();
             ONCE_LOCK.get_or_init(|| {
@@ -355,43 +355,43 @@ pub mod object {
             })
         }
 
-        fn table_name() -> &'static str {
+        fn class_name() -> &'static str {
             TABLE_NAME
         }
 
         fn from_tuple(row: &TupleField) -> RS<Self> {
             let fields = row.fields();
-            entity::expect_field_count(fields.len(), 9)?;
+            object::expect_field_count(fields.len(), 9)?;
             Ok(Self {
-                ol_o_id: entity::field_from_tuple_binary(TABLE_NAME, columns::OL_O_ID, &fields[0])?,
+                ol_o_id: object::field_from_tuple_binary(TABLE_NAME, columns::OL_O_ID, &fields[0])?,
 
-                ol_d_id: entity::field_from_tuple_binary(TABLE_NAME, columns::OL_D_ID, &fields[1])?,
+                ol_d_id: object::field_from_tuple_binary(TABLE_NAME, columns::OL_D_ID, &fields[1])?,
 
-                ol_w_id: entity::field_from_tuple_binary(TABLE_NAME, columns::OL_W_ID, &fields[2])?,
+                ol_w_id: object::field_from_tuple_binary(TABLE_NAME, columns::OL_W_ID, &fields[2])?,
 
-                ol_number: entity::field_from_tuple_binary(
+                ol_number: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::OL_NUMBER,
                     &fields[3],
                 )?,
 
-                ol_i_id: entity::field_from_tuple_binary(TABLE_NAME, columns::OL_I_ID, &fields[4])?,
+                ol_i_id: object::field_from_tuple_binary(TABLE_NAME, columns::OL_I_ID, &fields[4])?,
 
-                ol_supply_w_id: entity::field_from_tuple_binary(
+                ol_supply_w_id: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::OL_SUPPLY_W_ID,
                     &fields[5],
                 )?,
 
-                ol_delivery_d: entity::opt_field_from_tuple_binary(&fields[6])?,
+                ol_delivery_d: object::opt_field_from_tuple_binary(&fields[6])?,
 
-                ol_quantity: entity::field_from_tuple_binary(
+                ol_quantity: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::OL_QUANTITY,
                     &fields[7],
                 )?,
 
-                ol_amount: entity::field_from_tuple_binary(
+                ol_amount: object::field_from_tuple_binary(
                     TABLE_NAME,
                     columns::OL_AMOUNT,
                     &fields[8],
@@ -401,37 +401,37 @@ pub mod object {
 
         fn from_tuple_value(row: &TupleValue) -> RS<Self> {
             let values = row.values();
-            entity::expect_field_count(values.len(), 9)?;
+            object::expect_field_count(values.len(), 9)?;
             Ok(Self {
-                ol_o_id: entity::field_from_tuple_value(TABLE_NAME, columns::OL_O_ID, &values[0])?,
+                ol_o_id: object::field_from_tuple_value(TABLE_NAME, columns::OL_O_ID, &values[0])?,
 
-                ol_d_id: entity::field_from_tuple_value(TABLE_NAME, columns::OL_D_ID, &values[1])?,
+                ol_d_id: object::field_from_tuple_value(TABLE_NAME, columns::OL_D_ID, &values[1])?,
 
-                ol_w_id: entity::field_from_tuple_value(TABLE_NAME, columns::OL_W_ID, &values[2])?,
+                ol_w_id: object::field_from_tuple_value(TABLE_NAME, columns::OL_W_ID, &values[2])?,
 
-                ol_number: entity::field_from_tuple_value(
+                ol_number: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::OL_NUMBER,
                     &values[3],
                 )?,
 
-                ol_i_id: entity::field_from_tuple_value(TABLE_NAME, columns::OL_I_ID, &values[4])?,
+                ol_i_id: object::field_from_tuple_value(TABLE_NAME, columns::OL_I_ID, &values[4])?,
 
-                ol_supply_w_id: entity::field_from_tuple_value(
+                ol_supply_w_id: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::OL_SUPPLY_W_ID,
                     &values[5],
                 )?,
 
-                ol_delivery_d: entity::opt_field_from_tuple_value(&values[6])?,
+                ol_delivery_d: object::opt_field_from_tuple_value(&values[6])?,
 
-                ol_quantity: entity::field_from_tuple_value(
+                ol_quantity: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::OL_QUANTITY,
                     &values[7],
                 )?,
 
-                ol_amount: entity::field_from_tuple_value(
+                ol_amount: object::field_from_tuple_value(
                     TABLE_NAME,
                     columns::OL_AMOUNT,
                     &values[8],
@@ -441,29 +441,29 @@ pub mod object {
 
         fn to_tuple(&self) -> RS<TupleField> {
             Ok(TupleField::new_nullable(vec![
-                entity::field_to_tuple_binary(&self.ol_o_id)?,
-                entity::field_to_tuple_binary(&self.ol_d_id)?,
-                entity::field_to_tuple_binary(&self.ol_w_id)?,
-                entity::field_to_tuple_binary(&self.ol_number)?,
-                entity::field_to_tuple_binary(&self.ol_i_id)?,
-                entity::field_to_tuple_binary(&self.ol_supply_w_id)?,
-                entity::opt_field_to_tuple_binary(&self.ol_delivery_d)?,
-                entity::field_to_tuple_binary(&self.ol_quantity)?,
-                entity::field_to_tuple_binary(&self.ol_amount)?,
+                object::field_to_tuple_binary(&self.ol_o_id)?,
+                object::field_to_tuple_binary(&self.ol_d_id)?,
+                object::field_to_tuple_binary(&self.ol_w_id)?,
+                object::field_to_tuple_binary(&self.ol_number)?,
+                object::field_to_tuple_binary(&self.ol_i_id)?,
+                object::field_to_tuple_binary(&self.ol_supply_w_id)?,
+                object::opt_field_to_tuple_binary(&self.ol_delivery_d)?,
+                object::field_to_tuple_binary(&self.ol_quantity)?,
+                object::field_to_tuple_binary(&self.ol_amount)?,
             ]))
         }
 
         fn to_tuple_value(&self) -> RS<TupleValue> {
             Ok(TupleValue::from(vec![
-                entity::field_to_tuple_value(&self.ol_o_id)?,
-                entity::field_to_tuple_value(&self.ol_d_id)?,
-                entity::field_to_tuple_value(&self.ol_w_id)?,
-                entity::field_to_tuple_value(&self.ol_number)?,
-                entity::field_to_tuple_value(&self.ol_i_id)?,
-                entity::field_to_tuple_value(&self.ol_supply_w_id)?,
-                entity::opt_field_to_tuple_value(&self.ol_delivery_d)?,
-                entity::field_to_tuple_value(&self.ol_quantity)?,
-                entity::field_to_tuple_value(&self.ol_amount)?,
+                object::field_to_tuple_value(&self.ol_o_id)?,
+                object::field_to_tuple_value(&self.ol_d_id)?,
+                object::field_to_tuple_value(&self.ol_w_id)?,
+                object::field_to_tuple_value(&self.ol_number)?,
+                object::field_to_tuple_value(&self.ol_i_id)?,
+                object::field_to_tuple_value(&self.ol_supply_w_id)?,
+                object::opt_field_to_tuple_value(&self.ol_delivery_d)?,
+                object::field_to_tuple_value(&self.ol_quantity)?,
+                object::field_to_tuple_value(&self.ol_amount)?,
             ]))
         }
     }

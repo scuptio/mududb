@@ -23,7 +23,7 @@ fn temp_db_path(label: &str) -> PathBuf {
 }
 
 fn with_sqlite_db<T>(label: &str, f: impl FnOnce() -> RS<T>) -> RS<T> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     let path = temp_db_path(label);
     config::set_db_path(&path);
     let result = f();
@@ -91,17 +91,17 @@ fn kv_async_get_put_and_range_roundtrip() -> RS<()> {
 fn ensure_session_exists_errors_when_session_missing() -> RS<()> {
     with_sqlite_db("missing_session", || {
         let err = match kv::ensure_session_exists(12345) {
-            Ok(_) => panic!("expected entity not found error"),
+            Ok(_) => panic!("expected object not found error"),
             Err(e) => e,
         };
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         Ok(())
     })
 }
 
 #[test]
 fn ensure_session_exists_errors_for_non_sqlite_driver() -> RS<()> {
-    let _guard = config::test_lock().lock()?;
+    let _guard = config::test_guard();
     config::reset_db_path_override_for_test();
 
     let prev = env_var::var("MUDU_CONNECTION");

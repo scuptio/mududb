@@ -42,7 +42,7 @@ the `mudu_raft` consensus library, the `mudu_adapter` backend router,
 
 The dependency layering of these crates is defined in
 [ARCHITECTURE.md](../../ARCHITECTURE.md) and enforced by
-`script/ci/check_arch.py`, which runs in `script/shell/check_all.sh` and in
+`script/ci/check_arch.py`, which runs in `script/ci/check_all.py` and in
 the `workspace-invariants` CI job. In short: `common` may not depend on
 `db-kernel`/`sdk`/`tools`, and `db-kernel` may not depend on `sdk`/`tools`.
 

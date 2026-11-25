@@ -6,8 +6,8 @@ use mudu_binding::codec::syscall_payload;
 use mudu_binding::universal::uni_oid::UniOid;
 use mudu_binding::universal::uni_relation::UniRelationDelta;
 use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::result_batch::ResultBatch;
 use mudu_contract::database::result_set::ResultSet;
 use mudu_contract::database::sql_params::SQLParams;
@@ -37,12 +37,12 @@ where
 }
 
 /// Invoke the host `query` operation.
-pub fn invoke_host_query<R: Entity, F>(
+pub fn invoke_host_query<R: Object, F>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
     f: F,
-) -> RS<EntitySet<R>>
+) -> RS<ObjectSet<R>>
 where
     F: Fn(Vec<u8>) -> RS<Vec<u8>>,
 {
@@ -51,11 +51,11 @@ where
     let result = f(param_binary)?;
     let (result_batch, tuple_desc) =
         mudu_binding::system::query_invoke::deserialize_query_result(&result)?;
-    let entity_set = EntitySet::<R>::new(
+    let object_set = ObjectSet::<R>::new(
         Arc::new(ResultSetWrapper::new(result_batch)),
         Arc::new(tuple_desc),
     );
-    Ok(entity_set)
+    Ok(object_set)
 }
 
 /// Serialize session get param parameters.
@@ -132,6 +132,61 @@ pub fn serialize_open_result(session_id: OID) -> Vec<u8> {
 /// Deserialize open result parameters/results.
 pub fn deserialize_open_result(input: &[u8]) -> RS<OID> {
     syscall_payload::decode_open_result(input)
+}
+
+/// Serialize cache open param parameters.
+pub fn serialize_cache_open_param(name: &str) -> Vec<u8> {
+    syscall_payload::encode_cache_open_request(name)
+}
+
+/// Deserialize cache open result parameters/results.
+pub fn deserialize_cache_open_result(input: &[u8]) -> RS<OID> {
+    syscall_payload::decode_cache_open_result(input)
+}
+
+/// Serialize cache get param parameters.
+pub fn serialize_cache_get_param(cache: OID, key: &[u8]) -> Vec<u8> {
+    syscall_payload::encode_cache_get_request(cache.into(), key)
+}
+
+/// Deserialize cache get result parameters/results.
+pub fn deserialize_cache_get_result(input: &[u8]) -> RS<Option<Vec<u8>>> {
+    syscall_payload::decode_cache_get_result(input)
+}
+
+/// Serialize cache put param parameters.
+pub fn serialize_cache_put_param(
+    cache: OID,
+    key: &[u8],
+    value: &[u8],
+    ttl_secs: Option<u64>,
+) -> Vec<u8> {
+    syscall_payload::encode_cache_put_request(cache.into(), key, value, ttl_secs)
+}
+
+/// Deserialize cache put result parameters/results.
+pub fn deserialize_cache_put_result(input: &[u8]) -> RS<()> {
+    syscall_payload::decode_cache_put_result(input)
+}
+
+/// Serialize cache delete param parameters.
+pub fn serialize_cache_delete_param(cache: OID, key: &[u8]) -> Vec<u8> {
+    syscall_payload::encode_cache_delete_request(cache.into(), key)
+}
+
+/// Deserialize cache delete result parameters/results.
+pub fn deserialize_cache_delete_result(input: &[u8]) -> RS<()> {
+    syscall_payload::decode_cache_delete_result(input)
+}
+
+/// Serialize cache ttl param parameters.
+pub fn serialize_cache_ttl_param(cache: OID, key: &[u8]) -> Vec<u8> {
+    syscall_payload::encode_cache_ttl_request(cache.into(), key)
+}
+
+/// Deserialize cache ttl result parameters/results.
+pub fn deserialize_cache_ttl_result(input: &[u8]) -> RS<Option<u64>> {
+    syscall_payload::decode_cache_ttl_result(input)
 }
 
 /// Serialize close param parameters.
@@ -227,6 +282,62 @@ where
     let param_binary = serialize_session_range_param(session_id, start_key, end_key);
     let result = f(param_binary)?;
     deserialize_range_result(&result)
+}
+
+/// Invoke the host `cache open` operation.
+pub fn invoke_host_cache_open<F>(name: &str, f: F) -> RS<OID>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_cache_open_param(name);
+    let result = f(param_binary)?;
+    deserialize_cache_open_result(&result)
+}
+
+/// Invoke the host `cache get` operation.
+pub fn invoke_host_cache_get<F>(cache: OID, key: &[u8], f: F) -> RS<Option<Vec<u8>>>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_cache_get_param(cache, key);
+    let result = f(param_binary)?;
+    deserialize_cache_get_result(&result)
+}
+
+/// Invoke the host `cache put` operation.
+pub fn invoke_host_cache_put<F>(
+    cache: OID,
+    key: &[u8],
+    value: &[u8],
+    ttl_secs: Option<u64>,
+    f: F,
+) -> RS<()>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_cache_put_param(cache, key, value, ttl_secs);
+    let result = f(param_binary)?;
+    deserialize_cache_put_result(&result)
+}
+
+/// Invoke the host `cache delete` operation.
+pub fn invoke_host_cache_delete<F>(cache: OID, key: &[u8], f: F) -> RS<()>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_cache_delete_param(cache, key);
+    let result = f(param_binary)?;
+    deserialize_cache_delete_result(&result)
+}
+
+/// Invoke the host `cache ttl` operation.
+pub fn invoke_host_cache_ttl<F>(cache: OID, key: &[u8], f: F) -> RS<Option<u64>>
+where
+    F: Fn(Vec<u8>) -> RS<Vec<u8>>,
+{
+    let param_binary = serialize_cache_ttl_param(cache, key);
+    let result = f(param_binary)?;
+    deserialize_cache_ttl_result(&result)
 }
 
 /// Serialize relation get param parameters.
@@ -500,12 +611,12 @@ where
 }
 
 /// Asynchronously invoke the host `query` operation.
-pub async fn async_invoke_host_query<R: Entity, F>(
+pub async fn async_invoke_host_query<R: Object, F>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
     f: F,
-) -> RS<EntitySet<R>>
+) -> RS<ObjectSet<R>>
 where
     F: AsyncFn(Vec<u8>) -> RS<Vec<u8>>,
 {
@@ -514,11 +625,11 @@ where
     let result = f(param_binary).await?;
     let (result_batch, tuple_desc) =
         mudu_binding::system::query_invoke::deserialize_query_result(&result)?;
-    let entity_set = EntitySet::<R>::new(
+    let object_set = ObjectSet::<R>::new(
         Arc::new(ResultSetWrapper::new(result_batch)),
         Arc::new(tuple_desc),
     );
-    Ok(entity_set)
+    Ok(object_set)
 }
 
 /// Asynchronously invoke the host `open` operation.
@@ -802,181 +913,5 @@ impl ResultSet for ResultSetWrapper {
         let mut batch = self.batch.lock()?;
         let t = batch.mut_rows().pop();
         Ok(t)
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-mod tests {
-    use super::*;
-    use mudu_binding::codec::syscall_payload::MessageKind;
-    use mudu_binding::system::{command_invoke, query_invoke};
-    use mudu_binding::universal::uni_session_open_argv::UniSessionOpenArgv;
-    use mudu_contract::database::sql_stmt_text::SQLStmtText;
-    use mudu_contract::tuple::tuple_datum::TupleDatum;
-    use mudu_contract::tuple::tuple_value::TupleValue;
-    use mudu_type::data_value::DataValue;
-
-    #[test]
-    fn kv_get_roundtrip() {
-        let encoded = serialize_session_get_param(7, b"k1");
-        let (kind, _) = syscall_payload::decode_frame(&encoded).unwrap();
-        assert_eq!(kind, MessageKind::Get);
-        let (oid, key) = deserialize_session_get_param(&encoded).unwrap();
-        assert_eq!(oid, 7);
-        assert_eq!(key, b"k1");
-
-        let encoded_result = serialize_get_result(Some(b"v1"));
-        let decoded_result = deserialize_get_result(&encoded_result).unwrap();
-        assert_eq!(decoded_result, Some(b"v1".to_vec()));
-
-        let encoded_none = serialize_get_result(None);
-        assert_eq!(deserialize_get_result(&encoded_none).unwrap(), None);
-    }
-
-    #[test]
-    fn kv_range_roundtrip() {
-        let encoded = serialize_session_range_param(3, b"a", b"z");
-        let (kind, _) = syscall_payload::decode_frame(&encoded).unwrap();
-        assert_eq!(kind, MessageKind::Range);
-        let (oid, start, end) = deserialize_session_range_param(&encoded).unwrap();
-        assert_eq!(oid, 3);
-        assert_eq!((start, end), (b"a".to_vec(), b"z".to_vec()));
-
-        let encoded_result = serialize_range_result(&[
-            (b"a".to_vec(), b"1".to_vec()),
-            (b"b".to_vec(), b"2".to_vec()),
-        ]);
-        let decoded_result = deserialize_range_result(&encoded_result).unwrap();
-        assert_eq!(
-            decoded_result,
-            vec![
-                (b"a".to_vec(), b"1".to_vec()),
-                (b"b".to_vec(), b"2".to_vec())
-            ]
-        );
-    }
-
-    #[test]
-    fn open_and_open_argv_helpers_roundtrip() {
-        let oid = invoke_host_open(|input| {
-            let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
-            assert_eq!(kind, MessageKind::Open);
-            assert_eq!(deserialize_open_param(&input).unwrap().worker_oid(), 0);
-            Ok(serialize_open_result(15))
-        })
-        .unwrap();
-        assert_eq!(oid, 15);
-
-        let argv = UniSessionOpenArgv::new(7);
-        let oid = invoke_host_open_argv(&argv, |input| {
-            let decoded = deserialize_open_param(&input).unwrap();
-            assert_eq!(decoded.worker_oid(), 7);
-            Ok(serialize_open_result(21))
-        })
-        .unwrap();
-        assert_eq!(oid, 21);
-    }
-
-    #[test]
-    fn session_put_and_close_helpers_roundtrip() {
-        invoke_host_session_put(5, b"k", b"v", |input| {
-            let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
-            assert_eq!(kind, MessageKind::Put);
-            let (oid, key, value) = deserialize_session_put_param(&input).unwrap();
-            assert_eq!(oid, 5);
-            assert_eq!((key, value), (b"k".to_vec(), b"v".to_vec()));
-            Ok(serialize_put_result())
-        })
-        .unwrap();
-
-        invoke_host_close(9, |input| {
-            let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
-            assert_eq!(kind, MessageKind::Close);
-            assert_eq!(deserialize_close_param(&input).unwrap(), 9);
-            Ok(serialize_close_result())
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn command_and_query_helpers_decode_serialized_results() {
-        let stmt = SQLStmtText::new("SELECT 1".to_string());
-
-        let affected = invoke_host_command(3, &stmt, &(), |input| {
-            let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
-            assert_eq!(oid, 3);
-            Ok(command_invoke::serialize_command_result(Ok(5)))
-        })
-        .unwrap();
-        assert_eq!(affected, 5);
-
-        let records = invoke_host_query::<i32, _>(4, &stmt, &(), |input| {
-            let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
-            assert_eq!(oid, 4);
-            Ok(query_invoke::serialize_query_result(Ok((
-                mudu_contract::database::result_batch::ResultBatch::from(
-                    4,
-                    vec![TupleValue::from(vec![DataValue::from_i32(8)])],
-                    true,
-                ),
-                <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
-            ))))
-        })
-        .unwrap();
-        assert_eq!(records.next_record().unwrap(), Some(8));
-    }
-
-    #[test]
-    fn async_host_helpers_roundtrip_sync_payload_shapes() {
-        mudu_sys::task::async_::block_on_tokio_current_thread(async move {
-            let stmt = SQLStmtText::new("SELECT 1".to_string());
-
-            let oid = async_invoke_host_open(|input: Vec<u8>| async move {
-                let (kind, _) = syscall_payload::decode_frame(&input).unwrap();
-                assert_eq!(kind, MessageKind::Open);
-                Ok(serialize_open_result(31))
-            })
-            .await
-            .unwrap();
-            assert_eq!(oid, 31);
-
-            let affected = async_invoke_host_batch(6, &stmt, &(), |input: Vec<u8>| async move {
-                let (oid, _, _) = command_invoke::deserialize_command_param(&input).unwrap();
-                assert_eq!(oid, 6);
-                Ok(command_invoke::serialize_command_result(Ok(2)))
-            })
-            .await
-            .unwrap();
-            assert_eq!(affected, 2);
-
-            let records =
-                async_invoke_host_query::<i32, _>(8, &stmt, &(), |input: Vec<u8>| async move {
-                    let (oid, _, _) = query_invoke::deserialize_query_param(&input).unwrap();
-                    assert_eq!(oid, 8);
-                    Ok(query_invoke::serialize_query_result(Ok((
-                        mudu_contract::database::result_batch::ResultBatch::from(
-                            8,
-                            vec![TupleValue::from(vec![DataValue::from_i32(13)])],
-                            true,
-                        ),
-                        <i32 as TupleDatum>::tuple_desc_static(&["value".to_string()]),
-                    ))))
-                })
-                .await
-                .unwrap();
-            assert_eq!(records.next_record().unwrap(), Some(13));
-
-            let got = async_invoke_host_session_get(9, b"k", |input: Vec<u8>| async move {
-                let (oid, key) = deserialize_session_get_param(&input).unwrap();
-                assert_eq!(oid, 9);
-                assert_eq!(key, b"k");
-                Ok(serialize_get_result(Some(b"v")))
-            })
-            .await
-            .unwrap();
-            assert_eq!(got, Some(b"v".to_vec()));
-        })
-        .unwrap();
     }
 }

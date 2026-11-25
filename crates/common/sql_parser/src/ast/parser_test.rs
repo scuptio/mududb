@@ -43,3 +43,19 @@ fn parse_create_table(sql: &str) -> RS<StmtCreateTable> {
         )),
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn parse_sql_rejects_incomplete_statements() {
+    assert!(parse_sql("create table").is_err());
+    assert!(parse_sql("select 1 from").is_err());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn parse_create_table_rejects_empty_and_non_create_table_sql() {
+    // No statements at all.
+    assert!(parse_create_table("").is_err());
+    // A valid statement of a different kind.
+    assert!(parse_create_table("select * from t").is_err());
+}

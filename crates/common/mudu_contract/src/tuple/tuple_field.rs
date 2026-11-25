@@ -6,6 +6,7 @@ use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::json::{JsonMap, JsonValue};
+use mudu_type::type_family_ext::TypeFamilyExt;
 use serde::{Deserialize, Serialize};
 
 /// A tuple carried as per-field binary values; `None` is a SQL NULL.

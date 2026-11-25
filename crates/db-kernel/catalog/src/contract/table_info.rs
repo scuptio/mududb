@@ -1,5 +1,5 @@
 use crate::contract::field_info::FieldInfo;
-use crate::contract::schema_table::SchemaTable;
+use crate::contract::schema_class::SchemaClass;
 use crate::contract::table_desc::{TableDesc, TableDescParams};
 use mudu::common::id::{AttrIndex, OID};
 use mudu::common::result::RS;
@@ -10,7 +10,7 @@ use mudu_sys::sync::SMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Interior-mutable table metadata built from a [`SchemaTable`]; produces
+/// Interior-mutable table metadata built from a [`SchemaClass`]; produces
 /// immutable [`TableDesc`] snapshots.
 #[derive(Clone)]
 pub struct TableInfo {
@@ -18,7 +18,7 @@ pub struct TableInfo {
 }
 
 struct TableInner {
-    schema_table: Arc<SchemaTable>,
+    schema_class: Arc<SchemaClass>,
     name2oid: HashMap<String, OID>,
     oid2column: HashMap<OID, FieldInfo>,
     fields: Vec<FieldInfo>,
@@ -33,7 +33,7 @@ struct TableInner {
 impl TableInfo {
     /// Builds table metadata from the schema, deriving tuple descriptors and
     /// field maps.
-    pub fn new(table_schema: SchemaTable) -> RS<Self> {
+    pub fn new(table_schema: SchemaClass) -> RS<Self> {
         Ok(Self {
             inner: Arc::new(SMutex::new(TableInner::new(table_schema)?)),
         })
@@ -46,6 +46,8 @@ impl TableInfo {
             name: inner.name().clone(),
             schema: inner.schema().clone(),
             oid: inner.id(),
+            kind: inner.schema_class.kind(),
+            ttl_secs: inner.schema_class.ttl_secs(),
             key_oid: inner.key_oid.clone(),
             value_oid: inner.value_oid.clone(),
             key_indices: inner.key_indices.clone(),
@@ -60,13 +62,13 @@ impl TableInfo {
     }
 
     /// The underlying table schema.
-    pub fn schema(&self) -> RS<Arc<SchemaTable>> {
-        Ok(self.inner.lock()?.schema_table.clone())
+    pub fn schema(&self) -> RS<Arc<SchemaClass>> {
+        Ok(self.inner.lock()?.schema_class.clone())
     }
 }
 
 impl TableInner {
-    pub fn new(table_schema: SchemaTable) -> RS<Self> {
+    pub fn new(table_schema: SchemaClass) -> RS<Self> {
         let key_indices = table_schema.key_indices().clone();
         let value_indices = table_schema.value_indices().clone();
         let (key_tuple_desc, key_tuple_payload_info) = table_schema.key_tuple_desc()?;
@@ -102,7 +104,7 @@ impl TableInner {
         }
 
         Ok(Self {
-            schema_table: Arc::new(table_schema),
+            schema_class: Arc::new(table_schema),
             name2oid,
             oid2column,
             fields,
@@ -116,14 +118,14 @@ impl TableInner {
     }
 
     pub fn id(&self) -> OID {
-        self.schema_table.id()
+        self.schema_class.id()
     }
 
     pub fn name(&self) -> &String {
-        self.schema_table.table_name()
+        self.schema_class.class_name()
     }
 
     pub fn schema(&self) -> &String {
-        self.schema_table.schema()
+        self.schema_class.schema()
     }
 }

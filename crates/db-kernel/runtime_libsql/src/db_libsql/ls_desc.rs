@@ -9,7 +9,10 @@ use mudu_type::type_family::TypeFamily;
 
 /// Get schema information for a SQL query result set
 /// This function executes the query with LIMIT 0 to get only the structure without data
-pub async fn desc_projection(conn: &Connection, query: &str) -> Result<Vec<DatumDesc>, MuduError> {
+pub(crate) async fn desc_projection(
+    conn: &Connection,
+    query: &str,
+) -> Result<Vec<DatumDesc>, MuduError> {
     // Use LIMIT 0 to get only structure without data
 
     let _query = query

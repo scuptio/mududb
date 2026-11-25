@@ -4,7 +4,7 @@
 //! for every format whose evolution must remain backward/forward compatible.
 //!
 //! Format contracts live under `doc/en/contract/` (English) and
-//! `doc/cn/contract/` (Chinese).  When adding a new format family, register
+//! `doc/zh-CN/contract/` (Chinese).  When adding a new format family, register
 //! its magic and supported version range here and update the corresponding
 //! contract document before any code is released.
 

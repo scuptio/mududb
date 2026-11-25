@@ -694,3 +694,139 @@ pub fn decode_fs_readdir_result(frame: &[u8]) -> RS<Vec<UniFsDirent>> {
     decode_typed_frame(MessageKind::FsReaddir, frame)?;
     from_gen(gen_codec::decode_fs_readdir_result(frame))
 }
+
+// ---- cache-open ----
+
+/// Encodes a `cache-open` request frame: body `[name]`.
+pub fn encode_cache_open_request(name: &str) -> Vec<u8> {
+    gen_codec::encode_cache_open_request(name)
+}
+
+/// Decodes a `cache-open` request frame into the cache name.
+pub fn decode_cache_open_request(frame: &[u8]) -> RS<String> {
+    decode_typed_frame(MessageKind::CacheOpen, frame)?;
+    gen_codec::decode_cache_open_request(frame).map_err(frame_error_to_mudu)
+}
+
+/// Encodes a `cache-open` result frame: body `[0, UniOid]` or
+/// `[1, UniError]`.
+pub fn encode_cache_open_result(result: &RS<OID>) -> Vec<u8> {
+    let uni = match result {
+        Ok(oid) => Ok(oid_to_mu(*oid)),
+        Err(error) => Err(error_to_mu(error.clone())),
+    };
+    gen_codec::encode_cache_open_result(&uni)
+}
+
+/// Decodes a `cache-open` result frame into the cache handle OID.
+pub fn decode_cache_open_result(frame: &[u8]) -> RS<OID> {
+    decode_typed_frame(MessageKind::CacheOpen, frame)?;
+    let oid = from_gen(gen_codec::decode_cache_open_result(frame))?;
+    Ok(oid_from_mu(oid))
+}
+
+// ---- cache-get ----
+
+/// Encodes a `cache-get` request frame: body `[cache, key]`.
+pub fn encode_cache_get_request(cache: UniOid, key: &[u8]) -> Vec<u8> {
+    gen_codec::encode_cache_get_request(&cache, key)
+}
+
+/// Decodes a `cache-get` request frame into `(cache, key)`.
+pub fn decode_cache_get_request(frame: &[u8]) -> RS<(UniOid, Vec<u8>)> {
+    decode_typed_frame(MessageKind::CacheGet, frame)?;
+    gen_codec::decode_cache_get_request(frame).map_err(frame_error_to_mudu)
+}
+
+/// Encodes a `cache-get` result frame: body `[0, value-or-nil]` or
+/// `[1, UniError]`.
+pub fn encode_cache_get_result(result: &RS<Option<Vec<u8>>>) -> Vec<u8> {
+    gen_codec::encode_cache_get_result_ref(&rs_to_uni(result))
+}
+
+/// Decodes a `cache-get` result frame into the optional value.
+pub fn decode_cache_get_result(frame: &[u8]) -> RS<Option<Vec<u8>>> {
+    decode_typed_frame(MessageKind::CacheGet, frame)?;
+    from_gen(gen_codec::decode_cache_get_result(frame))
+}
+
+// ---- cache-put ----
+
+/// Encodes a `cache-put` request frame: body `[cache, key, value, ttl]`.
+pub fn encode_cache_put_request(
+    cache: UniOid,
+    key: &[u8],
+    value: &[u8],
+    ttl_secs: Option<u64>,
+) -> Vec<u8> {
+    gen_codec::encode_cache_put_request(&cache, key, value, &ttl_secs)
+}
+
+/// Decoded `cache-put` request payload.
+pub type CachePutRequest = (UniOid, Vec<u8>, Vec<u8>, Option<u64>);
+
+/// Decodes a `cache-put` request frame into `(cache, key, value, ttl)`.
+pub fn decode_cache_put_request(frame: &[u8]) -> RS<CachePutRequest> {
+    decode_typed_frame(MessageKind::CachePut, frame)?;
+    gen_codec::decode_cache_put_request(frame).map_err(frame_error_to_mudu)
+}
+
+/// Encodes a `cache-put` result frame: body `[0, 0]` or `[1, UniError]`.
+pub fn encode_cache_put_result(result: &RS<()>) -> Vec<u8> {
+    gen_codec::encode_cache_put_result(&rs_to_uni_unit(result))
+}
+
+/// Decodes a `cache-put` result frame.
+pub fn decode_cache_put_result(frame: &[u8]) -> RS<()> {
+    decode_typed_frame(MessageKind::CachePut, frame)?;
+    from_gen(gen_codec::decode_cache_put_result(frame))
+}
+
+// ---- cache-delete ----
+
+/// Encodes a `cache-delete` request frame: body `[cache, key]`.
+pub fn encode_cache_delete_request(cache: UniOid, key: &[u8]) -> Vec<u8> {
+    gen_codec::encode_cache_delete_request(&cache, key)
+}
+
+/// Decodes a `cache-delete` request frame into `(cache, key)`.
+pub fn decode_cache_delete_request(frame: &[u8]) -> RS<(UniOid, Vec<u8>)> {
+    decode_typed_frame(MessageKind::CacheDelete, frame)?;
+    gen_codec::decode_cache_delete_request(frame).map_err(frame_error_to_mudu)
+}
+
+/// Encodes a `cache-delete` result frame: body `[0, 0]` or `[1, UniError]`.
+pub fn encode_cache_delete_result(result: &RS<()>) -> Vec<u8> {
+    gen_codec::encode_cache_delete_result(&rs_to_uni_unit(result))
+}
+
+/// Decodes a `cache-delete` result frame.
+pub fn decode_cache_delete_result(frame: &[u8]) -> RS<()> {
+    decode_typed_frame(MessageKind::CacheDelete, frame)?;
+    from_gen(gen_codec::decode_cache_delete_result(frame))
+}
+
+// ---- cache-ttl ----
+
+/// Encodes a `cache-ttl` request frame: body `[cache, key]`.
+pub fn encode_cache_ttl_request(cache: UniOid, key: &[u8]) -> Vec<u8> {
+    gen_codec::encode_cache_ttl_request(&cache, key)
+}
+
+/// Decodes a `cache-ttl` request frame into `(cache, key)`.
+pub fn decode_cache_ttl_request(frame: &[u8]) -> RS<(UniOid, Vec<u8>)> {
+    decode_typed_frame(MessageKind::CacheTtl, frame)?;
+    gen_codec::decode_cache_ttl_request(frame).map_err(frame_error_to_mudu)
+}
+
+/// Encodes a `cache-ttl` result frame: body `[0, seconds-or-nil]` or
+/// `[1, UniError]`.
+pub fn encode_cache_ttl_result(result: &RS<Option<u64>>) -> Vec<u8> {
+    gen_codec::encode_cache_ttl_result_ref(&rs_to_uni(result))
+}
+
+/// Decodes a `cache-ttl` result frame into the remaining seconds.
+pub fn decode_cache_ttl_result(frame: &[u8]) -> RS<Option<u64>> {
+    decode_typed_frame(MessageKind::CacheTtl, frame)?;
+    from_gen(gen_codec::decode_cache_ttl_result(frame))
+}

@@ -2,7 +2,7 @@
 
 use crate::common::ident::is_valid_identifier;
 use crate::common::type_registry::TypeRegistry;
-use crate::python::procedure::{PyParam, PyProcedure, PyValueType, normalize_hint};
+use crate::python::types::{PyParam, PyProcedure, PyValueType, normalize_hint};
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;

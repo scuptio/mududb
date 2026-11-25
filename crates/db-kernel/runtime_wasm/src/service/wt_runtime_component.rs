@@ -167,7 +167,7 @@ pub fn instantiate_component_modules(
     for (mod_name, vec_desc) in package_desc.modules() {
         let byte_code = package.modules.get(mod_name).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("no such module named {}", mod_name)
             )
         })?;

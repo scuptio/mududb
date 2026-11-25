@@ -7,7 +7,7 @@ use crate::generated::votes::object::Votes;
 use fallible_iterator::FallibleIterator;
 use mududb::common::id::OID;
 use mududb::common::result::RS;
-use mududb::contract::database::entity_set::EntitySet;
+use mududb::contract::database::object_set::ObjectSet;
 use mududb::contract::{sql_params, sql_stmt};
 use mududb::error::ErrorCode;
 use mududb::mudu_error;
@@ -104,14 +104,14 @@ pub async fn cast_vote(
     )
     .await?
     .next()?
-    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found"))?;
 
     if mududb::sys::time::utc_now().timestamp() > vote.end_time as i64 {
         return Err(mudu_error!(ErrorCode::InvalidState, "Voting has ended"));
     }
 
     // Check user hasn't voted or has withdrawn previous vote
-    let mut rs: EntitySet<_> = mudu_query::<VoteActions>(
+    let mut rs: ObjectSet<_> = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(
             &"SELECT * FROM vote_actions WHERE user_id = ? AND vote_id = ? AND is_withdrawn = 0"
@@ -148,8 +148,8 @@ pub async fn cast_vote(
     mudu_command(
         xid,
         sql_stmt!(
-            &"INSERT INTO vote_actions (action_id, user_id, vote_id, action_time)
-             VALUES (?, ?, ?, ?)"
+            &"INSERT INTO vote_actions (action_id, user_id, vote_id, action_time, is_withdrawn)
+             VALUES (?, ?, ?, ?, 0)"
         ),
         sql_params!(&(action_id.clone(), user_id.clone(), vote_id, action_time)),
     )
@@ -182,7 +182,7 @@ pub async fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()>
     )
     .await?
     .next()?
-    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found"))?;
 
     if mududb::sys::time::utc_now().timestamp() > vote.end_time as i64 {
         return Err(mudu_error!(
@@ -200,7 +200,7 @@ pub async fn withdraw_vote(xid: OID, user_id: String, vote_id: String) -> RS<()>
     )
     .await?
     .next()?
-    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "No active vote to withdraw"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "No active vote to withdraw"))?;
 
     let action_id = active_action.action_id.clone();
     mudu_command(
@@ -226,7 +226,7 @@ pub async fn get_vote_result(xid: OID, vote_id: String) -> RS<VoteResult> {
     )
     .await?
     .next()?
-    .ok_or_else(|| mudu_error!(ErrorCode::EntityNotFound, "Vote not found"))?;
+    .ok_or_else(|| mudu_error!(ErrorCode::ObjectNotFound, "Vote not found"))?;
 
     let now = mududb::sys::time::utc_now().timestamp();
     let vote_ended = now > vote.end_time as i64;
@@ -292,7 +292,7 @@ pub async fn get_voting_history(xid: OID, user_id: String) -> RS<Vec<VoteHistory
     let actions = mudu_query::<VoteActions>(
         xid,
         sql_stmt!(
-            &"SELECT va.*, v.topic
+            &"SELECT va.*
              FROM vote_actions va
              JOIN votes v ON va.vote_id = v.vote_id
              WHERE user_id = ?"

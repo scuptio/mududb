@@ -30,3 +30,7 @@ arbitrary = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
+# The cfg(test)-gated `_fuzz` helpers call `mudu_type`'s
+# `arbitrary`-gated generators; declare the feature here so this crate's own
+# test targets compile without relying on feature unification luck.
+mudu_type = { workspace = true, features = ["arbitrary"] }

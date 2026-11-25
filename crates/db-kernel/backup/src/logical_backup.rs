@@ -4,7 +4,7 @@
 //! partition bindings/placements, filesystem types) together with one CSV
 //! file per table; a logical restore reconstructs the schema and reloads the
 //! data. The authoritative schema input is a structured, msgpack-encoded
-//! `Vec<SchemaTable>` (`schema.mp`) so the round-trip is lossless; the
+//! `Vec<SchemaClass>` (`schema.mp`) so the round-trip is lossless; the
 //! rendered `schema.sql` is a human-readable / portable attachment.
 //!
 //! The data path reuses the existing `COPY TO` / `COPY FROM` commands
@@ -13,12 +13,11 @@
 
 use ::catalog::contract::cmd_exec::CmdExec;
 use ::catalog::contract::fs_type::{FsColumnBinding, FsTypeDesc};
-use ::catalog::contract::message_bus_api::ServerInstanceId;
 use ::catalog::contract::meta_mgr::MetaMgr;
 use ::catalog::contract::partition_rule::PartitionRuleDesc;
 use ::catalog::contract::partition_rule_binding::{PartitionPlacement, TablePartitionBinding};
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::command::load_from_file::{LoadFromFile, LoadFromFileParams};
 use ::command::save_to_file::{SaveToFile, SaveToFileParams};
@@ -26,6 +25,7 @@ use ::meta::fs_object::FS_OBJECT_TABLE_ID;
 use ::sql::copy_layout::CopyLayout;
 use ::worker::worker::WorkerRuntime;
 use ::xengine::api::XContract;
+use mudu::channel::ServerInstanceId;
 use mudu::common::id::OID;
 use mudu::common::result::RS;
 use mudu::error::ErrorCode;
@@ -41,7 +41,7 @@ use tracing::warn;
 
 /// Manifest file name inside a logical dump archive.
 const MANIFEST_FILE: &str = "manifest.mp";
-/// Structured schema file name (msgpack `Vec<SchemaTable>`).
+/// Structured schema file name (msgpack `Vec<SchemaClass>`).
 const SCHEMA_FILE: &str = "schema.mp";
 /// Human-readable DDL file name.
 const SCHEMA_SQL_FILE: &str = "schema.sql";
@@ -234,7 +234,7 @@ fn sql_column_type(col: &SchemaColumn, fs_types: &[FsTypeDesc]) -> String {
             .map(|desc| desc.name().to_string())
             .unwrap_or_else(|| "oid".to_string());
     }
-    let data_type = col.type_param().to_data_type().ok();
+    let data_type = mudu_type::data_type_codec::to_data_type(col.type_param()).ok();
     match col.type_id() {
         TypeFamily::I32 => "INT".to_string(),
         TypeFamily::I64 => "BIGINT".to_string(),
@@ -261,12 +261,12 @@ fn sql_column_type(col: &SchemaColumn, fs_types: &[FsTypeDesc]) -> String {
 
 /// Renders the `CREATE TABLE` DDL of one table. The result is a human-readable
 /// attachment; the authoritative schema input is the msgpack `schema.mp`.
-pub(crate) fn render_create_table_ddl(schema: &SchemaTable, fs_types: &[FsTypeDesc]) -> String {
+pub(crate) fn render_create_table_ddl(schema: &SchemaClass, fs_types: &[FsTypeDesc]) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "CREATE TABLE {}.{} (\n",
         schema.schema(),
-        schema.table_name()
+        schema.class_name()
     ));
     let primary: Vec<&str> = schema
         .key_columns()
@@ -294,7 +294,7 @@ pub(crate) fn render_create_table_ddl(schema: &SchemaTable, fs_types: &[FsTypeDe
 }
 
 /// Renders the whole `schema.sql` attachment: one DDL per table.
-fn render_schema_sql(schemas: &[SchemaTable], fs_types: &[FsTypeDesc]) -> String {
+fn render_schema_sql(schemas: &[SchemaClass], fs_types: &[FsTypeDesc]) -> String {
     schemas
         .iter()
         .map(|schema| render_create_table_ddl(schema, fs_types))
@@ -320,7 +320,7 @@ fn default_meta_mgr(
 /// the fs-type / partition-rule / binding sets, the placements re-keyed to
 /// worker indices, and the set of partitioned table ids.
 struct DumpCatalog {
-    schemas: Vec<SchemaTable>,
+    schemas: Vec<SchemaClass>,
     fs_types: Vec<FsTypeDesc>,
     partition_rules: Vec<PartitionRuleDesc>,
     partition_bindings: Vec<TablePartitionBinding>,
@@ -335,7 +335,7 @@ async fn gather_dump_catalog(
     workers: &[(Arc<WorkerRuntime>, u32)],
 ) -> RS<DumpCatalog> {
     let schemas = meta_mgr.list_schemas().await?;
-    let schemas: Vec<SchemaTable> = schemas
+    let schemas: Vec<SchemaClass> = schemas
         .into_iter()
         .filter(|schema| schema.id() != FS_OBJECT_TABLE_ID)
         .collect();
@@ -392,11 +392,11 @@ async fn dump_table_csvs(
     let mut tables = Vec::with_capacity(catalog.schemas.len());
     for schema in &catalog.schemas {
         let is_partitioned = catalog.partitioned_tables.contains(&schema.id());
-        let csv_file = table_csv_file(schema.schema(), schema.table_name());
-        let csv_path = table_csv_path(dir, label, schema.schema(), schema.table_name());
+        let csv_file = table_csv_file(schema.schema(), schema.class_name());
+        let csv_path = table_csv_path(dir, label, schema.schema(), schema.class_name());
         let rows = if is_partitioned {
             warn!(
-                table = %schema.table_name(),
+                table = %schema.class_name(),
                 "logical dump: skipping partitioned-table data (metadata only)"
             );
             0
@@ -419,7 +419,7 @@ async fn dump_table_csvs(
         };
         tables.push(LogicalTableRef {
             schema: schema.schema().clone(),
-            name: schema.table_name().clone(),
+            name: schema.class_name().clone(),
             csv_file,
             rows,
         });
@@ -435,7 +435,7 @@ async fn dump_table_csvs(
 fn publish_dump(
     dir: &str,
     label: &str,
-    schemas: &[SchemaTable],
+    schemas: &[SchemaClass],
     manifest: &LogicalDumpManifest,
 ) -> RS<()> {
     let label_dir = dump_label_dir(dir, label);
@@ -525,7 +525,7 @@ pub(crate) fn load_logical_dump(dir: &str, label: &str) -> RS<Option<LogicalDump
 }
 
 /// Loads the structured schema of a logical dump from its archive.
-fn load_logical_schema(dir: &str, label: &str) -> RS<Vec<SchemaTable>> {
+fn load_logical_schema(dir: &str, label: &str) -> RS<Vec<SchemaClass>> {
     let path = archive_path(dir, label);
     let bytes = read_zip_entry(&path, SCHEMA_FILE)?.ok_or_else(|| {
         mudu_error!(
@@ -560,7 +560,7 @@ pub async fn run_logical_restore(
     let (meta_mgr, x_contract) = default_meta_mgr(&worker_refs)?;
     let manifest = load_logical_dump(dir, label)?.ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("no such logical dump {label}")
         )
     })?;
@@ -634,7 +634,7 @@ async fn restore_fs_types(
 async fn restore_tables(
     meta_mgr: &Arc<dyn MetaMgr>,
     x_contract: &Arc<dyn XContract>,
-    schemas: &[SchemaTable],
+    schemas: &[SchemaClass],
     fs_id_map: &HashMap<u64, u64>,
     drop_existing: bool,
 ) -> RS<RestoredTables> {
@@ -644,13 +644,13 @@ async fn restore_tables(
     let ddl_tx = x_contract.begin_tx().await?;
     for schema in schemas {
         if meta_mgr
-            .get_table_exact(schema.schema(), schema.table_name())
+            .get_table_exact(schema.schema(), schema.class_name())
             .await?
             .is_some()
         {
             if drop_existing {
                 let existing = meta_mgr
-                    .get_table_exact(schema.schema(), schema.table_name())
+                    .get_table_exact(schema.schema(), schema.class_name())
                     .await?
                     .ok_or_else(|| {
                         mudu_error!(ErrorCode::Internal, "table disappeared during restore")
@@ -663,7 +663,7 @@ async fn restore_tables(
         }
         let rebuilt = remap_fs_bindings(schema, fs_id_map);
         x_contract.create_table(ddl_tx.clone(), &rebuilt).await?;
-        names.insert((schema.schema().clone(), schema.table_name().clone()));
+        names.insert((schema.schema().clone(), schema.class_name().clone()));
         created += 1;
     }
     x_contract.commit_tx(ddl_tx).await?;
@@ -713,7 +713,7 @@ async fn restore_partitions(
             .map(|(worker, _)| worker.worker_id())
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!("no worker at index {worker_index} on the target server")
                 )
             })
@@ -738,7 +738,7 @@ async fn load_table_data(
     dir: &str,
     label: &str,
     manifest: &LogicalDumpManifest,
-    schemas: &[SchemaTable],
+    schemas: &[SchemaClass],
     created_tables: &std::collections::HashSet<(String, String)>,
     meta_mgr: &Arc<dyn MetaMgr>,
     x_contract: &Arc<dyn XContract>,
@@ -751,7 +751,7 @@ async fn load_table_data(
         }
         let table_ref = schemas
             .iter()
-            .find(|schema| schema.schema() == &table.schema && schema.table_name() == &table.name)
+            .find(|schema| schema.schema() == &table.schema && schema.class_name() == &table.name)
             .ok_or_else(|| {
                 mudu_error!(
                     ErrorCode::CorruptedData,
@@ -791,9 +791,9 @@ async fn load_table_data(
     Ok(rows_loaded)
 }
 
-/// Rebuilds a `SchemaTable` with its filesystem-type column bindings re-mapped
+/// Rebuilds a `SchemaClass` with its filesystem-type column bindings re-mapped
 /// to the target server's fs ids.
-fn remap_fs_bindings(schema: &SchemaTable, fs_id_map: &HashMap<u64, u64>) -> SchemaTable {
+fn remap_fs_bindings(schema: &SchemaClass, fs_id_map: &HashMap<u64, u64>) -> SchemaClass {
     let mut columns = schema.columns().clone();
     for column in &mut columns {
         if let Some(binding) = column.fs_binding() {
@@ -802,9 +802,9 @@ fn remap_fs_bindings(schema: &SchemaTable, fs_id_map: &HashMap<u64, u64>) -> Sch
             }
         }
     }
-    let mut rebuilt = SchemaTable::new_with_oid(
+    let mut rebuilt = SchemaClass::new_with_oid(
         schema.id(),
-        schema.table_name().clone(),
+        schema.class_name().clone(),
         columns,
         schema.key_indices().clone(),
         schema.value_indices().clone(),
@@ -820,7 +820,7 @@ mod tests {
     use ::catalog::contract::schema_column::SchemaColumn;
     use mudu_type::data_type_info::DataTypeInfo;
 
-    fn sample_schema() -> SchemaTable {
+    fn sample_schema() -> SchemaClass {
         let mut id = SchemaColumn::new(
             "id".to_string(),
             TypeFamily::I32,
@@ -842,7 +842,7 @@ mod tests {
             TypeFamily::String,
             DataTypeInfo::from_text(TypeFamily::String, "{\"length\":16}".to_string()),
         );
-        SchemaTable::new(
+        SchemaClass::new(
             "ledger".to_string(),
             vec![id, amount, note],
             vec![0],

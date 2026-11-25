@@ -60,6 +60,11 @@ typedef enum {
     UNI_SYSCALL_RELATION_GET = 21u,
     UNI_SYSCALL_RELATION_UPDATE = 22u,
     UNI_SYSCALL_RELATION_INSERT = 23u,
+    UNI_SYSCALL_CACHE_OPEN = 24u,
+    UNI_SYSCALL_CACHE_GET = 25u,
+    UNI_SYSCALL_CACHE_PUT = 26u,
+    UNI_SYSCALL_CACHE_DELETE = 27u,
+    UNI_SYSCALL_CACHE_TTL = 28u,
 } uni_syscall_message_kind;
 
 /* Convert a raw header value into a message kind; -1 on `0` and unknown
@@ -134,6 +139,21 @@ MP_INLINE int uni_syscall_message_kind_from_u32(uint32_t raw, uni_syscall_messag
         return 0;
     case 23u:
         *out = UNI_SYSCALL_RELATION_INSERT;
+        return 0;
+    case 24u:
+        *out = UNI_SYSCALL_CACHE_OPEN;
+        return 0;
+    case 25u:
+        *out = UNI_SYSCALL_CACHE_GET;
+        return 0;
+    case 26u:
+        *out = UNI_SYSCALL_CACHE_PUT;
+        return 0;
+    case 27u:
+        *out = UNI_SYSCALL_CACHE_DELETE;
+        return 0;
+    case 28u:
+        *out = UNI_SYSCALL_CACHE_TTL;
         return 0;
     default:
         return -1;
@@ -3405,6 +3425,701 @@ MP_INLINE int uni_syscall_relation_insert_result_decode(mp_reader *r, mp_arena *
         if (tag == 0u) {
             out->is_err = 0;
             (void)mpr_u64(r);
+        } else if (tag == 1u) {
+            out->is_err = 1;
+            uni_error_decode(r, a, &(out->err));
+        } else {
+            mpr_fail(r);
+            return -1;
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Encode one `cache_open` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int uni_syscall_cache_open_request_encode(mp_writer *w, mp_str name) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_OPEN);
+    mpw_map_header(w, 1u);
+    mpw_u64(w, 1u);
+    mpw_str(w, (name).data, (name).len);
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_open` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int uni_syscall_cache_open_request_decode(mp_reader *r, mp_arena *a, mp_str *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_OPEN) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    {
+        uint32_t count = mpr_map_header(r);
+        for (uint32_t i = 0; i < count && mpr_ok(r); i++) {
+            if (mpr_next_is_integer(r)) {
+                uint64_t key = mpr_u64(r);
+                if (key == 1u) {
+                    {
+                        uint32_t n0 = 0;
+                        const char *s0 = mpr_str(r, &n0);
+                        char *p0 = (char *)mpa_alloc(a, (size_t)n0 + 1u);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            p0[n0] = '\0';
+                            ((*out)).data = p0;
+                            ((*out)).len = n0;
+                        }
+                    }
+                } else {
+                    mpr_skip(r);
+                }
+            } else {
+                mpr_skip(r);
+                mpr_skip(r);
+            }
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Wire-level `result<T, E>` of `cache_open`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    uni_error err;
+    uni_oid value;
+} uni_syscall_cache_open_result;
+
+/* Encode one `cache_open` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int uni_syscall_cache_open_result_encode(mp_writer *w, const uni_syscall_cache_open_result *res) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_OPEN);
+    mpw_array_header(w, 2u);
+    if (res->is_err) {
+        mpw_u64(w, 1u);
+        uni_error_encode(w, &(res->err));
+    } else {
+        mpw_u64(w, 0u);
+        uni_oid_encode(w, &(res->value));
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_open` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int uni_syscall_cache_open_result_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_open_result *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_OPEN) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (mpr_array_header(r) != 2u) {
+        mpr_fail(r);
+        return -1;
+    }
+    {
+        uint64_t tag = mpr_u64(r);
+        if (tag == 0u) {
+            out->is_err = 0;
+            uni_oid_decode(r, a, &(out->value));
+        } else if (tag == 1u) {
+            out->is_err = 1;
+            uni_error_decode(r, a, &(out->err));
+        } else {
+            mpr_fail(r);
+            return -1;
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+typedef struct { int has_value; mp_bin value; } uni_syscall_cache_get_result_opt;
+typedef struct {
+    uni_oid cache;
+    mp_bin key;
+} uni_syscall_cache_get_request;
+
+/* Encode one `cache_get` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int uni_syscall_cache_get_request_encode(mp_writer *w, const uni_oid *cache, mp_bin key) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_GET);
+    mpw_map_header(w, 2u);
+    mpw_u64(w, 1u);
+    uni_oid_encode(w, &((*cache)));
+    mpw_u64(w, 2u);
+    mpw_bin(w, (key).data, (key).len);
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_get` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int uni_syscall_cache_get_request_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_get_request *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_GET) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    {
+        uint32_t count = mpr_map_header(r);
+        for (uint32_t i = 0; i < count && mpr_ok(r); i++) {
+            if (mpr_next_is_integer(r)) {
+                uint64_t key = mpr_u64(r);
+                if (key == 1u) {
+                    uni_oid_decode(r, a, &(out->cache));
+                } else if (key == 2u) {
+                    {
+                        uint32_t n0 = 0;
+                        const uint8_t *s0 = mpr_bin(r, &n0);
+                        uint8_t *p0 = (uint8_t *)mpa_alloc(a, (size_t)n0);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            (out->key).data = p0;
+                            (out->key).len = n0;
+                        }
+                    }
+                } else {
+                    mpr_skip(r);
+                }
+            } else {
+                mpr_skip(r);
+                mpr_skip(r);
+            }
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Wire-level `result<T, E>` of `cache_get`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    uni_error err;
+    uni_syscall_cache_get_result_opt value;
+} uni_syscall_cache_get_result;
+
+/* Encode one `cache_get` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int uni_syscall_cache_get_result_encode(mp_writer *w, const uni_syscall_cache_get_result *res) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_GET);
+    mpw_array_header(w, 2u);
+    if (res->is_err) {
+        mpw_u64(w, 1u);
+        uni_error_encode(w, &(res->err));
+    } else {
+        mpw_u64(w, 0u);
+        if ((res->value).has_value) {
+            mpw_bin(w, ((res->value).value).data, ((res->value).value).len);
+        } else {
+            mpw_nil(w);
+        }
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_get` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int uni_syscall_cache_get_result_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_get_result *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_GET) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (mpr_array_header(r) != 2u) {
+        mpr_fail(r);
+        return -1;
+    }
+    {
+        uint64_t tag = mpr_u64(r);
+        if (tag == 0u) {
+            out->is_err = 0;
+            memset(&(out->value), 0, sizeof(out->value));
+            if (mpr_try_nil(r)) {
+                (out->value).has_value = 0;
+            } else {
+                (out->value).has_value = 1;
+                {
+                    uint32_t n1 = 0;
+                    const uint8_t *s1 = mpr_bin(r, &n1);
+                    uint8_t *p1 = (uint8_t *)mpa_alloc(a, (size_t)n1);
+                    if (p1 == 0) {
+                        mpr_fail(r);
+                    } else {
+                        memcpy(p1, s1, n1);
+                        ((out->value).value).data = p1;
+                        ((out->value).value).len = n1;
+                    }
+                }
+            }
+        } else if (tag == 1u) {
+            out->is_err = 1;
+            uni_error_decode(r, a, &(out->err));
+        } else {
+            mpr_fail(r);
+            return -1;
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+typedef struct { int has_value; uint64_t value; } uni_syscall_cache_put_ttl_secs_opt;
+typedef struct {
+    uni_oid cache;
+    mp_bin key;
+    mp_bin value;
+    uni_syscall_cache_put_ttl_secs_opt ttl_secs;
+} uni_syscall_cache_put_request;
+
+/* Encode one `cache_put` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int uni_syscall_cache_put_request_encode(mp_writer *w, const uni_oid *cache, mp_bin key, mp_bin value, uni_syscall_cache_put_ttl_secs_opt ttl_secs) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_PUT);
+    mpw_map_header(w, 4u);
+    mpw_u64(w, 1u);
+    uni_oid_encode(w, &((*cache)));
+    mpw_u64(w, 2u);
+    mpw_bin(w, (key).data, (key).len);
+    mpw_u64(w, 3u);
+    mpw_bin(w, (value).data, (value).len);
+    mpw_u64(w, 4u);
+    if ((ttl_secs).has_value) {
+        mpw_u64(w, (uint64_t)((ttl_secs).value));
+    } else {
+        mpw_nil(w);
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_put` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int uni_syscall_cache_put_request_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_put_request *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_PUT) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    {
+        uint32_t count = mpr_map_header(r);
+        for (uint32_t i = 0; i < count && mpr_ok(r); i++) {
+            if (mpr_next_is_integer(r)) {
+                uint64_t key = mpr_u64(r);
+                if (key == 1u) {
+                    uni_oid_decode(r, a, &(out->cache));
+                } else if (key == 2u) {
+                    {
+                        uint32_t n0 = 0;
+                        const uint8_t *s0 = mpr_bin(r, &n0);
+                        uint8_t *p0 = (uint8_t *)mpa_alloc(a, (size_t)n0);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            (out->key).data = p0;
+                            (out->key).len = n0;
+                        }
+                    }
+                } else if (key == 3u) {
+                    {
+                        uint32_t n0 = 0;
+                        const uint8_t *s0 = mpr_bin(r, &n0);
+                        uint8_t *p0 = (uint8_t *)mpa_alloc(a, (size_t)n0);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            (out->value).data = p0;
+                            (out->value).len = n0;
+                        }
+                    }
+                } else if (key == 4u) {
+                    memset(&(out->ttl_secs), 0, sizeof(out->ttl_secs));
+                    if (mpr_try_nil(r)) {
+                        (out->ttl_secs).has_value = 0;
+                    } else {
+                        (out->ttl_secs).has_value = 1;
+                        (out->ttl_secs).value = mpr_u64(r);
+                    }
+                } else {
+                    mpr_skip(r);
+                }
+            } else {
+                mpr_skip(r);
+                mpr_skip(r);
+            }
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Wire-level `result<T, E>` of `cache_put`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    uni_error err;
+} uni_syscall_cache_put_result;
+
+/* Encode one `cache_put` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int uni_syscall_cache_put_result_encode(mp_writer *w, const uni_syscall_cache_put_result *res) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_PUT);
+    mpw_array_header(w, 2u);
+    if (res->is_err) {
+        mpw_u64(w, 1u);
+        uni_error_encode(w, &(res->err));
+    } else {
+        mpw_u64(w, 0u);
+        mpw_u64(w, 0u);
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_put` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int uni_syscall_cache_put_result_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_put_result *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_PUT) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (mpr_array_header(r) != 2u) {
+        mpr_fail(r);
+        return -1;
+    }
+    {
+        uint64_t tag = mpr_u64(r);
+        if (tag == 0u) {
+            out->is_err = 0;
+            (void)mpr_u64(r);
+        } else if (tag == 1u) {
+            out->is_err = 1;
+            uni_error_decode(r, a, &(out->err));
+        } else {
+            mpr_fail(r);
+            return -1;
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+typedef struct {
+    uni_oid cache;
+    mp_bin key;
+} uni_syscall_cache_delete_request;
+
+/* Encode one `cache_delete` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int uni_syscall_cache_delete_request_encode(mp_writer *w, const uni_oid *cache, mp_bin key) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_DELETE);
+    mpw_map_header(w, 2u);
+    mpw_u64(w, 1u);
+    uni_oid_encode(w, &((*cache)));
+    mpw_u64(w, 2u);
+    mpw_bin(w, (key).data, (key).len);
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_delete` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int uni_syscall_cache_delete_request_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_delete_request *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_DELETE) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    {
+        uint32_t count = mpr_map_header(r);
+        for (uint32_t i = 0; i < count && mpr_ok(r); i++) {
+            if (mpr_next_is_integer(r)) {
+                uint64_t key = mpr_u64(r);
+                if (key == 1u) {
+                    uni_oid_decode(r, a, &(out->cache));
+                } else if (key == 2u) {
+                    {
+                        uint32_t n0 = 0;
+                        const uint8_t *s0 = mpr_bin(r, &n0);
+                        uint8_t *p0 = (uint8_t *)mpa_alloc(a, (size_t)n0);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            (out->key).data = p0;
+                            (out->key).len = n0;
+                        }
+                    }
+                } else {
+                    mpr_skip(r);
+                }
+            } else {
+                mpr_skip(r);
+                mpr_skip(r);
+            }
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Wire-level `result<T, E>` of `cache_delete`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    uni_error err;
+} uni_syscall_cache_delete_result;
+
+/* Encode one `cache_delete` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int uni_syscall_cache_delete_result_encode(mp_writer *w, const uni_syscall_cache_delete_result *res) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_DELETE);
+    mpw_array_header(w, 2u);
+    if (res->is_err) {
+        mpw_u64(w, 1u);
+        uni_error_encode(w, &(res->err));
+    } else {
+        mpw_u64(w, 0u);
+        mpw_u64(w, 0u);
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_delete` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int uni_syscall_cache_delete_result_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_delete_result *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_DELETE) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (mpr_array_header(r) != 2u) {
+        mpr_fail(r);
+        return -1;
+    }
+    {
+        uint64_t tag = mpr_u64(r);
+        if (tag == 0u) {
+            out->is_err = 0;
+            (void)mpr_u64(r);
+        } else if (tag == 1u) {
+            out->is_err = 1;
+            uni_error_decode(r, a, &(out->err));
+        } else {
+            mpr_fail(r);
+            return -1;
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+typedef struct { int has_value; uint64_t value; } uni_syscall_cache_ttl_result_opt;
+typedef struct {
+    uni_oid cache;
+    mp_bin key;
+} uni_syscall_cache_ttl_request;
+
+/* Encode one `cache_ttl` request frame (header + map body of the
+ * WIT-declared arguments). Encode only borrows the argument values. */
+MP_INLINE int uni_syscall_cache_ttl_request_encode(mp_writer *w, const uni_oid *cache, mp_bin key) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_TTL);
+    mpw_map_header(w, 2u);
+    mpw_u64(w, 1u);
+    uni_oid_encode(w, &((*cache)));
+    mpw_u64(w, 2u);
+    mpw_bin(w, (key).data, (key).len);
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_ttl` request frame into `out` (arena contract
+ * of the generated decoders). Lenient: unknown keys skipped, missing
+ * parameters defaulted. */
+MP_INLINE int uni_syscall_cache_ttl_request_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_ttl_request *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_TTL) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    {
+        uint32_t count = mpr_map_header(r);
+        for (uint32_t i = 0; i < count && mpr_ok(r); i++) {
+            if (mpr_next_is_integer(r)) {
+                uint64_t key = mpr_u64(r);
+                if (key == 1u) {
+                    uni_oid_decode(r, a, &(out->cache));
+                } else if (key == 2u) {
+                    {
+                        uint32_t n0 = 0;
+                        const uint8_t *s0 = mpr_bin(r, &n0);
+                        uint8_t *p0 = (uint8_t *)mpa_alloc(a, (size_t)n0);
+                        if (p0 == 0) {
+                            mpr_fail(r);
+                        } else {
+                            memcpy(p0, s0, n0);
+                            (out->key).data = p0;
+                            (out->key).len = n0;
+                        }
+                    }
+                } else {
+                    mpr_skip(r);
+                }
+            } else {
+                mpr_skip(r);
+                mpr_skip(r);
+            }
+        }
+    }
+    if (!mpr_done(r)) {
+        mpr_fail(r);
+        return -1;
+    }
+    return mpr_ok(r) ? 0 : -1;
+}
+
+/* Wire-level `result<T, E>` of `cache_ttl`: a success carries
+ * `value` (encoded as `[0, value]`), a failure carries `err` (encoded as
+ * `[1, err]`). Protocol-level decode failures return -1 instead. */
+typedef struct {
+    int is_err;
+    uni_error err;
+    uni_syscall_cache_ttl_result_opt value;
+} uni_syscall_cache_ttl_result;
+
+/* Encode one `cache_ttl` result frame (header + `[tag, payload]`
+ * body). */
+MP_INLINE int uni_syscall_cache_ttl_result_encode(mp_writer *w, const uni_syscall_cache_ttl_result *res) {
+    uni_syscall_write_header(w, UNI_SYSCALL_CACHE_TTL);
+    mpw_array_header(w, 2u);
+    if (res->is_err) {
+        mpw_u64(w, 1u);
+        uni_error_encode(w, &(res->err));
+    } else {
+        mpw_u64(w, 0u);
+        if ((res->value).has_value) {
+            mpw_u64(w, (uint64_t)((res->value).value));
+        } else {
+            mpw_nil(w);
+        }
+    }
+    return mpw_ok(w) ? 0 : -1;
+}
+
+/* Decode one `cache_ttl` result frame into `out` (arena contract
+ * of the generated decoders). */
+MP_INLINE int uni_syscall_cache_ttl_result_decode(mp_reader *r, mp_arena *a, uni_syscall_cache_ttl_result *out) {
+    uni_syscall_message_kind kind;
+    (void)a;
+    if (uni_syscall_decode_header(r, &kind) != 0) {
+        return -1;
+    }
+    if (kind != UNI_SYSCALL_CACHE_TTL) {
+        mpr_fail(r);
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    if (mpr_array_header(r) != 2u) {
+        mpr_fail(r);
+        return -1;
+    }
+    {
+        uint64_t tag = mpr_u64(r);
+        if (tag == 0u) {
+            out->is_err = 0;
+            memset(&(out->value), 0, sizeof(out->value));
+            if (mpr_try_nil(r)) {
+                (out->value).has_value = 0;
+            } else {
+                (out->value).has_value = 1;
+                (out->value).value = mpr_u64(r);
+            }
         } else if (tag == 1u) {
             out->is_err = 1;
             uni_error_decode(r, a, &(out->err));

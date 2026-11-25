@@ -87,33 +87,45 @@ pub struct ValidFramePrefix {
 /// treated as end-of-log: a crash can leave an un-fsynced tail behind, and
 /// recovery must truncate there instead of failing.
 pub fn scan_valid_frame_prefix(payload: &[u8]) -> ValidFramePrefix {
-    let mut offset = 0usize;
+    let mut prefix = crate::frame_bounds::Prefix {
+        offset: 0,
+        stopped: false,
+    };
     let mut frames = Vec::new();
     let mut max_lsn: Option<LSN> = None;
     let mut corrupt_reason = None;
-    while offset < payload.len() {
+    while prefix.offset < payload.len() && !prefix.stopped {
+        let offset = prefix.offset;
         let remaining = &payload[offset..];
         let next_frame_len = match frame_len(remaining) {
             Ok(len) => len,
             Err(e) => {
                 corrupt_reason = Some(format!("invalid frame header at offset {offset}: {e}"));
+                prefix = prefix.advance(payload.len(), 0, false);
                 break;
             }
         };
-        let frame = &remaining[..next_frame_len];
+        let next = prefix.advance(payload.len(), next_frame_len, true);
+        if next.stopped {
+            prefix = next;
+            corrupt_reason = Some(format!("invalid frame bounds at offset {offset}"));
+            break;
+        }
+        let frame = &payload[offset..next.offset];
         let lsn = match split_frame(frame) {
             Ok((header, _, _)) => header.lsn(),
             Err(e) => {
                 corrupt_reason = Some(format!("invalid frame at offset {offset}: {e}"));
+                prefix = prefix.advance(payload.len(), next_frame_len, false);
                 break;
             }
         };
         max_lsn = Some(max_lsn.map_or(lsn, |current| current.max(lsn)));
         frames.push(frame.to_vec());
-        offset += next_frame_len;
+        prefix = next;
     }
     ValidFramePrefix {
-        valid_len: offset,
+        valid_len: prefix.offset,
         frames,
         max_lsn,
         corrupt_reason,
@@ -135,7 +147,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use crate::log_frame::serialize_entry;
+    use crate::log_frame::{serialize_entry, LOG_FRAME_HEADER_SIZE};
     use std::sync::atomic::AtomicU64;
 
     fn valid_frames_payload(count: u64) -> (Vec<u8>, usize) {
@@ -148,6 +160,63 @@ mod tests {
             payload.extend(parts.into_iter().flatten());
         }
         (payload, frames)
+    }
+
+    /// Serializes `count` single-frame entries and returns the frames
+    /// individually so tests can reason about frame boundaries.
+    fn single_frames(count: u64) -> Vec<Vec<u8>> {
+        let next_lsn = AtomicU64::new(0);
+        let mut frames = Vec::new();
+        for i in 0..count {
+            let parts = serialize_entry(&i, 4096, &next_lsn).unwrap();
+            assert_eq!(parts.len(), 1, "test entries must fit in one frame");
+            frames.extend(parts);
+        }
+        frames
+    }
+
+    fn flatten_frames(frames: &[Vec<u8>]) -> Vec<u8> {
+        frames.iter().flatten().copied().collect()
+    }
+
+    /// Deterministic non-zero garbage that never starts with the frame magic.
+    fn garbage_bytes(len: usize) -> Vec<u8> {
+        (0..len).map(|i| (i * 37 + 11) as u8).collect()
+    }
+
+    #[test]
+    fn every_byte_truncation_preserves_exact_complete_frame_prefix() {
+        let frames = single_frames(3);
+        let payload = flatten_frames(&frames);
+        for end in 0..=payload.len() {
+            let prefix = scan_valid_frame_prefix(&payload[..end]);
+            let mut expected_len = 0;
+            let mut expected_count = 0;
+            for frame in &frames {
+                if expected_len + frame.len() > end {
+                    break;
+                }
+                expected_len += frame.len();
+                expected_count += 1;
+            }
+            assert_eq!(prefix.valid_len, expected_len, "cut at {end}");
+            assert_eq!(prefix.frames, frames[..expected_count], "cut at {end}");
+            assert_eq!(prefix.corrupt_reason.is_some(), expected_len != end);
+        }
+    }
+
+    #[test]
+    fn oversized_declared_length_and_extra_frame_bytes_are_rejected() {
+        let frames = single_frames(1);
+        let mut frame = frames[0].clone();
+        frame[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert!(frame_len(&frame).is_err());
+        assert!(split_frame(&frame).is_err());
+        assert_eq!(scan_valid_frame_prefix(&frame).valid_len, 0);
+        let mut extra = frames[0].clone();
+        extra.push(0);
+        assert!(split_frame(&extra).is_err());
+        assert_eq!(scan_valid_frame_prefix(&extra).valid_len, frames[0].len());
     }
 
     #[test]
@@ -219,5 +288,123 @@ mod tests {
         payload.extend_from_slice(&[0u8; 64]);
         let decoded = decode_frames_allow_trailing(&payload).unwrap();
         assert_eq!(decoded.len(), frames);
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_stops_at_corrupted_middle_frame() {
+        let frames = single_frames(3);
+        let first_frame_len = frames[0].len();
+        let mut payload = flatten_frames(&frames);
+        // Corrupt one payload byte of the middle frame: frames before it stay
+        // valid, the valid frame after it is dropped with the corrupt one.
+        payload[first_frame_len + LOG_FRAME_HEADER_SIZE] ^= 0x7f;
+        let prefix = scan_valid_frame_prefix(&payload);
+        assert_eq!(prefix.valid_len, first_frame_len);
+        assert_eq!(prefix.frames, vec![frames[0].clone()]);
+        assert_eq!(prefix.max_lsn, Some(LSN::new(0)));
+        let reason = prefix.corrupt_reason.unwrap();
+        assert!(
+            reason.contains(&format!("offset {first_frame_len}")),
+            "unexpected corrupt reason: {reason}"
+        );
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_stops_at_middle_frame_with_bad_magic() {
+        let frames = single_frames(3);
+        let first_frame_len = frames[0].len();
+        let mut payload = flatten_frames(&frames);
+        // The first byte of the middle frame is part of its magic.
+        payload[first_frame_len] ^= 0x7f;
+        let prefix = scan_valid_frame_prefix(&payload);
+        assert_eq!(prefix.valid_len, first_frame_len);
+        assert_eq!(prefix.frames, vec![frames[0].clone()]);
+        assert_eq!(prefix.max_lsn, Some(LSN::new(0)));
+        assert!(prefix.corrupt_reason.is_some());
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_drops_garbage_tail() {
+        let (mut payload, frames) = valid_frames_payload(2);
+        let valid_len = payload.len();
+        // Non-zero garbage: fails the magic check, unlike the zero-filled
+        // tail case.
+        payload.extend_from_slice(&garbage_bytes(200));
+        let prefix = scan_valid_frame_prefix(&payload);
+        assert_eq!(prefix.valid_len, valid_len);
+        assert_eq!(prefix.frames.len(), frames);
+        assert_eq!(prefix.max_lsn, Some(LSN::new(1)));
+        assert!(prefix.corrupt_reason.is_some());
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_drops_tail_with_valid_magic_but_bad_version() {
+        let (mut payload, frames) = valid_frames_payload(2);
+        let valid_len = payload.len();
+        // A full frame whose magic and CRC are intact but whose format
+        // version is unsupported (current is 1): header validation must
+        // still reject it.
+        let (mut tail, _) = valid_frames_payload(1);
+        tail[4..8].copy_from_slice(&2u32.to_be_bytes());
+        payload.extend_from_slice(&tail);
+        let prefix = scan_valid_frame_prefix(&payload);
+        assert_eq!(prefix.valid_len, valid_len);
+        assert_eq!(prefix.frames.len(), frames);
+        assert_eq!(prefix.max_lsn, Some(LSN::new(1)));
+        assert!(prefix.corrupt_reason.is_some());
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_garbage_only_payload_yields_empty_prefix() {
+        let prefix = scan_valid_frame_prefix(&garbage_bytes(256));
+        assert_eq!(prefix.valid_len, 0);
+        assert!(prefix.frames.is_empty());
+        assert_eq!(prefix.max_lsn, None);
+        assert!(prefix.corrupt_reason.is_some());
+    }
+
+    #[test]
+    fn scan_valid_frame_prefix_drops_tails_shorter_than_one_frame() {
+        let (payload, frames) = valid_frames_payload(2);
+        let valid_len = payload.len();
+        let (tail_source, _) = valid_frames_payload(1);
+        // Tails that cannot even hold header + tailer, plus a tail cut one
+        // byte short of a full frame: every truncation depth must drop the
+        // tail without panicking.
+        for cut in [
+            1,
+            LOG_FRAME_HEADER_SIZE - 1,
+            LOG_FRAME_HEADER_SIZE,
+            LOG_FRAME_HEADER_SIZE + 1,
+            tail_source.len() - 1,
+        ] {
+            let mut truncated = payload.clone();
+            truncated.extend_from_slice(&tail_source[..cut]);
+            let prefix = scan_valid_frame_prefix(&truncated);
+            assert_eq!(prefix.valid_len, valid_len, "cut length {cut}");
+            assert_eq!(prefix.frames.len(), frames, "cut length {cut}");
+            assert_eq!(prefix.max_lsn, Some(LSN::new(1)), "cut length {cut}");
+            assert!(prefix.corrupt_reason.is_some(), "cut length {cut}");
+        }
+    }
+
+    #[test]
+    fn decode_frames_rejects_corrupt_payloads_that_allow_trailing_tolerates() {
+        // Garbage after a valid frame: strict decoding fails, recovery
+        // decoding keeps the valid frame.
+        let (mut payload, frames) = valid_frames_payload(1);
+        payload.extend_from_slice(&garbage_bytes(64));
+        assert!(decode_frames(&payload).is_err());
+        assert_eq!(
+            decode_frames_allow_trailing(&payload).unwrap().len(),
+            frames
+        );
+
+        // A checksum-corrupted frame: same split between the two decoders.
+        let (mut corrupted, _) = valid_frames_payload(1);
+        let index = corrupted.len() - 9;
+        corrupted[index] ^= 0x7f;
+        assert!(decode_frames(&corrupted).is_err());
+        assert!(decode_frames_allow_trailing(&corrupted).unwrap().is_empty());
     }
 }

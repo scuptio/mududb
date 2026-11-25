@@ -7,45 +7,53 @@
 
 use super::*;
 use crate::utils::*;
-use ::catalog::contract::message_bus_api::{
-    set_current_message_bus, unset_current_message_bus, DeliveryMode, Envelope, MessageBus,
-    MessageId, OutgoingMessage, RecvFilter, SubscriptionId,
-};
+use ::catalog::contract::channel_kinds::PARTITION_RPC;
 use ::catalog::contract::schema_column::SchemaColumn;
 use ::catalog_testing::test_meta_mgr::TestMetaMgr;
 use ::xengine::tx_mgr::PhysicalRelationId;
 use async_trait::async_trait;
+use mudu::channel::{DeliveryMode, Envelope, MessageId, MessageKind, OutgoingMessage, RecvFilter};
 use mudu_sys::env_var::temp_dir;
 use mudu_sys::sync::SMutex;
-use mudu_type::data_type_fn_param::DataType;
-use mudu_type::data_type_info::DataTypeInfo;
+use mudu_type::data_type::DataType;
 use mudu_type::type_family::TypeFamily;
+use mudu_utils::channel::{
+    set_current_channel, unset_current_channel, ChannelEndpoint, KindHandler,
+};
 use mudu_utils::oid::gen_oid;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+#[path = "rpc_test/assignments.rs"]
+mod assignments;
 #[path = "rpc_test/cross_partition.rs"]
 mod cross_partition;
 #[path = "rpc_test/locks_deltas.rs"]
 mod locks_deltas;
+#[path = "rpc_test/migration.rs"]
+mod migration;
 #[path = "rpc_test/rpc_ops.rs"]
 mod rpc_ops;
 
-fn test_schema() -> ::catalog::contract::schema_table::SchemaTable {
+fn test_schema() -> ::catalog::contract::schema_class::SchemaClass {
     // Use a fixed OID so helper functions that rebuild the schema return the same table id.
-    ::catalog::contract::schema_table::SchemaTable::new_with_oid(
+    ::catalog::contract::schema_class::SchemaClass::new_with_oid(
         42,
         "t".to_string(),
         vec![
             SchemaColumn::new(
                 "id".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
             SchemaColumn::new(
                 "v".to_string(),
                 TypeFamily::I32,
-                DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I32)),
+                mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                    TypeFamily::I32,
+                )),
             ),
         ],
         vec![0],
@@ -53,7 +61,7 @@ fn test_schema() -> ::catalog::contract::schema_table::SchemaTable {
     )
 }
 
-fn meta_table(schema: &::catalog::contract::schema_table::SchemaTable) -> RS<Arc<TableDesc>> {
+fn meta_table(schema: &::catalog::contract::schema_class::SchemaClass) -> RS<Arc<TableDesc>> {
     ::catalog::contract::table_info::TableInfo::new(schema.clone())?.table_desc()
 }
 
@@ -92,6 +100,8 @@ async fn make_contract_with_worker(
         data_dir,
         async_runtime: None,
         server_instance_id: 0,
+        cluster_router: None,
+        epoch_oracle: None,
     })
     .unwrap();
     let schema = test_schema();
@@ -105,23 +115,32 @@ fn table_id() -> OID {
     test_schema().id()
 }
 
-struct MockMessageBus {
-    local_endpoint: OID,
-    sent: SMutex<Vec<(OID, OutgoingMessage)>>,
-    responses: SMutex<VecDeque<Envelope>>,
+/// Scripted reply to one request: `Reply` answers it, `Drop` loses it
+/// (fault injection for the retry tests).
+enum Responder {
+    Reply(PartitionRpcResponse),
+    Drop,
 }
 
-impl MockMessageBus {
+struct MockWorkerChannel {
+    local_endpoint: OID,
+    sent: SMutex<Vec<(OID, OutgoingMessage)>>,
+    responders: SMutex<VecDeque<Responder>>,
+    pending: SMutex<VecDeque<Envelope>>,
+}
+
+impl MockWorkerChannel {
     fn new(local_endpoint: OID) -> Self {
         Self {
             local_endpoint,
             sent: SMutex::new(Vec::new()),
-            responses: SMutex::new(VecDeque::new()),
+            responders: SMutex::new(VecDeque::new()),
+            pending: SMutex::new(VecDeque::new()),
         }
     }
 
-    fn push_response(&self, envelope: Envelope) {
-        self.responses.lock().unwrap().push_back(envelope);
+    fn push_responder(&self, responder: Responder) {
+        self.responders.lock().unwrap().push_back(responder);
     }
 
     fn take_sent(&self) -> Vec<(OID, OutgoingMessage)> {
@@ -130,63 +149,61 @@ impl MockMessageBus {
 }
 
 #[async_trait]
-impl MessageBus for MockMessageBus {
+impl ChannelEndpoint for MockWorkerChannel {
     fn local_endpoint(&self) -> OID {
         self.local_endpoint
     }
 
     async fn send(&self, dst: OID, message: OutgoingMessage) -> RS<MessageId> {
+        let msg_id = (self.sent.lock().unwrap().len() + 1) as MessageId;
+        if message.delivery() == DeliveryMode::Request {
+            let responder = self.responders.lock().unwrap().pop_front();
+            if let Some(Responder::Reply(response)) = responder {
+                let payload = rmp_serde::to_vec(&response).unwrap();
+                self.pending.lock().unwrap().push_back(
+                    Envelope::new(
+                        msg_id + 100,
+                        Some(message.request_id()),
+                        dst,
+                        self.local_endpoint,
+                        message.kind(),
+                        payload,
+                        DeliveryMode::Response,
+                    )
+                    .with_request_id(message.request_id()),
+                );
+            }
+        }
         self.sent.lock().unwrap().push((dst, message));
-        Ok(1)
+        Ok(msg_id)
     }
 
-    async fn recv(&self, filter: RecvFilter) -> RS<Envelope> {
-        let response = {
-            let mut responses = self.responses.lock().unwrap();
+    async fn recv(&self, filter: RecvFilter, _deadline_ms: Option<u64>) -> RS<Envelope> {
+        let found = {
+            let mut pending = self.pending.lock().unwrap();
             let mut found = None;
-            for (index, envelope) in responses.iter().enumerate() {
+            for (index, envelope) in pending.iter().enumerate() {
                 if envelope.matches(&filter) {
-                    found = Some(responses.remove(index).unwrap());
+                    found = Some(pending.remove(index).unwrap());
                     break;
                 }
             }
             found
         };
-        match response {
+        match found {
             Some(envelope) => Ok(envelope),
             // Block forever when no matching response is queued.
             None => std::future::pending().await,
         }
     }
 
-    fn on_recv_callback(
-        &self,
-        _filter: RecvFilter,
-        _callback: ::catalog::contract::message_bus_api::OnRecvCallback,
-    ) -> RS<SubscriptionId> {
+    fn register_kind_handler(&self, _kind: MessageKind, _handler: KindHandler) -> RS<()> {
         unimplemented!()
     }
 
-    fn cancel_callback(&self, _id: SubscriptionId) -> RS<bool> {
+    fn unregister_kind_handler(&self, _kind: MessageKind) -> RS<()> {
         unimplemented!()
     }
-}
-
-fn response_envelope(
-    msg_id: MessageId,
-    src: OID,
-    dst: OID,
-    response: PartitionRpcResponse,
-) -> Envelope {
-    Envelope::new(
-        msg_id + 100,
-        Some(msg_id),
-        src,
-        dst,
-        PARTITION_RPC_RESPONSE_KIND,
-        rmp_serde::to_vec(&response).unwrap(),
-        DeliveryMode::Response,
-    )
 }
 
 fn read_key_request() -> PartitionRpcRequest {
@@ -214,16 +231,13 @@ async fn seed_owner_key1(owner: &WorkerXContract, desc: &Arc<TableDesc>) {
 /// Returns the coordinator transaction holding the remote lock on worker 20.
 async fn coordinator_update_key1(
     coordinator: &WorkerXContract,
-    bus: &Arc<MockMessageBus>,
+    bus: &Arc<MockWorkerChannel>,
     desc: &Arc<TableDesc>,
 ) -> Arc<dyn TxMgr> {
     let tx = coordinator.worker_begin_tx().unwrap();
-    bus.push_response(response_envelope(
-        1,
-        20,
-        10,
-        PartitionRpcResponse::ReadKey(Some(vec![Some(datum(10))])),
-    ));
+    bus.push_responder(Responder::Reply(PartitionRpcResponse::ReadKey(Some(vec![
+        Some(datum(10)),
+    ]))));
     coordinator
         ._update(
             desc.clone(),

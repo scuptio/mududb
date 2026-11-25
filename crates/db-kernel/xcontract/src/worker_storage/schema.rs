@@ -9,9 +9,10 @@ use mudu_utils::{scoped_task_trace, task_trace};
 use tracing::{info, trace};
 
 use ::catalog::contract::partition_rule_binding::TablePartitionBinding;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::table_desc::TableDesc;
 use ::meta::fs_object::{fs_object_desc, FS_OBJECT_TABLE_ID};
+use ::meta::queue_consumer::{queue_consumer_desc, QUEUE_CONSUMER_TABLE_ID};
 use ::storage::relation::relation::Relation;
 use ::xengine::partition_router::DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID;
 use ::xengine::tx_mgr::PhysicalRelationId;
@@ -25,13 +26,33 @@ impl WorkerStorage {
             self.bootstrap_table_local_async(schema).await?;
         }
         self.bootstrap_fs_object_relations_async(&schemas).await?;
+        self.bootstrap_queue_consumer_relation_async().await?;
+        Ok(())
+    }
+
+    // Open the `_queue_consumer` relation on the default partition: queues
+    // are never partitioned, so consumer cursor rows only ever land on
+    // partition 0.
+    async fn bootstrap_queue_consumer_relation_async(&self) -> RS<()> {
+        let table_desc = queue_consumer_desc()?;
+        let partition_id = DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID;
+        let relation_id = self.relation_id(QUEUE_CONSUMER_TABLE_ID, partition_id);
+        if self.relation_store.contains_async(&relation_id).await {
+            return Ok(());
+        }
+        self.create_relation_index_for_partition_async(
+            QUEUE_CONSUMER_TABLE_ID,
+            partition_id,
+            table_desc.as_ref(),
+        )
+        .await?;
         Ok(())
     }
 
     // Open one `_fs_object` relation per partition known to the local meta
     // (plus partition 0) so fs-object rows staged by the DML hooks can be
     // committed and replayed on any local partition.
-    async fn bootstrap_fs_object_relations_async(&self, schemas: &[SchemaTable]) -> RS<()> {
+    async fn bootstrap_fs_object_relations_async(&self, schemas: &[SchemaClass]) -> RS<()> {
         let mut partition_ids = BTreeSet::new();
         partition_ids.insert(DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID);
         collect_bound_partition_ids(&self.mgr, schemas, &mut partition_ids).await?;
@@ -51,17 +72,34 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub(crate) async fn create_table_async(&self, schema: &SchemaTable) -> RS<()> {
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage create_table_async start");
+    pub(crate) async fn create_table_async(&self, schema: &SchemaClass) -> RS<()> {
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage create_table_async start");
         self.mgr.create_table(schema).await?;
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage metadata create finished");
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage metadata create finished");
         let r = self.broadcast_create_table_async(schema).await;
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async finished");
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage broadcast_create_table_async finished");
         r
     }
 
     pub(crate) async fn drop_table_async(&self, oid: OID) -> RS<()> {
         self.mgr.drop_table(oid).await?;
+        self.broadcast_drop_table_async(oid).await
+    }
+
+    pub(crate) async fn create_queue_async(&self, schema: &SchemaClass) -> RS<()> {
+        trace!(queue = %schema.class_name(), oid = schema.id(), "worker_storage create_queue_async start");
+        self.mgr.create_queue(schema).await?;
+        // The apply shares the create-table chain, which opens the relation
+        // on the default partition 0; the shard partitions of a partitioned
+        // queue open lazily on first access (`ensure_relation_index`).
+        self.broadcast_create_table_async(schema).await
+    }
+
+    pub(crate) async fn drop_queue_async(&self, oid: OID) -> RS<()> {
+        self.mgr.drop_queue(oid).await?;
+        // Shares the drop-table chain: catalog tombstone plus in-memory
+        // relation_store removal. Technical debt, shared with DROP TABLE:
+        // the relation's physical files are not deleted.
         self.broadcast_drop_table_async(oid).await
     }
 
@@ -122,8 +160,8 @@ impl WorkerStorage {
         Ok(())
     }
 
-    async fn apply_create_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async start");
+    async fn apply_create_table_local_async(&self, schema: &SchemaClass) -> RS<()> {
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage apply_create_table_local_async start");
         let table_desc =
             ::catalog::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
         self.create_relation_index_for_partition_async(
@@ -132,11 +170,11 @@ impl WorkerStorage {
             table_desc.as_ref(),
         )
         .await?;
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage apply_create_table_local_async done");
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage apply_create_table_local_async done");
         Ok(())
     }
 
-    async fn bootstrap_table_local_async(&self, schema: &SchemaTable) -> RS<()> {
+    async fn bootstrap_table_local_async(&self, schema: &SchemaClass) -> RS<()> {
         let table_desc =
             ::catalog::contract::table_info::TableInfo::new(schema.clone())?.table_desc()?;
         let binding = self.mgr.get_table_partition_binding(schema.id()).await?;
@@ -173,23 +211,33 @@ impl WorkerStorage {
     async fn apply_drop_table_local_async(&self, oid: OID) {
         let trace = task_trace!();
         let task_id = mudu_sys::task::async_::try_this_task_id();
-        let relation_id = self.relation_id(oid, self.default_partition_id);
-        trace.watch("relation_store.op", "remove_async");
-        trace.watch("relation_store.phase", "before_remove");
-        trace.watch("relation_store.relation_id", &format!("{relation_id:?}"));
-        trace.watch("relation_store.task_id", &format!("{task_id:?}"));
-        let removed = self.relation_store.remove_async(&relation_id).await;
-        trace.watch("relation_store.phase", "after_remove");
-        info!(
-            task_id = ?task_id,
-            relation_id = ?relation_id,
-            existed = removed.is_some(),
-            "relation_store remove_async"
-        );
+        // Queue relations live on partition 0, not the worker's random
+        // default partition. Drop every open partition of the table.
+        let mut relations = Vec::new();
+        self.relation_store.iter_sync(|id, _| {
+            if id.table_id == oid {
+                relations.push(*id);
+            }
+            true
+        });
+        for relation_id in relations {
+            trace.watch("relation_store.op", "remove_async");
+            trace.watch("relation_store.phase", "before_remove");
+            trace.watch("relation_store.relation_id", &format!("{relation_id:?}"));
+            trace.watch("relation_store.task_id", &format!("{task_id:?}"));
+            let removed = self.relation_store.remove_async(&relation_id).await;
+            trace.watch("relation_store.phase", "after_remove");
+            info!(
+                task_id = ?task_id,
+                relation_id = ?relation_id,
+                existed = removed.is_some(),
+                "relation_store remove_async"
+            );
+        }
     }
 
-    async fn broadcast_create_table_async(&self, schema: &SchemaTable) -> RS<()> {
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async enter");
+    async fn broadcast_create_table_async(&self, schema: &SchemaClass) -> RS<()> {
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage broadcast_create_table_async enter");
         let peers = self.peer_instances()?;
         if peers.is_empty() {
             return self.apply_create_table_local_async(schema).await;
@@ -197,7 +245,7 @@ impl WorkerStorage {
         for storage in peers {
             storage.apply_create_table_local_async(schema).await?;
         }
-        trace!(table = %schema.table_name(), oid = schema.id(), "worker_storage broadcast_create_table_async done");
+        trace!(table = %schema.class_name(), oid = schema.id(), "worker_storage broadcast_create_table_async done");
         Ok(())
     }
 
@@ -222,7 +270,7 @@ impl WorkerStorage {
             .map(|relation| relation.get().clone())
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityNotFound,
+                    ErrorCode::ObjectNotFound,
                     format!(
                         "no such table {} partition {}",
                         relation_id.table_id, relation_id.partition_id

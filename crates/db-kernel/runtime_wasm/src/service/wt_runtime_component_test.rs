@@ -47,6 +47,7 @@ mod tests {
             sever_mode: Default::default(),
             async_runtime: None,
             defer_initdb: false,
+            trusted_key_fingerprints: Vec::new(),
         })
         .unwrap();
 

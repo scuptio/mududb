@@ -15,16 +15,18 @@ fn bind_update_marks_null_fs_column_assignment_for_rebind() {
         let mut photo = SchemaColumn::new(
             "photo".to_string(),
             TypeFamily::U128,
-            DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::U128)),
+            mudu_type::data_type_codec::from_opt_object(&DataType::default_for(TypeFamily::U128)),
         );
         photo.set_fs_binding(Some(FsColumnBinding::new(7, FsTypeKind::File)));
-        let schema = SchemaTable::new(
+        let schema = SchemaClass::new(
             "product".to_string(),
             vec![
                 SchemaColumn::new(
                     "id".to_string(),
                     TypeFamily::I64,
-                    DataTypeInfo::from_opt_object(&DataType::default_for(TypeFamily::I64)),
+                    mudu_type::data_type_codec::from_opt_object(&DataType::default_for(
+                        TypeFamily::I64,
+                    )),
                 ),
                 photo,
             ],
@@ -95,7 +97,7 @@ fn bind_drop_table_fails_when_missing_without_if_exists() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -147,7 +149,7 @@ fn bind_copy_from_fails_for_unknown_table() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
     })
     .unwrap()
 }
@@ -241,7 +243,7 @@ fn bind_create_table_fails_for_unregistered_type_name() {
             .await
             .unwrap_err();
 
-        assert_eq!(err.ec(), ErrorCode::EntityNotFound);
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
         assert!(err.to_string().contains("unknown type name photo_fs"));
     })
     .unwrap()

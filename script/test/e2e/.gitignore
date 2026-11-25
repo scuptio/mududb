@@ -1,0 +1,5 @@
+# Generated per-node configs (script/test/distributed_e2e.py).
+configs/
+
+# Packaged example app, copied here by script/test/distributed_e2e.py.
+wallet.mpk

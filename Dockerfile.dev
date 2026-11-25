@@ -50,7 +50,7 @@ RUN cargo install cargo-make
 
 # Create a non-root developer user.
 RUN useradd -m -s /bin/bash developer && \
-    mkdir -p /workspace && \
+    mkdir -p /workspace/target && \
     chown -R developer:developer /workspace
 
 USER developer
@@ -58,7 +58,11 @@ USER developer
 # Prepare a Python venv for the project.
 RUN python3 -m venv /workspace/.venv
 ENV PATH="/workspace/.venv/bin:${PATH}"
-RUN python -m pip install --upgrade pip && \
-    python -m pip install toml tomli-w
+RUN python -m pip install --upgrade pip
+
+# Keep build artifacts in a Docker volume even when /workspace is bind-mounted.
+# Launchers provide distinct named volumes for persistent caches per environment;
+# plain `docker run` gets an anonymous volume instead of the host target directory.
+VOLUME ["/workspace/target"]
 
 CMD ["/bin/bash"]

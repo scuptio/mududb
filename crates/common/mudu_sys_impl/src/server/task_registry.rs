@@ -66,6 +66,24 @@ impl WorkerTaskRegistry {
         self.ready_queue.push(task_id);
     }
 
+    /// Spawns a perpetual background task that never blocks the shutdown
+    /// drain (e.g. a page-buffer mailbox driver idling on its channel). The
+    /// task is dropped with the registry when the worker loop exits.
+    #[doc(hidden)]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
+    )]
+    pub fn spawn_background_with_trace_id(&self, trace_task_id: TaskID, future: WorkerTaskFuture) {
+        let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+        let _ = self
+            .tasks
+            .lock()
+            .unwrap()
+            .insert(task_id, WorkerTask::new_background(trace_task_id, future));
+        self.ready_queue.push(task_id);
+    }
+
     /// Internal: use `mudu_kernel::server::task::spawn` instead.
     #[doc(hidden)]
     pub fn spawn(&self, conn_id: Option<u64>, future: WorkerTaskFuture) {
@@ -79,12 +97,18 @@ impl WorkerTaskRegistry {
         self.spawn_with_trace_id(conn_id, trace_task_id, future);
     }
 
+    /// Drains completed IO wakes into the ready queue. Returns how many
+    /// completions were drained, so event loops that drive the registry
+    /// without an armed wake fd (e.g. worker bootstrap) can tell whether
+    /// task progress was made.
     #[expect(
         clippy::unwrap_used,
         reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
     )]
-    pub fn drain_completions(&self) {
+    pub fn drain_completions(&self) -> usize {
+        let mut drained = 0usize;
         while let Some(op_id) = self.completion_queue.pop() {
+            drained += 1;
             let Some(task_id) = self.op_registry.lock().unwrap().remove(&op_id) else {
                 trace!(
                     op_id,
@@ -112,6 +136,7 @@ impl WorkerTaskRegistry {
                 self.ready_queue.push(task_id);
             }
         }
+        drained
     }
 
     pub fn poll_ready(&self) -> Vec<CompletedWorkerTask> {
@@ -216,6 +241,21 @@ impl WorkerTaskRegistry {
     pub fn is_empty(&self) -> bool {
         self.tasks.lock().unwrap().is_empty()
     }
+
+    /// Whether only background tasks remain: perpetual listeners are dropped
+    /// with the registry at loop exit, so the shutdown drain must not wait
+    /// for them.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "mutex poisoning indicates a logic bug in worker task registry ownership"
+    )]
+    pub fn is_drained_of_blocking(&self) -> bool {
+        self.tasks
+            .lock()
+            .unwrap()
+            .values()
+            .all(|task| !task.is_blocking())
+    }
 }
 
 impl CompletedWorkerTask {
@@ -263,5 +303,74 @@ mod tests {
         completed.into_iter().next().unwrap().into_result().unwrap();
 
         crate::sync::sync_::blocking::close_fd(fd).unwrap();
+    }
+    #[test]
+    fn budgeted_polling_preserves_connection_results_and_background_drain() {
+        let registry = WorkerTaskRegistry::new_with_wake_fd(None);
+        assert!(registry.is_empty());
+        assert!(registry.is_drained_of_blocking());
+        registry.spawn(
+            Some(17),
+            Box::pin(async {
+                Err(mudu::mudu_error!(
+                    mudu::error::ErrorCode::Io,
+                    "request failed"
+                ))
+            }),
+        );
+        registry.spawn(None, Box::pin(async { Ok(()) }));
+        let background_id = new_task_id();
+        registry.spawn_background_with_trace_id(background_id, Box::pin(std::future::pending()));
+        assert!(!registry.is_empty());
+        assert!(!registry.is_drained_of_blocking());
+        let (completed, more) = registry.poll_ready_budget(0);
+        assert!(completed.is_empty());
+        assert!(more);
+        let (mut completed, more) = registry.poll_ready_budget(1);
+        assert!(more);
+        let completed = completed.pop().unwrap();
+        assert_eq!(completed.conn_id(), Some(17));
+        assert!(!completed.is_system());
+        assert_eq!(
+            completed.into_result().unwrap_err().ec(),
+            mudu::error::ErrorCode::Io
+        );
+        let (mut completed, more) = registry.poll_ready_budget(2);
+        assert!(!more);
+        assert_eq!(completed.len(), 1);
+        let completed = completed.pop().unwrap();
+        assert_eq!(completed.conn_id(), None);
+        assert!(completed.is_system());
+        completed.into_result().unwrap();
+        assert!(!registry.is_empty());
+        assert!(registry.is_drained_of_blocking());
+        assert!(registry.poll_ready().is_empty());
+    }
+
+    #[test]
+    fn stale_completions_and_duplicate_wakes_do_not_poll_twice() {
+        let registry = WorkerTaskRegistry::new_with_wake_fd(None);
+        let polls = Arc::new(AtomicU64::new(0));
+        let seen = polls.clone();
+        registry.spawn(
+            Some(1),
+            Box::pin(std::future::poll_fn(move |cx| {
+                if seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                    cx.waker().wake_by_ref();
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })),
+        );
+        assert!(registry.poll_ready().is_empty());
+        registry.completion_queue.push(u64::MAX);
+        registry.drain_completions();
+        assert_eq!(registry.poll_ready().len(), 1);
+        assert_eq!(polls.load(Ordering::Relaxed), 2);
+        assert!(registry.is_empty());
+        assert_eq!(registry.drain_completions(), 0);
+        assert!(registry.poll_ready().is_empty());
     }
 }

@@ -1,16 +1,9 @@
-use crate::data_binary::DataBinary;
-use crate::data_textual::DataTextual;
-use crate::data_type_fn_param::DataType;
-use crate::datum::{Datum, DatumDyn};
 use crate::type_family::TypeFamily;
-use mudu::common::result::RS;
 use mudu::data_type::date::DateValue;
 use mudu::data_type::numeric::Numeric;
 use mudu::data_type::time::TimeValue;
 use mudu::data_type::timestamp::TimestampValue;
 use mudu::data_type::timestamptz::TimestampTzValue;
-use mudu::error::ErrorCode;
-use mudu::mudu_error;
 use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -19,7 +12,7 @@ use std::fmt::Debug;
 /// or complex types (arrays, records) in a unified enum container.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DataValue {
-    inner: ValueKind,
+    pub(crate) inner: ValueKind,
 }
 
 // Mark as thread-safe since all variants are either scalar types or boxed types
@@ -35,7 +28,7 @@ impl AsRef<DataValue> for DataValue {
 /// Internal memory representation supporting various data types
 /// Uses Box for time_series allocation of complex types to avoid large enum variants
 #[derive(Clone, Debug, Serialize, Deserialize)]
-enum ValueKind {
+pub(crate) enum ValueKind {
     Null,
     F32(f32),
     F64(f64),
@@ -49,7 +42,7 @@ enum ValueKind {
     Timestamp(TimestampValue),
     TimestampTz(TimestampTzValue),
     String(String),
-    Record(Vec<DataValue>),
+    Struct(Vec<DataValue>),
     Array(Vec<DataValue>),
     Binary(Vec<u8>),
 }
@@ -71,7 +64,7 @@ macro_rules! impl_data_value_methods {
 
         impl ValueKind {
 
-            fn get_type_family(&self) -> TypeFamily {
+            pub(crate) fn get_type_family(&self) -> TypeFamily {
                 match self {
                     ValueKind::Null => TypeFamily::Binary,
                     $(
@@ -169,13 +162,6 @@ impl DataValue {
         matches!(self.inner, ValueKind::Null)
     }
 
-    /// Creates a MemDatum from any type implementing Datum trait with type information
-    pub fn from_datum<T: Datum>(datum: T, type_obj: &DataType) -> RS<Self> {
-        Ok(Self {
-            inner: ValueKind::from_datum(datum, type_obj)?,
-        })
-    }
-
     /// Conversion methods to owned values
     pub fn to_f32(&self) -> f32 {
         *self.expect_f32()
@@ -207,13 +193,6 @@ impl DataValue {
     }
 }
 
-impl ValueKind {
-    /// Internal method to create ValueKind from Datum with type information
-    fn from_datum<T: Datum>(datum: T, type_obj: &DataType) -> RS<Self> {
-        Ok(datum.to_value(type_obj)?.inner)
-    }
-}
-
 // Mark internal enum as thread-safe since all variants are either primitive or boxed
 unsafe impl Send for ValueKind {}
 unsafe impl Sync for ValueKind {}
@@ -232,43 +211,8 @@ impl_data_value_methods! {
     (f64, F64, f64),
     (String, String, string),
     (Vec<DataValue>, Array, array),
-    (Vec<DataValue>, Record, record),
+    (Vec<DataValue>, Struct, struct),
     (Vec<u8>, Binary, binary),
-}
-
-impl DatumDyn for DataValue {
-    fn type_family(&self) -> RS<TypeFamily> {
-        Ok(self.inner.get_type_family())
-    }
-
-    fn to_binary(&self, data_type: &DataType) -> RS<DataBinary> {
-        if self.is_null() {
-            return Err(mudu_error!(
-                ErrorCode::InvalidType,
-                "NULL has no binary payload"
-            ));
-        }
-        let id = self.inner.get_type_family();
-        id.fn_send()(self, data_type)
-            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "", e))
-    }
-
-    fn to_textual(&self, data_type: &DataType) -> RS<DataTextual> {
-        if self.is_null() {
-            return Ok(DataTextual::from("NULL".to_string()));
-        }
-        let id = self.inner.get_type_family();
-        id.fn_output()(self, data_type)
-            .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, "", e))
-    }
-
-    fn to_value(&self, _: &DataType) -> RS<DataValue> {
-        Ok(self.clone())
-    }
-
-    fn clone_boxed(&self) -> Box<dyn DatumDyn> {
-        Box::new(self.clone())
-    }
 }
 
 #[cfg(test)]
@@ -295,7 +239,7 @@ mod tests {
 
     #[test]
     fn serde_roundtrip_json() {
-        let value = DataValue::from_record(vec![
+        let value = DataValue::from_struct(vec![
             DataValue::from_i32(7),
             DataValue::from_string("hello".to_string()),
             DataValue::from_array(vec![
@@ -309,7 +253,7 @@ mod tests {
             json_value,
             json!({
                 "inner": {
-                    "Record": [
+                    "Struct": [
                         {"inner": {"I32": 7}},
                         {"inner": {"String": "hello"}},
                         {"inner": {"Array": [
@@ -322,7 +266,7 @@ mod tests {
         );
 
         let from_json: DataValue = serde_json::from_value(json_value).unwrap();
-        assert_eq!(from_json.expect_record().len(), 3);
+        assert_eq!(from_json.expect_struct().len(), 3);
     }
 
     #[test]
@@ -338,7 +282,7 @@ mod tests {
         assert!(string_value.as_binary().is_none());
 
         let array_value = DataValue::from_array(vec![DataValue::from_i32(1)]);
-        assert!(array_value.as_record().is_none());
+        assert!(array_value.as_struct().is_none());
         assert!(array_value.as_i32().is_none());
     }
 
@@ -360,11 +304,48 @@ mod tests {
         assert_eq!(array.as_array().unwrap().len(), 2);
         assert_eq!(array.expect_array()[0].to_i32(), 1);
 
-        let record = DataValue::from_record(vec![
+        let record = DataValue::from_struct(vec![
             DataValue::from_string("x".to_string()),
             DataValue::from_i64(9),
         ]);
-        assert_eq!(record.as_record().unwrap().len(), 2);
-        assert_eq!(record.expect_record()[1].to_i64(), 9);
+        assert_eq!(record.as_struct().unwrap().len(), 2);
+        assert_eq!(record.expect_struct()[1].to_i64(), 9);
+    }
+
+    #[test]
+    fn owned_scalar_accessors_roundtrip() {
+        assert_eq!(DataValue::from_f32(1.5).to_f32(), 1.5);
+        assert_eq!(DataValue::from_f64(2.5).to_f64(), 2.5);
+        assert_eq!(DataValue::from_i32(3).to_i32(), 3);
+        assert_eq!(DataValue::from_i64(4).to_i64(), 4);
+        assert_eq!(DataValue::from_i128(5).to_i128(), 5);
+        assert_eq!(DataValue::from_u128(6).to_oid(), 6);
+    }
+
+    #[test]
+    fn as_ref_returns_self() {
+        let value = DataValue::from_i32(7);
+        let borrowed: &DataValue = value.as_ref();
+        assert_eq!(borrowed.to_i32(), 7);
+    }
+
+    #[test]
+    fn datum_dyn_binary_and_textual_roundtrip() {
+        let data_type = crate::data_type::DataType::default_for(TypeFamily::I32);
+        let value = DataValue::from_i32(42);
+
+        assert!(value.to_binary(&data_type).is_ok());
+        assert!(value.to_textual(&data_type).is_ok());
+        assert_eq!(value.to_value(&data_type).unwrap().to_i32(), 42);
+        assert_eq!(value.clone_boxed().type_family().unwrap(), TypeFamily::I32);
+    }
+
+    #[test]
+    fn null_binary_is_rejected_and_textual_is_null() {
+        let data_type = crate::data_type::DataType::default_for(TypeFamily::I32);
+        let null = DataValue::null();
+        assert!(null.to_binary(&data_type).is_err());
+        assert!(null.to_textual(&data_type).is_ok());
+        assert!(null.to_value(&data_type).unwrap().is_null());
     }
 }

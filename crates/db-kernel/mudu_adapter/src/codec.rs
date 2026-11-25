@@ -2,8 +2,8 @@
 
 use mudu::common::id::OID;
 use mudu::common::result::RS;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 
@@ -16,14 +16,14 @@ where
 }
 
 /// Invokes a synchronous host query closure and returns the resulting record set.
-pub fn invoke_host_query<R: Entity, F>(
+pub fn invoke_host_query<R: Object, F>(
     oid: OID,
     sql: &dyn SQLStmt,
     params: &dyn SQLParams,
     f: F,
-) -> RS<EntitySet<R>>
+) -> RS<ObjectSet<R>>
 where
-    F: Fn(OID, &dyn SQLStmt, &dyn SQLParams) -> RS<EntitySet<R>>,
+    F: Fn(OID, &dyn SQLStmt, &dyn SQLParams) -> RS<ObjectSet<R>>,
 {
     f(oid, sql, params)
 }
@@ -64,7 +64,7 @@ mod tests {
             assert_eq!(got_oid, oid);
             assert_eq!(got_sql.to_sql_string(), sql);
             assert_eq!(got_params.size(), 0);
-            Ok(EntitySet::<i32>::new(
+            Ok(ObjectSet::<i32>::new(
                 Arc::new(EmptyResultSet),
                 Arc::new(TupleFieldDesc::new(vec![])),
             ))

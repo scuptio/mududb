@@ -116,12 +116,12 @@ mod tests {
     }
 
     #[test]
-    fn tuple_field_desc_to_record_type() {
+    fn tuple_field_desc_to_struct_type() {
         let desc = TupleFieldDesc::new(vec![i32_field("a"), i32_field("b")]);
-        let record_type = desc.to_record_type("my_record".to_string()).unwrap();
-        assert_eq!(record_type.type_family(), TypeFamily::Record);
-        let param = record_type.as_record_param().unwrap();
-        assert_eq!(param.record_name(), "my_record");
+        let struct_type = desc.to_struct_type("my_record".to_string()).unwrap();
+        assert_eq!(struct_type.type_family(), TypeFamily::Struct);
+        let param = struct_type.as_struct_param().unwrap();
+        assert_eq!(param.struct_name(), "my_record");
         assert_eq!(param.fields().len(), 2);
     }
 

@@ -11,8 +11,8 @@ use mudu::common::result::RS;
 use mudu::data_type::numeric::Numeric;
 use mudu::error::ErrorCode;
 use mudu::mudu_error;
-use mudu_contract::database::entity::Entity;
-use mudu_contract::database::entity_set::EntitySet;
+use mudu_contract::database::object::Object;
+use mudu_contract::database::object_set::ObjectSet;
 use mudu_contract::database::sql_params::SQLParams;
 use mudu_contract::database::sql_stmt::SQLStmt;
 use mudu_contract::tuple::datum_desc::DatumDesc;
@@ -167,7 +167,7 @@ pub async fn mudu_close_async(session_id: OID) -> RS<()> {
     }
     .ok_or_else(|| {
         mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         )
     })?;
@@ -290,11 +290,11 @@ pub async fn mudu_range_async(
 }
 
 /// Executes a query on a PostgreSQL session and returns the resulting record set.
-pub fn mudu_query<R: Entity>(
+pub fn mudu_query<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let _trace = mudu_utils::task_trace!();
     let sql_text = normalize_sql(
         &sql_stmt.to_sql_string(),
@@ -311,7 +311,7 @@ pub fn mudu_query<R: Entity>(
             .into_iter()
             .map(|row| row_to_tuple_value(&row))
             .collect::<RS<Vec<_>>>()?;
-        Ok(EntitySet::new(
+        Ok(ObjectSet::new(
             Arc::new(LocalResultSet::new(tuple_rows)),
             Arc::new(desc),
         ))
@@ -319,11 +319,11 @@ pub fn mudu_query<R: Entity>(
 }
 
 /// Asynchronous version of [`mudu_query`].
-pub async fn mudu_query_async<R: Entity>(
+pub async fn mudu_query_async<R: Object>(
     oid: OID,
     sql_stmt: &dyn SQLStmt,
     params: &dyn SQLParams,
-) -> RS<EntitySet<R>> {
+) -> RS<ObjectSet<R>> {
     let sql_text = normalize_sql(
         &sql_stmt.to_sql_string(),
         params,
@@ -341,7 +341,7 @@ pub async fn mudu_query_async<R: Entity>(
         .into_iter()
         .map(|row| row_to_tuple_value(&row))
         .collect::<RS<Vec<_>>>()?;
-    Ok(EntitySet::new(
+    Ok(ObjectSet::new(
         Arc::new(LocalResultSet::new(tuple_rows)),
         Arc::new(desc),
     ))
@@ -428,7 +428,7 @@ fn ensure_session_exists(session_id: OID) -> RS<()> {
         Ok(())
     } else {
         Err(mudu_error!(
-            ErrorCode::EntityNotFound,
+            ErrorCode::ObjectNotFound,
             format!("session {} does not exist", session_id)
         ))
     }
@@ -447,7 +447,7 @@ where
     let client_ref = {
         let entry = SESSIONS.get_sync(&session_id).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })?;
@@ -467,7 +467,7 @@ async fn with_async_session(session_id: OID) -> RS<Arc<PgAsyncSession>> {
         .cloned()
         .ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("session {} does not exist", session_id)
             )
         })
@@ -568,7 +568,7 @@ pub(crate) fn sql_params_to_pg(params: &dyn SQLParams) -> RS<Vec<PgParam>> {
     for idx in 0..params.size() {
         let datum = params.get_idx(idx).ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityNotFound,
+                ErrorCode::ObjectNotFound,
                 format!("sql param index {idx} does not exist")
             )
         })?;
@@ -702,5 +702,93 @@ impl<'a> postgres::types::FromSql<'a> for PgNumeric {
 
     fn accepts(ty: &Type) -> bool {
         matches!(*ty, Type::NUMERIC)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// Builds a NUMERIC binary payload: ndigits/weight/sign/dscale header plus
+    /// base-10000 digit groups.
+    fn numeric_payload(
+        ndigits: i16,
+        weight: i16,
+        sign: u16,
+        dscale: i16,
+        digits: &[u16],
+    ) -> Vec<u8> {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&ndigits.to_be_bytes());
+        raw.extend_from_slice(&weight.to_be_bytes());
+        raw.extend_from_slice(&sign.to_be_bytes());
+        raw.extend_from_slice(&dscale.to_be_bytes());
+        for digit in digits {
+            raw.extend_from_slice(&digit.to_be_bytes());
+        }
+        raw
+    }
+
+    fn decode(raw: &[u8]) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+        use postgres::types::FromSql;
+        PgNumeric::from_sql(&postgres::types::Type::NUMERIC, raw).map(|n| n.0)
+    }
+
+    #[test]
+    fn pg_numeric_decodes_base10000_payloads() {
+        // 12.34: one integer group, one fractional group (3400), dscale 2.
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0, 2, &[12, 3400])).unwrap(),
+            "12.34"
+        );
+        // -1234.5: one integer group (1234), one fractional group (5000).
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0x4000, 1, &[1234, 5000])).unwrap(),
+            "-1234.5"
+        );
+        // Zero weight: pure fraction 0.0001.
+        assert_eq!(
+            decode(&numeric_payload(1, -1, 0, 4, &[1])).unwrap(),
+            "0.0001"
+        );
+        // dscale larger than the digit groups zero-extends.
+        assert_eq!(
+            decode(&numeric_payload(2, 0, 0, 4, &[1, 2000])).unwrap(),
+            "1.2000"
+        );
+        // dscale zero: integer only.
+        assert_eq!(decode(&numeric_payload(1, 0, 0, 0, &[7])).unwrap(), "7");
+    }
+
+    #[test]
+    fn pg_numeric_rejects_malformed_payloads() {
+        // Shorter than the 8-byte header.
+        assert!(decode(&[0u8; 4]).is_err());
+        // NaN sign is unsupported.
+        assert!(decode(&numeric_payload(0, 0, 0xC000, 0, &[])).is_err());
+        // Header promises two digit groups but the payload carries one.
+        assert!(decode(&numeric_payload(2, 0, 0, 0, &[1])).is_err());
+    }
+
+    #[test]
+    fn pg_numeric_accepts_only_numeric() {
+        use postgres::types::FromSql;
+        assert!(<PgNumeric as FromSql>::accepts(
+            &postgres::types::Type::NUMERIC
+        ));
+        assert!(!<PgNumeric as FromSql>::accepts(
+            &postgres::types::Type::INT4
+        ));
+    }
+
+    #[test]
+    fn session_helpers_reject_unknown_sessions_without_a_server() {
+        let err = ensure_session_exists(999_999_998).unwrap_err();
+        assert_eq!(err.ec(), ErrorCode::ObjectNotFound);
+        assert!(mudu_get(999_999_998, b"k").is_err());
+        assert!(mudu_put(999_999_998, b"k", b"v").is_err());
+        assert!(mudu_range(999_999_998, b"a", b"z").is_err());
+        assert!(mudu_close(999_999_998).is_err());
     }
 }

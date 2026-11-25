@@ -11,12 +11,24 @@ use scc::HashMap as SccHashMap;
 
 use ::catalog::contract::data_row::DataRow;
 use ::catalog::contract::meta_mgr::MetaMgr;
-use ::catalog::contract::schema_table::SchemaTable;
+use ::catalog::contract::schema_class::SchemaClass;
 use ::storage::relation::relation::Relation;
 use ::xengine::partition_router::DEFAULT_UNPARTITIONED_TABLE_PARTITION_ID;
 use ::xengine::tx_mgr::PhysicalRelationId;
 
-use self::commit::{latest_version, write_version_to_kv_store_async};
+use self::version::{latest_version, write_version_to_kv_store_async};
+
+/// The queue runtime rebuild scan of one queue relation: live `__seq` bounds
+/// plus the sequence numbers of rows still marked `claimed` (in-flight at
+/// crash time; the rebuild re-delivers them).
+pub struct QueueRebuildScan {
+    /// Smallest live `__seq`.
+    pub min_seq: u64,
+    /// Largest live `__seq`.
+    pub max_seq: u64,
+    /// Sequence numbers of rows whose status is `claimed`.
+    pub claimed_seqs: Vec<u64>,
+}
 
 #[cfg(test)]
 use crate::worker_tx_manager::WorkerTxManager;
@@ -39,9 +51,17 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::ops::Bound::Included;
 
+mod apply_barrier;
+mod recovery_watermarks;
+pub use apply_barrier::SnapshotInstallAttempt;
+pub use recovery_watermarks::RecoveryWatermarks;
 mod commit;
+mod participant;
+mod participant_snapshot;
+pub use participant_snapshot::{ParticipantSnapshot, ParticipantSnapshotGuard};
 mod read;
 mod schema;
+mod version;
 mod write;
 
 type WorkerStorageRegistry = std::collections::HashMap<String, Vec<Weak<WorkerStorage>>>;
@@ -77,6 +97,21 @@ pub struct WorkerStorage {
     /// write set are applied once while distinct partitions of the same
     /// transaction each get their apply.
     applied_cross_tx: SccHashMap<(OID, OID), ()>,
+    participant_states: SMutex<
+        std::collections::BTreeMap<
+            (catalog::contract::tx_decision::CoordinatorRef, OID),
+            participant::ParticipantState,
+        >,
+    >,
+    participant_apply: mudu_sys::tokio::sync::Mutex<()>,
+    /// Ordinary apply holds a read permit; snapshot capture owns the write
+    /// permit. Always acquire this before participant_apply.
+    snapshot_apply: mudu_sys::tokio::sync::RwLock<()>,
+    snapshot_apply_failed: std::sync::atomic::AtomicBool,
+    snapshot_cut: SMutex<apply_barrier::ApplyCut>,
+    participant_wal_seen: std::sync::atomic::AtomicBool,
+    participant_inflight: SMutex<BTreeSet<OID>>,
+    participant_snapshotting: std::sync::atomic::AtomicBool,
     // Serializes Relation creation. Without it, concurrent first-touch of the
     // same (table, partition) opens the time series files while the instance
     // already in `relation_store` is persisting a multi-page mutation plan,
@@ -114,6 +149,14 @@ impl WorkerStorage {
             relation_store: SccHashMap::new(),
             kv_store: SccHashMap::new(),
             applied_cross_tx: SccHashMap::new(),
+            participant_states: SMutex::new(std::collections::BTreeMap::new()),
+            participant_apply: mudu_sys::tokio::sync::Mutex::new(()),
+            snapshot_apply: mudu_sys::tokio::sync::RwLock::new(()),
+            snapshot_apply_failed: std::sync::atomic::AtomicBool::new(false),
+            snapshot_cut: SMutex::new(Default::default()),
+            participant_wal_seen: std::sync::atomic::AtomicBool::new(false),
+            participant_inflight: SMutex::new(BTreeSet::new()),
+            participant_snapshotting: std::sync::atomic::AtomicBool::new(false),
             relation_create_lock: AMutex::new(()),
         }
     }
@@ -138,19 +181,25 @@ impl WorkerStorage {
 
     /// Latest committed version of every kv key (the snapshot dump):
     /// `(key, xid, value)`, tombstones included as `(key, xid, None)`.
-    pub fn dump_kv_latest(&self) -> Vec<KvDumpEntry> {
+    pub async fn dump_kv_latest(&self) -> Vec<KvDumpEntry> {
+        let mut rows = Vec::new();
+        self.kv_store
+            .iter_async(|key, row| {
+                rows.push((key.clone(), row.clone()));
+                true
+            })
+            .await;
         let mut out = Vec::new();
-        self.kv_store.iter_sync(|key, row| {
-            if let Some(version) = latest_version(row) {
+        for (key, row) in rows {
+            if let Some(version) = latest_version(&row).await {
                 let value = if version.is_deleted() {
                     None
                 } else {
                     Some(version.tuple().clone())
                 };
-                out.push((key.clone(), version.timestamp().c_min(), value));
+                out.push((key, version.timestamp().c_min(), value));
             }
-            true
-        });
+        }
         out
     }
 
@@ -158,10 +207,17 @@ impl WorkerStorage {
     /// entry, then re-applies each dumped version with its original xid so
     /// conflict detection stays consistent with the snapshot source.
     pub async fn restore_kv_latest(&self, entries: Vec<KvDumpEntry>) -> RS<()> {
+        let _apply = self.snapshot_apply.write().await;
+        self.restore_kv_latest_owned(entries).await
+    }
+
+    async fn restore_kv_latest_owned(&self, entries: Vec<KvDumpEntry>) -> RS<()> {
+        let install = self.begin_snapshot_install_owned()?;
         self.kv_store.clear_sync();
         for (key, xid, value) in entries {
             write_version_to_kv_store_async(&self.kv_store, key, value, xid).await?;
         }
+        install.complete();
         Ok(())
     }
 
@@ -170,12 +226,87 @@ impl WorkerStorage {
     /// in-memory indexes must be rebuilt. Callers quiesce replication
     /// replay around this (the applier is stopped and the sink serializes).
     pub async fn reload_relations_from_disk(&self) -> RS<()> {
+        let _apply = self.snapshot_apply.write().await;
+        self.reload_relations_from_disk_owned().await
+    }
+
+    async fn reload_relations_from_disk_owned(&self) -> RS<()> {
+        let install = self.begin_snapshot_install_owned()?;
         // The bootstrap below takes `relation_create_lock` per created
         // relation; the restore itself is serialized by the caller, so no
         // extra guard is taken here (holding it across the bootstrap would
         // self-deadlock).
         self.relation_store.clear_sync();
-        self.bootstrap_existing_tables_async().await
+        self.bootstrap_existing_tables_async().await?;
+        install.complete();
+        Ok(())
+    }
+
+    /// Closes relation indexes after request/replay tasks have drained. A
+    /// failure leaves that relation's clean marker invalid; other relations
+    /// still get a chance to finish their checkpoint.
+    pub async fn close_relation_indexes(&self) -> RS<()> {
+        self.checkpoint_indexes(true).await
+    }
+
+    /// Checkpoints each hosted relation without stopping the worker. Each
+    /// relation asynchronously drains and pauses its writers while persisting;
+    /// this is not an atomic checkpoint of all relations or a database backup.
+    pub async fn checkpoint_relation_indexes(&self) -> RS<()> {
+        self.checkpoint_indexes(false).await
+    }
+
+    async fn checkpoint_indexes(&self, close: bool) -> RS<()> {
+        #[cfg(not(feature = "paged-index"))]
+        let _ = close;
+        #[cfg(feature = "paged-index")]
+        {
+            let mut relations = Vec::new();
+            self.relation_store
+                .iter_async(|_, relation| {
+                    relations.push(relation.clone());
+                    true
+                })
+                .await;
+            let mut failure = None;
+            for relation in relations {
+                let result = if close {
+                    relation.close().await
+                } else {
+                    relation.checkpoint().await
+                };
+                if let Err(error) = result {
+                    if failure.is_none() {
+                        failure = Some(error);
+                    }
+                }
+                mudu_utils::yield_now::cooperative_yield_now().await;
+            }
+            if let Some(error) = failure {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Evicts every open relation of `partition_id` from the in-memory
+    /// store (phase 3 partition moves: the adopting worker reopens the
+    /// relations from the copied files; the releasing worker drops them
+    /// before the data files are deleted). No-op when none are open.
+    pub async fn evict_partition_relations_async(&self, partition_id: OID) -> RS<()> {
+        let mut keys = Vec::new();
+        self.relation_store
+            .iter_async(|relation_id, _| {
+                if relation_id.partition_id == partition_id {
+                    keys.push(*relation_id);
+                }
+                true
+            })
+            .await;
+        for key in keys {
+            self.relation_store.remove_async(&key).await;
+        }
+        Ok(())
     }
 
     /// Writes back dirty time-series data pages of every relation this
@@ -235,7 +366,7 @@ pub async fn collect_fs_object_partition_ids(mgr: &Arc<dyn MetaMgr>) -> RS<Vec<O
 /// Add every partition id named by the partition bindings of `schemas`.
 async fn collect_bound_partition_ids(
     mgr: &Arc<dyn MetaMgr>,
-    schemas: &[SchemaTable],
+    schemas: &[SchemaClass],
     partition_ids: &mut BTreeSet<OID>,
 ) -> RS<()> {
     for schema in schemas {

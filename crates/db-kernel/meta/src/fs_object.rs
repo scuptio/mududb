@@ -21,8 +21,8 @@ use mudu_type::type_family::TypeFamily;
 use mudu_utils::oid::gen_oid;
 use serde::{Deserialize, Serialize};
 
+use ::catalog::contract::schema_class::SchemaClass;
 use ::catalog::contract::schema_column::SchemaColumn;
-use ::catalog::contract::schema_table::SchemaTable;
 use ::catalog::contract::table_desc::TableDesc;
 use ::catalog::contract::table_info::TableInfo;
 
@@ -57,8 +57,8 @@ pub struct FsObjectRow {
 }
 
 /// Build the schema of the `_fs_object` system table.
-pub(crate) fn fs_object_schema() -> SchemaTable {
-    SchemaTable::new_with_oid(
+pub(crate) fn fs_object_schema() -> SchemaClass {
+    SchemaClass::new_with_oid(
         FS_OBJECT_TABLE_ID,
         FS_OBJECT_TABLE_NAME.to_string(),
         vec![
@@ -66,7 +66,9 @@ pub(crate) fn fs_object_schema() -> SchemaTable {
                 FS_OBJECT_OID_COLUMN_ID,
                 "oid".to_string(),
                 TypeFamily::U128,
-                DataType::default_for(TypeFamily::U128).to_info(),
+                mudu_type::data_type_codec::TypeCodec::to_info(&DataType::default_for(
+                    TypeFamily::U128,
+                )),
             ),
             SchemaColumn::new_with_oid(
                 FS_OBJECT_ENTRY_COLUMN_ID,

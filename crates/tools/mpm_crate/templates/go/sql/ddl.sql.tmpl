@@ -5,7 +5,7 @@ CREATE TABLE items
     quantity INT
 );
 
--- update_item_info: the item-info record flattened into columns (bool/u32
+-- update_item_info: the item-info struct flattened into columns (bool/u32
 -- ride as INT; the host carries both as i32), labels in a side table keyed
 -- by (item_id, idx).
 CREATE TABLE item_info

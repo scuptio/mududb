@@ -1,6 +1,7 @@
 use super::HttpApiContext;
 use super::dto::{
-    PartitionRouteRequest, ReplFollowRequest, ReplMembershipRequest, ReplPromoteRequest,
+    PartitionMergeRequest, PartitionMoveAbortRequest, PartitionMoveRequest, PartitionRouteRequest,
+    PartitionSplitRequest, ReplFollowRequest, ReplMembershipRequest, ReplPromoteRequest,
 };
 use super::invoke_util::{decode_install_request, mpk_package_name};
 use super::procedure_list::ProcedureList;
@@ -67,6 +68,90 @@ pub(super) async fn partition_route(
     }
 }
 
+#[post("/mudu/cluster/partition/move")]
+pub(super) async fn partition_move(
+    body: String,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    let request = match serde_json::from_str::<PartitionMoveRequest>(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            let err = mudu_error!(ErrorCode::Decode, "fail to parse partition move request", e);
+            return http_err("fail to parse partition move request", &err);
+        }
+    };
+    match context.api.move_partition(request).await {
+        Ok(result) => http_ok(serde_json::to_value(result).unwrap_or(Value::Null)),
+        Err(e) => http_err("fail to move partition", &e),
+    }
+}
+
+#[post("/mudu/cluster/partition/abort_move")]
+pub(super) async fn partition_move_abort(
+    body: String,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    let request = match serde_json::from_str::<PartitionMoveAbortRequest>(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            let err = mudu_error!(
+                ErrorCode::Decode,
+                "fail to parse partition move abort request",
+                e
+            );
+            return http_err("fail to parse partition move abort request", &err);
+        }
+    };
+    match context.api.abort_partition_move(request).await {
+        Ok(()) => http_ok(Value::Null),
+        Err(e) => http_err("fail to abort partition move", &e),
+    }
+}
+
+#[post("/mudu/cluster/partition/split")]
+pub(super) async fn partition_split(
+    body: String,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    let request = match serde_json::from_str::<PartitionSplitRequest>(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            let err = mudu_error!(
+                ErrorCode::Decode,
+                "fail to parse partition split request",
+                e
+            );
+            return http_err("fail to parse partition split request", &err);
+        }
+    };
+    match context.api.split_partition(request).await {
+        Ok(result) => http_ok(serde_json::to_value(result).unwrap_or(Value::Null)),
+        Err(e) => http_err("fail to split partition", &e),
+    }
+}
+
+#[post("/mudu/cluster/partition/merge")]
+pub(super) async fn partition_merge(
+    body: String,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    let request = match serde_json::from_str::<PartitionMergeRequest>(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            let err = mudu_error!(
+                ErrorCode::Decode,
+                "fail to parse partition merge request",
+                e
+            );
+            return http_err("fail to parse partition merge request", &err);
+        }
+    };
+    match context.api.merge_partitions(request).await {
+        Ok(result) => http_ok(serde_json::to_value(result).unwrap_or(Value::Null)),
+        Err(e) => http_err("fail to merge partitions", &e),
+    }
+}
+
 #[get("/mudu/server/topology")]
 pub(super) async fn server_topology(context: web::Data<HttpApiContext>) -> impl Responder {
     match context.api.server_topology().await {
@@ -80,6 +165,59 @@ pub(super) async fn server_replication(context: web::Data<HttpApiContext>) -> im
     match context.api.server_replication().await {
         Ok(status) => http_ok(serde_json::to_value(status).unwrap_or(Value::Null)),
         Err(e) => http_err("fail to get server replication status", &e),
+    }
+}
+
+#[get("/mudu/server/queues")]
+pub(super) async fn server_queues(context: web::Data<HttpApiContext>) -> impl Responder {
+    match context.api.server_queues().await {
+        Ok(queues) => http_ok(serde_json::to_value(queues).unwrap_or(Value::Null)),
+        Err(e) => http_err("fail to get server queues status", &e),
+    }
+}
+
+#[post("/mudu/server/queue_activation")]
+pub(super) async fn queue_activation_register(
+    body: String,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    let request = match serde_json::from_str::<super::dto::QueueActivationRequest>(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            let err = mudu_error!(
+                ErrorCode::Decode,
+                "fail to parse queue activation request",
+                e
+            );
+            return http_err("fail to parse queue activation request", &err);
+        }
+    };
+    match context.api.queue_activation_register(request).await {
+        Ok(()) => http_ok(Value::Null),
+        Err(e) => http_err("fail to register queue activation", &e),
+    }
+}
+
+#[delete("/mudu/server/queue_activation/{queue}")]
+pub(super) async fn queue_activation_unregister(
+    path: web::Path<String>,
+    context: web::Data<HttpApiContext>,
+) -> impl Responder {
+    match context
+        .api
+        .queue_activation_unregister(path.into_inner())
+        .await
+    {
+        Ok(()) => http_ok(Value::Null),
+        Err(e) => http_err("fail to unregister queue activation", &e),
+    }
+}
+
+#[get("/mudu/server/queue_activations")]
+pub(super) async fn server_queue_activations(context: web::Data<HttpApiContext>) -> impl Responder {
+    match context.api.server_queue_activations().await {
+        Ok(activations) => http_ok(serde_json::to_value(activations).unwrap_or(Value::Null)),
+        Err(e) => http_err("fail to list queue activations", &e),
     }
 }
 

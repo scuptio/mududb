@@ -132,12 +132,12 @@ func balance(session muduOid, userId int64) (int64, error) {
 	return queryBalance(session, userId)
 }
 
-// updateProfile stores a user-defined record argument and returns the stored
-// record. The `profile` record type is declared in wit/types.wit and
+// updateProfile stores a user-defined struct argument and returns the stored
+// struct. The `profile` record type is declared in wit/types.wit and
 // generated into wallet_go/gentypes by mgen; the mtp adapter decodes the
-// positional record envelope through the binding bridge
-// (types.RecordFieldValues) composed with gentypes.ProfileFromValue, and
-// encodes the returned record symmetrically.
+// positional struct envelope through the binding bridge
+// (types.StructFieldValues) composed with gentypes.ProfileFromValue, and
+// encodes the returned struct symmetrically.
 //
 // Storage design: the record flattens into the `profile` table columns
 // (bool/u32 as INT — the host carries both as i32); the nested optional

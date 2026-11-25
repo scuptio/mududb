@@ -50,6 +50,13 @@ pub mod sync {
                 .map_err(|_| mudu_error!(ErrorCode::Mutex, "mutex poisoned"))
         }
 
+        /// Locks the mutex even when a previous holder panicked while
+        /// holding it; see the native implementation for the rationale.
+        pub fn lock_ignore_poison(&self) -> SMutexGuard<'_, T> {
+            let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            SMutexGuard { inner }
+        }
+
         /// Attempts to lock the mutex without blocking.
         pub fn try_lock(&self) -> Option<SMutexGuard<'_, T>> {
             self.inner

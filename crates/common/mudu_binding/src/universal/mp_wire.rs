@@ -1,5 +1,5 @@
-//! MSSP MessagePack wire runtime: the single hand-written codec core shared
-//! by every generated universal type.
+//! MSSP MessagePack wire runtime: the codec layer shared by every generated
+//! universal type.
 //!
 //! The guest↔host syscall frames (MSSP v1) carry one MessagePack body whose
 //! values are built from a small dynamic model, [`Value`]. Generated record
@@ -7,7 +7,8 @@
 //! [`ToValue`] / [`FromValue`] traits) and the frame layer encodes the value
 //! with [`encode_value`] and parses it with [`decode_value`].
 //!
-//! Encoding is **canonical** and byte-identical to `rmp_serde` 1.3.1:
+//! Encoding is **canonical** and byte-identical to `rmp_serde` 1.3.1 (pinned
+//! by `encoder_matches_rmp_serde_byte_for_byte`):
 //!
 //! - integers use minimal-width markers by value; non-negative signed values
 //!   follow the unsigned marker chain (`128i64` encodes as `0xCC 0x80`);
@@ -23,13 +24,12 @@
 //! form. Structural rules (a map where a map is expected, exact tuple
 //! lengths, unknown variant tags) stay strict. [`decode_value`] rejects
 //! trailing bytes after the top-level value.
+//!
+//! The byte-level marker codec is [`crate::universal::mp_core`], the formally
+//! verified primitive layer; this module owns the recursive [`Value`] walk,
+//! UTF-8 validation, and error wording.
 
-use rmp::Marker;
-use rmp::decode::read_marker;
-use rmp::encode::{
-    write_array_len, write_bin, write_bool, write_f32, write_f64, write_map_len, write_nil,
-    write_sint, write_str, write_uint,
-};
+use crate::universal::mp_core::{self, MpError};
 
 /// Dynamic MessagePack value exchanged on the syscall wire.
 #[derive(Debug, Clone, PartialEq)]
@@ -92,43 +92,40 @@ const MAX_DEPTH: usize = 128;
 /// Encodes a [`Value`] into its canonical MessagePack byte form.
 pub fn encode_value(value: &Value) -> Vec<u8> {
     let mut out = Vec::new();
-    // Writing to a Vec is infallible; the marker-level rmp functions only
-    // fail on I/O or length overflow, neither of which can happen here.
-    let _ = write_value(&mut out, value);
+    write_value(&mut out, value);
     out
 }
 
-fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), rmp::encode::ValueWriteError> {
+fn write_value(out: &mut Vec<u8>, value: &Value) {
     match value {
-        Value::Nil => write_nil(out).map_err(rmp::encode::ValueWriteError::InvalidDataWrite)?,
-        Value::Bool(b) => {
-            write_bool(out, *b).map_err(rmp::encode::ValueWriteError::InvalidDataWrite)?
+        Value::Nil => mp_core::write_nil(out),
+        Value::Bool(b) => mp_core::write_bool(out, *b),
+        Value::UInt(v) => mp_core::write_uint(out, *v),
+        Value::Int(v) => mp_core::write_sint(out, *v),
+        Value::F32(v) => mp_core::write_f32_bits(out, v.to_bits()),
+        Value::F64(v) => mp_core::write_f64_bits(out, v.to_bits()),
+        Value::Str(s) => {
+            mp_core::write_str_header(out, s.len() as u32);
+            out.extend_from_slice(s.as_bytes());
         }
-        Value::UInt(v) => {
-            write_uint(out, *v)?;
+        Value::Bin(bytes) => {
+            mp_core::write_bin_header(out, bytes.len() as u32);
+            out.extend_from_slice(bytes);
         }
-        Value::Int(v) => {
-            write_sint(out, *v)?;
-        }
-        Value::F32(v) => write_f32(out, *v)?,
-        Value::F64(v) => write_f64(out, *v)?,
-        Value::Str(s) => write_str(out, s)?,
-        Value::Bin(bytes) => write_bin(out, bytes)?,
         Value::Array(items) => {
-            write_array_len(out, items.len() as u32)?;
+            mp_core::write_array_header(out, items.len() as u32);
             for item in items {
-                write_value(out, item)?;
+                write_value(out, item);
             }
         }
         Value::Map(pairs) => {
-            write_map_len(out, pairs.len() as u32)?;
+            mp_core::write_map_header(out, pairs.len() as u32);
             for (key, val) in pairs {
-                write_value(out, key)?;
-                write_value(out, val)?;
+                write_value(out, key);
+                write_value(out, val);
             }
         }
     }
-    Ok(())
 }
 
 /// Decodes one [`Value`] from `bytes`, rejecting trailing bytes.
@@ -153,73 +150,84 @@ pub fn decode_value_prefix(bytes: &[u8]) -> Result<(Value, usize), WireError> {
 
 type SliceCursor<'a> = &'a [u8];
 
-fn cursor_pos(base_len: usize, cursor: &SliceCursor) -> usize {
-    base_len - cursor.len()
+fn advance(cursor: &mut SliceCursor, n: usize) {
+    *cursor = &(*cursor)[n..];
+}
+
+fn wire_mp_err(error: MpError) -> WireError {
+    WireError::new(format!("MessagePack decode error: {error:?}"))
 }
 
 fn read_value(cursor: &mut SliceCursor, depth: usize) -> Result<Value, WireError> {
     if depth > MAX_DEPTH {
         return wire_err("MessagePack value nesting too deep");
     }
-    let base_len = cursor.len();
-    let marker = read_marker(cursor).map_err(|e| {
-        WireError::new(format!(
-            "MessagePack marker read error at {} bytes: {e:?}",
-            cursor_pos(base_len, cursor)
-        ))
-    })?;
+    if cursor.is_empty() {
+        return wire_err("unexpected end of MessagePack input (missing marker byte)");
+    }
+    let marker = cursor[0];
     match marker {
-        Marker::FixPos(v) => Ok(Value::UInt(v as u64)),
-        Marker::FixNeg(v) => Ok(Value::Int(v as i64)),
-        Marker::Null => Ok(Value::Nil),
-        Marker::False => Ok(Value::Bool(false)),
-        Marker::True => Ok(Value::Bool(true)),
-        Marker::U8 => Ok(Value::UInt(read_be(cursor, 1)?)),
-        Marker::U16 => Ok(Value::UInt(read_be(cursor, 2)?)),
-        Marker::U32 => Ok(Value::UInt(read_be(cursor, 4)?)),
-        Marker::U64 => Ok(Value::UInt(read_be(cursor, 8)?)),
-        Marker::I8 => Ok(Value::Int(read_be(cursor, 1)? as u8 as i8 as i64)),
-        Marker::I16 => Ok(Value::Int(read_be(cursor, 2)? as u16 as i16 as i64)),
-        Marker::I32 => Ok(Value::Int(read_be(cursor, 4)? as u32 as i32 as i64)),
-        Marker::I64 => Ok(Value::Int(read_be(cursor, 8)? as i64)),
-        Marker::F32 => {
-            let b = read_bytes(cursor, 4)?;
-            Ok(Value::F32(f32::from_be_bytes([b[0], b[1], b[2], b[3]])))
+        // Positive fixint and the unsigned integer markers.
+        0x00..=0x7f | 0xcc..=0xcf => {
+            let (v, n) = mp_core::read_uint(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
+            Ok(Value::UInt(v))
         }
-        Marker::F64 => {
-            let b = read_bytes(cursor, 8)?;
-            Ok(Value::F64(f64::from_be_bytes([
-                b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
-            ])))
+        // Negative fixint and the signed integer markers.
+        0xe0..=0xff | 0xd0..=0xd3 => {
+            let (v, n) = mp_core::read_sint(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
+            Ok(Value::Int(v))
         }
-        Marker::FixStr(_) | Marker::Str8 | Marker::Str16 | Marker::Str32 => {
-            // The marker has already been consumed; read_str_len expects the
-            // marker first, so recompute the length from the marker directly.
-            let len = match marker {
-                Marker::FixStr(len) => len as u32,
-                _ => read_str_len_after_marker(cursor, marker)?,
-            };
+        0xc0 => {
+            advance(cursor, 1);
+            Ok(Value::Nil)
+        }
+        0xc2 | 0xc3 => {
+            let (v, n) = mp_core::read_bool(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
+            Ok(Value::Bool(v))
+        }
+        0xca => {
+            let (bits, n) = mp_core::read_f32_bits(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
+            Ok(Value::F32(f32::from_bits(bits)))
+        }
+        0xcb => {
+            let (bits, n) = mp_core::read_f64_bits(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
+            Ok(Value::F64(f64::from_bits(bits)))
+        }
+        // Fixstr and the str8/16/32 markers.
+        0xa0..=0xbf | 0xd9..=0xdb => {
+            let (len, n) = mp_core::read_str_header(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
             let bytes = read_bytes(cursor, len as usize)?;
             let text = String::from_utf8(bytes.to_vec())
                 .map_err(|e| WireError::new(format!("invalid UTF-8 string: {e}")))?;
             Ok(Value::Str(text))
         }
-        Marker::Bin8 | Marker::Bin16 | Marker::Bin32 => {
-            let len = read_bin_len_after_marker(cursor, marker)?;
+        // The bin8/16/32 markers.
+        0xc4..=0xc6 => {
+            let (len, n) = mp_core::read_bin_header(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
             let bytes = read_bytes(cursor, len as usize)?;
             Ok(Value::Bin(bytes.to_vec()))
         }
-        Marker::FixArray(len) => read_array_items(cursor, len as u32, depth),
-        Marker::Array16 | Marker::Array32 => {
-            let len = read_array_len_after_marker(cursor, marker)?;
+        // Fixarray and the array16/32 markers.
+        0x90..=0x9f | 0xdc | 0xdd => {
+            let (len, n) = mp_core::read_array_header(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
             read_array_items(cursor, len, depth)
         }
-        Marker::FixMap(len) => read_map_pairs(cursor, len as u32, depth),
-        Marker::Map16 | Marker::Map32 => {
-            let len = read_map_len_after_marker(cursor, marker)?;
+        // Fixmap and the map16/32 markers.
+        0x80..=0x8f | 0xde | 0xdf => {
+            let (len, n) = mp_core::read_map_header(cursor).map_err(wire_mp_err)?;
+            advance(cursor, n);
             read_map_pairs(cursor, len, depth)
         }
-        other => wire_err(format!("unsupported MessagePack marker {other:?}")),
+        // 0xC1 (reserved) and the ext markers are not part of the wire model.
+        other => wire_err(format!("unsupported MessagePack marker {other:#04x}")),
     }
 }
 
@@ -251,63 +259,6 @@ fn read_bytes<'a>(cursor: &mut SliceCursor<'a>, len: usize) -> Result<&'a [u8], 
     let (head, tail) = cursor.split_at(len);
     *cursor = tail;
     Ok(head)
-}
-
-fn read_be(cursor: &mut SliceCursor, width: usize) -> Result<u64, WireError> {
-    let bytes = read_bytes(cursor, width)?;
-    let mut value = 0u64;
-    for byte in bytes {
-        value = (value << 8) | (*byte as u64);
-    }
-    Ok(value)
-}
-
-fn read_u8(cursor: &mut SliceCursor) -> Result<u8, WireError> {
-    Ok(read_bytes(cursor, 1)?[0])
-}
-
-fn read_u16(cursor: &mut SliceCursor) -> Result<u16, WireError> {
-    let bytes = read_bytes(cursor, 2)?;
-    Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
-}
-
-fn read_u32(cursor: &mut SliceCursor) -> Result<u32, WireError> {
-    let bytes = read_bytes(cursor, 4)?;
-    Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-}
-
-fn read_str_len_after_marker(cursor: &mut SliceCursor, marker: Marker) -> Result<u32, WireError> {
-    match marker {
-        Marker::Str8 => Ok(read_u8(cursor)? as u32),
-        Marker::Str16 => Ok(read_u16(cursor)? as u32),
-        Marker::Str32 => read_u32(cursor),
-        _ => wire_err(format!("not a str marker: {marker:?}")),
-    }
-}
-
-fn read_bin_len_after_marker(cursor: &mut SliceCursor, marker: Marker) -> Result<u32, WireError> {
-    match marker {
-        Marker::Bin8 => Ok(read_u8(cursor)? as u32),
-        Marker::Bin16 => Ok(read_u16(cursor)? as u32),
-        Marker::Bin32 => read_u32(cursor),
-        _ => wire_err(format!("not a bin marker: {marker:?}")),
-    }
-}
-
-fn read_array_len_after_marker(cursor: &mut SliceCursor, marker: Marker) -> Result<u32, WireError> {
-    match marker {
-        Marker::Array16 => Ok(read_u16(cursor)? as u32),
-        Marker::Array32 => read_u32(cursor),
-        _ => wire_err(format!("not an array marker: {marker:?}")),
-    }
-}
-
-fn read_map_len_after_marker(cursor: &mut SliceCursor, marker: Marker) -> Result<u32, WireError> {
-    match marker {
-        Marker::Map16 => Ok(read_u16(cursor)? as u32),
-        Marker::Map32 => read_u32(cursor),
-        _ => wire_err(format!("not a map marker: {marker:?}")),
-    }
 }
 
 impl Value {

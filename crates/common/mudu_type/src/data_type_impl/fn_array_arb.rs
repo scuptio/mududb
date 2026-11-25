@@ -4,6 +4,7 @@ use crate::data_type_fn_arbitrary::FnArbitrary;
 use crate::data_type_param_array::DataTypeParamArray;
 use crate::data_value::DataValue;
 use crate::type_family::TypeFamily;
+use crate::type_family_ext::TypeFamilyExt;
 use arbitrary::{Arbitrary, Unstructured};
 
 const ARRAY_INNER_TYPE_IDS: [TypeFamily; 8] = [

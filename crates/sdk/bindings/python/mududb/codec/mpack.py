@@ -16,7 +16,7 @@ Encoding is byte-exact with rmp-serde 1.3.x (``rmp_serde::to_vec``):
 - Decoding floats is lenient across the 0xCA/0xCB markers in both directions,
   matching ``rmp_serde::from_slice``.
 
-Record/request bodies are integer-keyed maps (MSSP v1 revised wire format):
+Struct/request bodies are integer-keyed maps (MSSP v1 revised wire format):
 :meth:`MpackReader.read_map_key` mirrors the host's lenient key handling
 (integer keys of any width, negative or non-integer keys collapse to the
 never-used key 0 so the caller skips the value) and
@@ -423,7 +423,7 @@ class MpackReader:
         raise ValueError(f"mpack: expected map marker, got 0x{b:02x}")
 
     def read_map_key(self):
-        """Read a record/request map key. Integer keys of any width are
+        """Read a struct/request map key. Integer keys of any width are
         returned (negative keys collapse to 0); any non-integer key is
         consumed and also reported as 0. Field numbers are 1-based, so 0
         tells the caller to skip the associated value — matching the host's
@@ -440,7 +440,7 @@ class MpackReader:
 
     def skip_value(self):
         """Consume one MessagePack value of any shape and discard it (used for
-        unknown record/request map keys)."""
+        unknown struct/request map keys)."""
         b = self._take()
         if b <= 0x7F or b >= 0xE0:
             return  # fixint

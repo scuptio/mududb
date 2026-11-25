@@ -1,7 +1,7 @@
 //! Generate procedure descriptors from parsed C# procedures.
 
 use crate::common::desc::{ProcDescField, ProcDescModel};
-use crate::csharp::procedure::CsProcedure;
+use crate::csharp::types::CsProcedure;
 use mudu::utils::case_convert::to_snake_case;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 

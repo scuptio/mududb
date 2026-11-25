@@ -2,7 +2,7 @@
 
 import { UniScalar, UniScalarCodec } from "./UniScalar";
 
-import { UniRecordType, UniRecordTypeCodec } from "./UniRecordType";
+import { UniStructType, UniStructTypeCodec } from "./UniStructType";
 
 import { UniResultType, UniResultTypeCodec } from "./UniResultType";
 
@@ -16,7 +16,7 @@ export enum UniDataTypeKind {
 
     Array = 1,
 
-    Record = 2,
+    Struct = 2,
 
     Option = 3,
 
@@ -61,13 +61,13 @@ export class UniDataTypeArray extends UniDataType {
     }
 }
 
-export class UniDataTypeRecord extends UniDataType {
+export class UniDataTypeStruct extends UniDataType {
     
-    inner: UniRecordType = new UniRecordType();
+    inner: UniStructType = new UniStructType();
     
     constructor() {
         super();
-        this.kind = UniDataTypeKind.Record;
+        this.kind = UniDataTypeKind.Struct;
     }
 }
 
@@ -150,9 +150,9 @@ export class UniDataTypeCodec {
                 break;
             }
             
-            case UniDataTypeKind.Record: {
+            case UniDataTypeKind.Struct: {
                 
-                                UniRecordTypeCodec.encode((value as UniDataTypeRecord).inner, writer);
+                                UniStructTypeCodec.encode((value as UniDataTypeStruct).inner, writer);
                 
                 break;
             }
@@ -236,8 +236,8 @@ export class UniDataTypeCodec {
             
             case 2: {
                 
-                const value = new UniDataTypeRecord();
-                                value.inner = UniRecordTypeCodec.decode(reader);
+                const value = new UniDataTypeStruct();
+                                value.inner = UniStructTypeCodec.decode(reader);
                 return value;
                 
             }

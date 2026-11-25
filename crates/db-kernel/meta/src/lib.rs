@@ -20,5 +20,7 @@ pub mod partition_binding_catalog;
 pub mod partition_placement_catalog;
 /// Catalog of partition rules.
 pub mod partition_rule_catalog;
+/// The `_queue_consumer` system table of named queue consumer cursors.
+pub mod queue_consumer;
 /// Catalog of table schemas.
 pub mod schema_catalog;

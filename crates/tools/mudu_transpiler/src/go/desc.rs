@@ -1,7 +1,7 @@
 //! Generate procedure descriptors from parsed Go procedures.
 
 use crate::common::desc::{ProcDescField, ProcDescModel};
-use crate::go::procedure::GoProcedure;
+use crate::go::types::GoProcedure;
 use mudu::utils::case_convert::to_snake_case;
 use mudu_contract::procedure::proc_desc::ProcDesc;
 

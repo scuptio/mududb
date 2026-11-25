@@ -15,7 +15,7 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn test_main_inner_entity() {
+    fn test_main_inner_object() {
         let td_folder = PathBuf::from(this_file!())
             .parent()
             .unwrap()
@@ -26,7 +26,7 @@ mod tests {
         let tmp_folder = mudu_sys::env_var::temp_dir().to_str().unwrap().to_string();
         let args = vec![
             "mgen".to_string(),
-            "entity".to_string(),
+            "object".to_string(),
             "-i".to_string(),
             format!("{}/sql/ddl.sql", td_folder),
             format!("{}/sql/type.sql", td_folder),

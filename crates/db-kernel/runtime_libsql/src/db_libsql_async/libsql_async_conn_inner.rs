@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
-pub struct LibSQLAsyncConnInner {
+pub(crate) struct LibSQLAsyncConnInner {
     conn: Connection,
     trans: Option<Transaction>,
     xid: OID,
@@ -103,7 +103,7 @@ pub struct Prepared {
     project_tuple_desc: Arc<TupleFieldDesc>,
 }
 
-pub struct PreparedStmtImpl {
+pub(crate) struct PreparedStmtImpl {
     prepared: Arc<SMutex<Option<Prepared>>>,
 }
 
@@ -133,7 +133,7 @@ impl PreparedStmt for PreparedStmtImpl {
             .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?;
         let prepared = guard.as_ref().ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 "prepared query is still in use"
             )
         })?;
@@ -147,7 +147,7 @@ impl PreparedStmt for PreparedStmtImpl {
             .map_err(|_| mudu_error!(ErrorCode::Mutex, "lock prepared stmt error"))?;
         let prepared = guard.as_mut().ok_or_else(|| {
             mudu_error!(
-                ErrorCode::EntityAlreadyExists,
+                ErrorCode::ObjectAlreadyExists,
                 "prepared query is still in use"
             )
         })?;
@@ -164,7 +164,7 @@ impl PreparedStmtImpl {
             .take()
             .ok_or_else(|| {
                 mudu_error!(
-                    ErrorCode::EntityAlreadyExists,
+                    ErrorCode::ObjectAlreadyExists,
                     "prepared statement is still in use"
                 )
             })
@@ -282,7 +282,7 @@ fn _to_libsql_value(datum: &DataValue, ty: &DataType) -> RS<libsql::Value> {
                 .map_err(|e| mudu_error!(ErrorCode::TypeConversionFailed, e))?,
         ),
         TypeFamily::Array => libsql::Value::Blob(datum.to_binary(ty)?.into()),
-        TypeFamily::Record => libsql::Value::Blob(datum.to_binary(ty)?.into()),
+        TypeFamily::Struct => libsql::Value::Blob(datum.to_binary(ty)?.into()),
         TypeFamily::Binary => libsql::Value::Blob(datum.to_binary(ty)?.into()),
     };
     Ok(v)

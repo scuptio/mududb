@@ -92,14 +92,14 @@ impl SQLParser {
         let n_obj_ref = rs_of_opt(n, || {
             mudu_error!(ErrorCode::Parse, "no object reference field")
         })?;
-        let table_name = self.visit_object_reference(context, n_obj_ref)?;
+        let class_name = self.visit_object_reference(context, n_obj_ref)?;
         let n = node.child_by_field_name(ts_field_name::FILE_PATH);
         let n_file_path = rs_of_opt(n, || {
             mudu_error!(ErrorCode::Parse, "no object file path field")
         })?;
         let file_path = self.visit_string(context, n_file_path)?;
         let file_path = super::utils::unquote_sql_literal(&file_path);
-        let copy_from = StmtCopyFrom::new(file_path, table_name, vec![]);
+        let copy_from = StmtCopyFrom::new(file_path, class_name, vec![]);
         let st = StmtType::Command(StmtCommand::CopyFrom(copy_from));
         Ok(st)
     }
@@ -122,13 +122,13 @@ impl SQLParser {
         let n_obj_ref = rs_of_opt(object_ref, || {
             mudu_error!(ErrorCode::Parse, "no object reference field")
         })?;
-        let table_name = self.visit_object_reference(context, n_obj_ref)?;
+        let class_name = self.visit_object_reference(context, n_obj_ref)?;
         let n_file_path = rs_of_opt(file_path, || {
             mudu_error!(ErrorCode::Parse, "no object file path field")
         })?;
         let file_path = self.visit_string(context, n_file_path)?;
         let file_path = super::utils::unquote_sql_literal(&file_path);
-        let copy_to = StmtCopyTo::new(file_path, table_name, vec![]);
+        let copy_to = StmtCopyTo::new(file_path, class_name, vec![]);
         Ok(StmtType::Command(StmtCommand::CopyTo(copy_to)))
     }
 }

@@ -8,10 +8,10 @@
 //! itself.
 
 use crate::src_gen::wit_def::WitDef;
-use mudu_binding::universal::uni_def::RecordField;
+use mudu_binding::universal::uni_def::StructField;
 use mudu_binding::universal::uni_schema_desc::{
-    UniSchemaDesc, UniSchemaEnum, UniSchemaEnumCase, UniSchemaField, UniSchemaFunc,
-    UniSchemaRecord, UniSchemaTable, UniSchemaVariant, UniSchemaVariantCase,
+    UniSchemaClass, UniSchemaDesc, UniSchemaEnum, UniSchemaEnumCase, UniSchemaField, UniSchemaFunc,
+    UniSchemaStruct, UniSchemaVariant, UniSchemaVariantCase,
 };
 
 /// Build an aggregated schema descriptor from parsed WIT files.
@@ -24,14 +24,14 @@ pub fn build_schema_desc(sources: &[WitDef]) -> UniSchemaDesc {
     let mut desc = UniSchemaDesc::default();
     for wit_dat in sources {
         for record in &wit_dat.records {
-            desc.records.push(UniSchemaRecord {
-                name: record.record_name.clone(),
-                fields: to_schema_fields(&record.record_fields),
+            desc.records.push(UniSchemaStruct {
+                name: record.struct_name.clone(),
+                fields: to_schema_fields(&record.struct_fields),
             });
         }
         for table in &wit_dat.tables {
-            desc.tables.push(UniSchemaTable {
-                name: table.table_name.clone(),
+            desc.tables.push(UniSchemaClass {
+                name: table.class_name.clone(),
                 key: to_schema_fields(&table.table_key),
                 value: to_schema_fields(&table.table_value),
             });
@@ -88,7 +88,7 @@ pub fn build_schema_desc(sources: &[WitDef]) -> UniSchemaDesc {
     desc
 }
 
-fn to_schema_fields(fields: &[RecordField]) -> Vec<UniSchemaField> {
+fn to_schema_fields(fields: &[StructField]) -> Vec<UniSchemaField> {
     fields
         .iter()
         .enumerate()

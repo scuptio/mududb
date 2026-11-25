@@ -140,7 +140,7 @@ impl RustType {
                     let ty = custom_types.types.get(s).map_or_else(
                         || {
                             Err(mudu_error!(
-                                ErrorCode::EntityNotFound,
+                                ErrorCode::ObjectNotFound,
                                 format!("no such type name:{}", s)
                             ))
                         },

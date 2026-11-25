@@ -126,6 +126,10 @@ fn unescape(raw: &str) -> String {
             'b' => out.push('\u{8}'),
             'f' => out.push('\u{c}'),
             'v' => out.push('\u{b}'),
+            // Go's quote and backslash escapes.
+            '\"' => out.push('"'),
+            '\'' => out.push('\''),
+            '\\' => out.push('\\'),
             '0'..='7' => {
                 let mut digits = String::from(escaped);
                 for _ in 0..2 {
@@ -165,7 +169,11 @@ fn unescape(raw: &str) -> String {
                 let value = u32::from_str_radix(&digits, 16).ok();
                 push_code_point(&mut out, value, &format!("\\{escaped}{digits}"));
             }
-            other => out.push(other),
+            // Unknown escape: keep the raw text, backslash included.
+            other => {
+                out.push('\\');
+                out.push(other);
+            }
         }
     }
     out

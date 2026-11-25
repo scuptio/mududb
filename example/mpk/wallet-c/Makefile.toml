@@ -2,9 +2,10 @@
 # C template with the wallet-go repo-root output convention.
 #
 # Required on PATH: cargo-make, wasm-tools and the workspace tools mgen /
-# mtp / mpm-build; plus a clang that can target wasm32 freestanding
-# (wasi-sdk's clang by default — override with `WASI_SDK=/path/to/wasi-sdk
-# cargo make`, or point `CLANG` at any suitable compiler binary). The wire
+# mtp / mpm-build; plus a clang that can target wasm32 freestanding. The
+# wasi-sdk is located by script/lib/wasi_sdk.py — explicit `WASI_SDK`, then
+# `CLANG`, then `clang` on PATH, then `~/.wasi-sdk/wasi-sdk-29.0`, each
+# validated by its wasip1 sysroot. The wire
 # runtime is the in-repo C binding (../../../crates/sdk/bindings/c), compiled straight
 # from source through BINDING_DIR — nothing is vendored into the example,
 # the C analogue of wallet-go's `replace` in go.mod. See readme.md for
@@ -14,7 +15,7 @@
 PACKAGE_NAME = "wallet-c"
 MODULE_NAME = "wallet_c"
 WORLD_NAME = "wallet-c"
-WASI_SDK = { value = "${HOME}/.wasi-sdk/wasi-sdk-29.0", condition = { env_not_set = ["WASI_SDK"] } }
+WASI_SDK = { script = ["python3 ${CARGO_MAKE_WORKING_DIRECTORY}/../../../script/lib/wasi_sdk.py"], condition = { env_not_set = ["WASI_SDK"] } }
 CLANG = { value = "${WASI_SDK}/bin/clang", condition = { env_not_set = ["CLANG"] } }
 BINDING_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/../../../crates/sdk/bindings/c"
 GENERATED_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/generated"
@@ -34,7 +35,7 @@ args = [
 ]
 
 # Statically check every SQL string literal in src/procedures.c against the
-# DDL schema (mgen check-sql; see doc/dev/sql_subset.md).
+# DDL schema (mgen check-sql; see doc/en/sql_subset.md).
 [tasks.check-sql]
 dependencies = ["prepare"]
 command = "mgen"
@@ -94,7 +95,7 @@ args = [
 # the `mududb:api/system` syscalls declared in the mtp-generated
 # `wit/world.wit`. The mtp-generated `procedures_gen.c` carries the `mp2-*`
 # export wrappers and their arity/kind check preambles. The C binding
-# (mpack.c + mpack_alloc.c + record_bridge.c) is compiled from
+# (mpack.c + mpack_alloc.c + struct_bridge.c) is compiled from
 # ../../../crates/sdk/bindings/c; its `mp_realloc` allocation hook lands on the
 # freestanding `realloc`/`free` shims in src/mudu_sys.c. Headers
 # (string.h/stdbool.h/stdint.h) come from the wasi-sdk sysroot include
@@ -123,7 +124,7 @@ args = [
     "-Wl,--export-memory",
     "${BINDING_DIR}/mududb/codec/mpack.c",
     "${BINDING_DIR}/mududb/codec/mpack_alloc.c",
-    "${BINDING_DIR}/mududb/codec/record_bridge.c",
+    "${BINDING_DIR}/mududb/codec/struct_bridge.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/mudu_sys.c",
     "${CARGO_MAKE_WORKING_DIRECTORY}/src/procedures.c",
     "${GENERATED_DIR}/procedures_gen.c",

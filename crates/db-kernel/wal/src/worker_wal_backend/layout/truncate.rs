@@ -35,20 +35,29 @@ impl WorkerLogLayout {
                     Ok((header, _, _)) => header.lsn().as_u64(),
                     Err(_) => break,
                 };
-                if lsn >= from_lsn {
+                if truncate_plan::cut_before(lsn, from_lsn) {
                     let sequence = self.parse_chunk_sequence(path).ok_or_else(|| {
                         mudu_error!(
                             ErrorCode::Internal,
                             format!("worker log chunk {} has no sequence", path.display())
                         )
                     })?;
+                    // Validate the reset before truncating or removing any file.
+                    truncate_plan::reset(sequence, offset as u64, self.chunk_size()).ok_or_else(
+                        || mudu_error!(ErrorCode::Internal, "WAL sequence exhausted at truncation"),
+                    )?;
                     warn!(
                         path = %path.display(),
                         from_lsn, "truncating uncommitted worker log tail"
                     );
                     truncate_file_to(path, offset as u64)?;
                     for later in &chunks[index + 1..] {
-                        fs.remove_file_if_exists(later).await?;
+                        let later_sequence = self.parse_chunk_sequence(later).ok_or_else(|| {
+                            mudu_error!(ErrorCode::Internal, "invalid later WAL chunk sequence")
+                        })?;
+                        if truncate_plan::remove_chunk(later_sequence, sequence) {
+                            fs.remove_file_if_exists(later).await?;
+                        }
                     }
                     return Ok(Some((sequence, offset as u64)));
                 }

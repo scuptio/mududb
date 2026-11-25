@@ -1,19 +1,23 @@
 //! Database session, connection, and SQL abstractions.
 
+/// The kind of a class (table/queue/cache/type).
+pub mod class_kind;
 /// Session context binding a connection, transaction, and result set.
 pub mod context;
 #[cfg(test)]
 mod context_test;
 /// Synchronous and asynchronous database connection traits.
 pub mod db_conn;
-/// Row-mapped entity abstraction.
-pub mod entity;
-/// Scalar-valued entity abstraction.
-pub mod entity_scalar;
-#[cfg(test)]
-mod entity_scalar_test;
 /// Field-level change description.
 pub mod field_change;
+#[cfg(test)]
+mod field_change_test;
+/// Row-mapped object abstraction.
+pub mod object;
+/// Scalar-valued object abstraction.
+pub mod object_scalar;
+#[cfg(test)]
+mod object_scalar_test;
 
 /// Session context registry and top-level query/command helpers.
 pub mod sql;
@@ -24,8 +28,8 @@ mod sql_stmt_test;
 #[cfg(test)]
 mod sql_test;
 
-/// A set of entities produced by a query.
-pub mod entity_set;
+/// A set of objects produced by a query.
+pub mod object_set;
 /// Prepared statement abstraction.
 pub mod prepared_stmt;
 /// A batch of result rows.
@@ -34,7 +38,7 @@ pub mod result_batch;
 mod result_batch_test;
 
 #[cfg(test)]
-mod entity_set_test;
+mod object_set_test;
 /// Query result set abstraction.
 pub mod result_set;
 /// SQL parameter set backed by data values.
@@ -50,8 +54,8 @@ pub mod sql_stmt_text;
 #[cfg(test)]
 mod sql_stmt_text_test;
 mod test_command_in;
-mod test_entity;
 mod test_object;
+mod test_object_roundtrip;
 #[cfg(test)]
 mod test_object_test;
 /// Transaction abstraction.

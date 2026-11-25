@@ -12,7 +12,7 @@
 //!   `I64`, 128-bit integers to `U128`/`I128`, floats to `F32`/`F64`,
 //!   `string` to the `String` family, `blob` and `list<u8>` to the `Binary`
 //!   family, and `bool` to `I32` (the front-end Boolean mapping).
-//! - A WIT `record` maps to the `Record` family ([`DataTypeParamRecord`])
+//! - A WIT `record` maps to the `Struct` family ([`DataTypeParamStruct`])
 //!   named by its PascalCase type name (the name mgen generates in the guest
 //!   languages), with the WIT field names kept verbatim; a nested record
 //!   reference recurses.
@@ -23,7 +23,7 @@
 //!   procedure field must carry the flag itself to
 //!   `mudu_contract::tuple::datum_desc::DatumDesc::new_nullable` — see
 //!   [`TypeRegistry::to_data_type_nullable`]. Nullability *inside* arrays
-//!   and record fields is not representable at all (`DataTypeParamRecord`
+//!   and record fields is not representable at all (`DataTypeParamStruct`
 //!   fields are plain `(name, DataType)` pairs) and is dropped.
 //!
 //! Hard errors are returned for: `variant` types used as procedure
@@ -38,12 +38,12 @@ use mudu::error::ErrorCode;
 use mudu::mudu_error;
 use mudu::utils::case_convert::to_pascal_case;
 use mudu_binding::universal::uni_data_type::UniDataType;
-use mudu_binding::universal::uni_def::{UniEnumDef, UniRecordDef, UniVariantDef};
+use mudu_binding::universal::uni_def::{UniEnumDef, UniStructDef, UniVariantDef};
 use mudu_binding::universal::uni_scalar::UniScalar;
 use mudu_gen::src_gen::wit_parser::WitParser;
 use mudu_type::data_type::DataType;
 use mudu_type::data_type_param_array::DataTypeParamArray;
-use mudu_type::data_type_param_record::DataTypeParamRecord;
+use mudu_type::data_type_param_struct::DataTypeParamStruct;
 use mudu_type::type_family::TypeFamily;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -53,7 +53,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub enum TypeDefKind {
     /// A WIT `record` definition.
-    Record(UniRecordDef),
+    Struct(UniStructDef),
     /// A WIT `variant` definition. Variants are registered so their names
     /// resolve, but converting one to a host [`DataType`] is rejected: the
     /// host type system has no Variant family.
@@ -67,7 +67,7 @@ impl TypeDefKind {
     /// Type name as declared in the WIT source (kebab-case by convention).
     pub fn declared_name(&self) -> &str {
         match self {
-            Self::Record(def) => &def.record_name,
+            Self::Struct(def) => &def.struct_name,
             Self::Variant(def) => &def.variant_name,
             Self::Enum(def) => &def.enum_name,
         }
@@ -76,16 +76,16 @@ impl TypeDefKind {
     /// Kind tag of the definition: `"record"`, `"variant"` or `"enum"`.
     pub fn kind_name(&self) -> &'static str {
         match self {
-            Self::Record(_) => "record",
+            Self::Struct(_) => "record",
             Self::Variant(_) => "variant",
             Self::Enum(_) => "enum",
         }
     }
 
     /// Return the record definition, or `None` for variants and enums.
-    pub fn as_record(&self) -> Option<&UniRecordDef> {
+    pub fn as_struct(&self) -> Option<&UniStructDef> {
         match self {
-            Self::Record(def) => Some(def),
+            Self::Struct(def) => Some(def),
             _ => None,
         }
     }
@@ -132,7 +132,7 @@ impl TypeRegistry {
                 )
             })?;
             for record in &wit_def.records {
-                registry.insert(TypeDefKind::Record(record.clone()), file)?;
+                registry.insert(TypeDefKind::Struct(record.clone()), file)?;
             }
             for variant in &wit_def.variants {
                 registry.insert(TypeDefKind::Variant(variant.clone()), file)?;
@@ -241,10 +241,10 @@ impl TypeRegistry {
         color.insert(key, IN_STACK);
         stack.push(key.to_string());
         if let Some(registered) = self.types.get(key)
-            && let TypeDefKind::Record(record) = &registered.def
+            && let TypeDefKind::Struct(record) = &registered.def
         {
             let mut references = Vec::new();
-            for field in &record.record_fields {
+            for field in &record.struct_fields {
                 collect_identifiers(&field.rf_type, &mut references);
             }
             for name in references {
@@ -286,13 +286,13 @@ impl TypeRegistry {
                 let element = self.convert(inner)?;
                 Ok(DataType::from_array(DataTypeParamArray::new(element)))
             }
-            UniDataType::Record(inline) => {
-                let mut fields = Vec::with_capacity(inline.record_fields.len());
-                for field in &inline.record_fields {
+            UniDataType::Struct(inline) => {
+                let mut fields = Vec::with_capacity(inline.struct_fields.len());
+                for field in &inline.struct_fields {
                     fields.push((field.field_name.clone(), self.convert(&field.field_type)?));
                 }
-                Ok(DataType::from_record(DataTypeParamRecord::new(
-                    inline.record_name.clone(),
+                Ok(DataType::from_struct(DataTypeParamStruct::new(
+                    inline.struct_name.clone(),
                     fields,
                 )))
             }
@@ -330,7 +330,7 @@ impl TypeRegistry {
             )
         })?;
         match def {
-            TypeDefKind::Record(record) => self.record_to_data_type(record),
+            TypeDefKind::Struct(record) => self.record_to_data_type(record),
             TypeDefKind::Variant(variant) => Err(mudu_error!(
                 ErrorCode::NotImplemented,
                 format!(
@@ -346,13 +346,13 @@ impl TypeRegistry {
         }
     }
 
-    fn record_to_data_type(&self, record: &UniRecordDef) -> RS<DataType> {
-        let mut fields = Vec::with_capacity(record.record_fields.len());
-        for field in &record.record_fields {
+    fn record_to_data_type(&self, record: &UniStructDef) -> RS<DataType> {
+        let mut fields = Vec::with_capacity(record.struct_fields.len());
+        for field in &record.struct_fields {
             fields.push((field.rf_name.clone(), self.convert(&field.rf_type)?));
         }
-        Ok(DataType::from_record(DataTypeParamRecord::new(
-            to_pascal_case(&record.record_name),
+        Ok(DataType::from_struct(DataTypeParamStruct::new(
+            to_pascal_case(&record.struct_name),
             fields,
         )))
     }
@@ -414,8 +414,8 @@ fn collect_identifiers(ty: &UniDataType, out: &mut Vec<String>) {
                 collect_identifiers(err, out);
             }
         }
-        UniDataType::Record(inline) => {
-            for field in &inline.record_fields {
+        UniDataType::Struct(inline) => {
+            for field in &inline.struct_fields {
                 collect_identifiers(&field.field_type, out);
             }
         }
