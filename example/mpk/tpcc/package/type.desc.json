@@ -3,8 +3,8 @@
     "Customer": [
       2,
       {
-        "record_name": "customer",
-        "record_fields": [
+        "struct_name": "customer",
+        "struct_fields": [
           {
             "field_name": "c_id",
             "field_type": [
@@ -107,8 +107,8 @@
     "District": [
       2,
       {
-        "record_name": "district",
-        "record_fields": [
+        "struct_name": "district",
+        "struct_fields": [
           {
             "field_name": "d_id",
             "field_type": [
@@ -171,8 +171,8 @@
     "History": [
       2,
       {
-        "record_name": "history",
-        "record_fields": [
+        "struct_name": "history",
+        "struct_fields": [
           {
             "field_name": "h_id",
             "field_type": [
@@ -243,8 +243,8 @@
     "Item": [
       2,
       {
-        "record_name": "item",
-        "record_fields": [
+        "struct_name": "item",
+        "struct_fields": [
           {
             "field_name": "i_id",
             "field_type": [
@@ -275,8 +275,8 @@
     "NewOrder": [
       2,
       {
-        "record_name": "new_order",
-        "record_fields": [
+        "struct_name": "new_order",
+        "struct_fields": [
           {
             "field_name": "no_o_id",
             "field_type": [
@@ -307,8 +307,8 @@
     "OrderLine": [
       2,
       {
-        "record_name": "order_line",
-        "record_fields": [
+        "struct_name": "order_line",
+        "struct_fields": [
           {
             "field_name": "ol_o_id",
             "field_type": [
@@ -387,8 +387,8 @@
     "Orders": [
       2,
       {
-        "record_name": "orders",
-        "record_fields": [
+        "struct_name": "orders",
+        "struct_fields": [
           {
             "field_name": "o_id",
             "field_type": [
@@ -467,8 +467,8 @@
     "Stock": [
       2,
       {
-        "record_name": "stock",
-        "record_fields": [
+        "struct_name": "stock",
+        "struct_fields": [
           {
             "field_name": "s_i_id",
             "field_type": [
@@ -523,8 +523,8 @@
     "Warehouse": [
       2,
       {
-        "record_name": "warehouse",
-        "record_fields": [
+        "struct_name": "warehouse",
+        "struct_fields": [
           {
             "field_name": "w_id",
             "field_type": [

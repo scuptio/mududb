@@ -3,7 +3,7 @@
 
 use super::MockSqliteMuduSysCall;
 use crate::{
-    UniDataType, UniDataValue, UniStructField, UniStructType, UniScalar, UniScalarValue,
+    UniDataType, UniDataValue, UniScalar, UniScalarValue, UniStructField, UniStructType,
     UniTupleRow,
 };
 use rusqlite::types::{Value, ValueRef};

@@ -3,8 +3,8 @@
     "Options": [
       2,
       {
-        "record_name": "options",
-        "record_fields": [
+        "struct_name": "options",
+        "struct_fields": [
           {
             "field_name": "option_id",
             "field_type": [
@@ -35,8 +35,8 @@
     "Users": [
       2,
       {
-        "record_name": "users",
-        "record_fields": [
+        "struct_name": "users",
+        "struct_fields": [
           {
             "field_name": "user_id",
             "field_type": [
@@ -59,8 +59,8 @@
     "VoteActions": [
       2,
       {
-        "record_name": "vote_actions",
-        "record_fields": [
+        "struct_name": "vote_actions",
+        "struct_fields": [
           {
             "field_name": "action_id",
             "field_type": [
@@ -107,8 +107,8 @@
     "VoteChoices": [
       2,
       {
-        "record_name": "vote_choices",
-        "record_fields": [
+        "struct_name": "vote_choices",
+        "struct_fields": [
           {
             "field_name": "choice_id",
             "field_type": [
@@ -139,8 +139,8 @@
     "VoteHistoryItem": [
       2,
       {
-        "record_name": "vote_history_item",
-        "record_fields": [
+        "struct_name": "vote_history_item",
+        "struct_fields": [
           {
             "field_name": "vote_id",
             "field_type": [
@@ -187,8 +187,8 @@
     "VoteResult": [
       2,
       {
-        "record_name": "vote_result",
-        "record_fields": [
+        "struct_name": "vote_result",
+        "struct_fields": [
           {
             "field_name": "vote_id",
             "field_type": [
@@ -235,8 +235,8 @@
     "Votes": [
       2,
       {
-        "record_name": "votes",
-        "record_fields": [
+        "struct_name": "votes",
+        "struct_fields": [
           {
             "field_name": "vote_id",
             "field_type": [

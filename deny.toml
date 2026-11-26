@@ -174,4 +174,15 @@ ignore = [
     # askama 0.16.1 (the latest release) still depends on it. Build-time
     # codegen only, no untrusted-input surface.
     { id = "RUSTSEC-2026-0374", reason = "basic-toml via askama_derive, build-time codegen only" },
+    # chrono is a direct dependency of the foundation crate `mudu` (and pulled
+    # in again via libsql); all 0.4 releases are flagged and there is no
+    # patched release. Migration to jiff/time is a separate larger task.
+    { id = "RUSTSEC-2026-0543", reason = "chrono used by mudu and libsql; no patched release, migration pending" },
+    # humantime comes from console-subscriber 0.5.0 (tokio-console support);
+    # no patched release exists.
+    { id = "RUSTSEC-2026-0542", reason = "humantime pinned via console-subscriber; no patched release" },
+    # actix-web 4.x pins cookie 0.16 and there is no patched 0.16 release;
+    # the nonce-reuse-on-fork issue does not affect mudud (no fork after
+    # server start). Upgrade pending on the web stack.
+    { id = "RUSTSEC-2026-0594", reason = "cookie 0.16 pinned via actix-web 4; no patched 0.16 release" },
 ]

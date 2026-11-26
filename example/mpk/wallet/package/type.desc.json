@@ -3,8 +3,8 @@
     "Orders": [
       2,
       {
-        "record_name": "orders",
-        "record_fields": [
+        "struct_name": "orders",
+        "struct_fields": [
           {
             "field_name": "order_id",
             "field_type": [
@@ -51,8 +51,8 @@
     "Transactions": [
       2,
       {
-        "record_name": "transactions",
-        "record_fields": [
+        "struct_name": "transactions",
+        "struct_fields": [
           {
             "field_name": "trans_id",
             "field_type": [
@@ -107,8 +107,8 @@
     "Users": [
       2,
       {
-        "record_name": "users",
-        "record_fields": [
+        "struct_name": "users",
+        "struct_fields": [
           {
             "field_name": "user_id",
             "field_type": [
@@ -171,8 +171,8 @@
     "Wallets": [
       2,
       {
-        "record_name": "wallets",
-        "record_fields": [
+        "struct_name": "wallets",
+        "struct_fields": [
           {
             "field_name": "user_id",
             "field_type": [

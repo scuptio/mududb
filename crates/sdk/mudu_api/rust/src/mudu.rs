@@ -5,7 +5,7 @@ use crate::mudu_sys::relation::{RelationColumn, RelationRow};
 use crate::types::{UniCommandResult, UniCommandReturn, UniQueryReturn, UniReturn};
 use crate::{
     UniCommandArgv, UniError, UniFsDirent, UniFsOpenArgv, UniFsStat, UniOid, UniQueryArgv,
-    UniQueryResult, UniStructType, UniRelationDelta, UniResultSet,
+    UniQueryResult, UniRelationDelta, UniResultSet, UniStructType,
 };
 
 /// Typed guest-facing entry point for every MSSP syscall family.

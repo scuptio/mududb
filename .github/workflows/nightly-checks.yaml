@@ -156,7 +156,7 @@ jobs:
           mkdir -p ${{ github.workspace }}/logs
           set -o pipefail
           {
-            for target in _de_en_x_l_up_tuple _de_en_x_l_batch _schema_table _x_log_append _delta_apply _type_convert; do
+            for target in _de_en_x_l_up_tuple _de_en_x_l_batch _schema_class _x_log_append _delta_apply _type_convert; do
               echo "Running fuzz target: ${target}"
               cargo +"${NIGHTLY_TOOLCHAIN}" fuzz run "${target}" -- -max_total_time=60 -runs=1000
             done

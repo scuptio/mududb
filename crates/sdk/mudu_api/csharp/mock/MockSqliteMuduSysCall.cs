@@ -447,9 +447,9 @@ public static class MockSqliteMuduSysCall
         };
     }
 
-    private static UniRecordType BuildTupleDesc(SqliteDataReader reader)
+    private static UniStructType BuildTupleDesc(SqliteDataReader reader)
     {
-        var fields = new global::System.Collections.Generic.List<UniRecordField>(reader.FieldCount);
+        var fields = new global::System.Collections.Generic.List<UniStructField>(reader.FieldCount);
         var schema = reader.GetSchemaTable();
 
         for (var i = 0; i < reader.FieldCount; i++)
@@ -457,17 +457,18 @@ public static class MockSqliteMuduSysCall
             var typeName = schema?.Rows.Count > i
                 ? schema.Rows[i]["DataTypeName"]?.ToString()
                 : reader.GetDataTypeName(i);
-            fields.Add(new UniRecordField
+            fields.Add(new UniStructField
             {
                 FieldName = reader.GetName(i),
                 FieldType = ToUniDatType(typeName),
+                FieldAttrs = [],
             });
         }
 
-        return new UniRecordType
+        return new UniStructType
         {
-            RecordName = "",
-            RecordFields = fields,
+            StructName = "",
+            StructFields = fields,
         };
     }
 

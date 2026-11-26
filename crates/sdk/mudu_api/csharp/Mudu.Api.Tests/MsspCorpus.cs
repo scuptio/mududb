@@ -591,13 +591,13 @@ internal static class MsspCorpus
 
     private static void AssertQueryResult(UniQueryResult value, JsonElement expect)
     {
-        Assert.Equal(expect.GetProperty("record_name").GetString(), value.TupleDesc.RecordName);
+        Assert.Equal(expect.GetProperty("struct_name").GetString(), value.TupleDesc.StructName);
         var fields = expect.GetProperty("fields");
-        Assert.Equal(fields.GetArrayLength(), value.TupleDesc.RecordFields.Count);
+        Assert.Equal(fields.GetArrayLength(), value.TupleDesc.StructFields.Count);
         var i = 0;
         foreach (var field in fields.EnumerateArray())
         {
-            var actual = value.TupleDesc.RecordFields[i++];
+            var actual = value.TupleDesc.StructFields[i++];
             Assert.Equal(field.GetProperty("field_name").GetString(), actual.FieldName);
             AssertDataType(field.GetProperty("field_type").GetString()!, actual.FieldType);
             var attrs = field.GetProperty("field_attrs");

@@ -40,7 +40,6 @@ pub use universal::uni_fs_stat::UniFsStat;
 pub use universal::uni_oid::UniOid;
 pub use universal::uni_query_argv::UniQueryArgv;
 pub use universal::uni_query_result::UniQueryResult;
-pub use universal::uni_struct_type::{UniStructField, UniStructType};
 pub use universal::uni_relation::UniRelationDelta;
 pub use universal::uni_result::UniResult;
 pub use universal::uni_result_set::UniResultSet;
@@ -48,6 +47,7 @@ pub use universal::uni_scalar::UniScalar;
 pub use universal::uni_scalar_value::UniScalarValue;
 pub use universal::uni_sql_param::UniSqlParam;
 pub use universal::uni_sql_stmt::UniSqlStmt;
+pub use universal::uni_struct_type::{UniStructField, UniStructType};
 pub use universal::uni_tuple_row::UniTupleRow;
 
 /// Native adapter transport (separately distributed runtime).

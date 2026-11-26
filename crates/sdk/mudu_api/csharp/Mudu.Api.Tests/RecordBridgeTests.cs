@@ -489,10 +489,10 @@ public class StructBridgeTests
         Assert.Equal(ExpectedEnvelope(false, true), SerializeEnvelope(datum));
 
         // position 4 is the Null scalar, not a shifted field
-        var struct = Assert.IsType<UniDataValueStruct>(datum);
-        Assert.Equal(9, struct.Inner.Count);
+        var structValue = Assert.IsType<UniDataValueStruct>(datum);
+        Assert.Equal(9, structValue.Inner.Count);
         var nullScalar = Assert.IsType<UniScalarValueNull>(
-            Assert.IsType<UniDataValueScalar>(struct.Inner[3].FieldValue).Inner);
+            Assert.IsType<UniDataValueScalar>(structValue.Inner[3].FieldValue).Inner);
         Assert.Equal(UniScalarValueKind.Null, nullScalar.Kind());
     }
 
@@ -501,8 +501,8 @@ public class StructBridgeTests
     {
         var datum = StructBridge.ToValue(SampleProfile(false, false), new ProfileFormatter());
         Assert.Equal(ExpectedEnvelope(false, false), SerializeEnvelope(datum));
-        var struct = Assert.IsType<UniDataValueStruct>(datum);
-        Assert.Equal(8, struct.Inner.Count);
+        var structValue = Assert.IsType<UniDataValueStruct>(datum);
+        Assert.Equal(8, structValue.Inner.Count);
     }
 
     [Fact]

@@ -205,7 +205,7 @@ func dataTypeName(t types.UniDataType) (string, error) {
 	return "scalar(" + name + ")", nil
 }
 
-func recordFieldJSON(f types.UniRecordField) (map[string]any, error) {
+func recordFieldJSON(f types.UniStructField) (map[string]any, error) {
 	typeName, err := dataTypeName(f.FieldType)
 	if err != nil {
 		return nil, err
@@ -244,8 +244,8 @@ func queryResultJSON(r types.UniQueryResult) (map[string]any, error) {
 	if len(r.ResultSet.RowSet) != 0 {
 		return nil, errors.New("query row serialization not covered by the sidecar conventions")
 	}
-	fields := make([]any, 0, len(r.TupleDesc.RecordFields))
-	for _, f := range r.TupleDesc.RecordFields {
+	fields := make([]any, 0, len(r.TupleDesc.StructFields))
+	for _, f := range r.TupleDesc.StructFields {
 		fj, err := recordFieldJSON(f)
 		if err != nil {
 			return nil, err
@@ -253,7 +253,7 @@ func queryResultJSON(r types.UniQueryResult) (map[string]any, error) {
 		fields = append(fields, fj)
 	}
 	return map[string]any{
-		"record_name": r.TupleDesc.RecordName,
+		"struct_name": r.TupleDesc.StructName,
 		"fields":      fields,
 		"eof":         r.ResultSet.Eof,
 		"rows":        []any{},

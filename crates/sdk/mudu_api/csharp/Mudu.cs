@@ -22,13 +22,13 @@ global using UniQueryReturn = mududb.types.UniQueryReturn;
 global using UniQueryReturnErr = mududb.types.UniQueryReturnErr;
 global using UniQueryReturnKind = mududb.types.UniQueryReturnKind;
 global using UniQueryReturnOk = mududb.types.UniQueryReturnOk;
-global using UniRecordField = mududb.types.UniRecordField;
-global using UniRecordType = mududb.types.UniRecordType;
 global using UniRelationDelta = mududb.types.UniRelationDelta;
 global using UniRelationDeltaOp = mududb.types.UniRelationDeltaOp;
 global using UniResultSet = mududb.types.UniResultSet;
 global using UniSqlParam = mududb.types.UniSqlParam;
 global using UniSqlStmt = mududb.types.UniSqlStmt;
+global using UniStructField = mududb.types.UniStructField;
+global using UniStructType = mududb.types.UniStructType;
 global using UniTupleRow = mududb.types.UniTupleRow;
 
 using MessagePack;
@@ -120,7 +120,7 @@ public readonly struct QueryResponse
 
     public UniError? Error => IsErr ? UniQueryReturnErr.AsErr(inner).Inner : null;
 
-    public UniRecordType? TupleDesc => Result?.TupleDesc;
+    public UniStructType? TupleDesc => Result?.TupleDesc;
 
     public UniResultSet? ResultSet => Result?.ResultSet;
 

@@ -50,7 +50,7 @@ public static class StructBridge
     /// </summary>
     public static byte[] StructFieldValues(UniDataValue value)
     {
-        if (value is not UniDataValueStruct struct)
+        if (value is not UniDataValueStruct structValue)
         {
             throw new global::System.IO.InvalidDataException(
                 $"expected a UniDataValue struct, got {value?.GetType()}");
@@ -58,11 +58,11 @@ public static class StructBridge
 
         var buffer = new ArrayBufferWriter<byte>();
         var writer = new MessagePackWriter(buffer);
-        writer.WriteMapHeader(struct.Inner.Count);
-        for (var i = 0; i < struct.Inner.Count; i++)
+        writer.WriteMapHeader(structValue.Inner.Count);
+        for (var i = 0; i < structValue.Inner.Count; i++)
         {
             writer.Write((ulong)(i + 1));
-            WriteDatumWire(struct.Inner[i].FieldValue, ref writer);
+            WriteDatumWire(structValue.Inner[i].FieldValue, ref writer);
         }
 
         writer.Flush();
@@ -129,12 +129,12 @@ public static class StructBridge
                 }
 
                 return;
-            case UniDataValueStruct struct:
-                writer.WriteMapHeader(struct.Inner.Count);
-                for (var i = 0; i < struct.Inner.Count; i++)
+            case UniDataValueStruct structValue:
+                writer.WriteMapHeader(structValue.Inner.Count);
+                for (var i = 0; i < structValue.Inner.Count; i++)
                 {
                     writer.Write((ulong)(i + 1));
-                    WriteDatumWire(struct.Inner[i].FieldValue, ref writer);
+                    WriteDatumWire(structValue.Inner[i].FieldValue, ref writer);
                 }
 
                 return;

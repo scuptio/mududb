@@ -119,7 +119,7 @@ postgres = { version = "0.19.10" }
 project-root = { version = "0.2.2" }
 reqwest = { version = "0.13.2", features = ["json"] }
 rmp-serde = { version = "1.3.0" }
-rusqlite = { version = "0.40.1" }
+rusqlite = { version = "0.43.0" }
 scc = { version = "3.3.1" }
 scopeguard = { version = "1.2.0" }
 serde = { version = "1.0.228", features = ["default", "derive", "serde_derive"] }

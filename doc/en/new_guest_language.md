@@ -228,7 +228,7 @@ suite green) and `cargo clippy -p testing --all-targets -- -D warnings`.
   in C++ too (`static inline` triggers `-Wunused-function` there; the
   `MP_INLINE` macro abstracts this).
 - **C header cycles**: cross-file type references (UniDataType ⇄
-  UniRecordType ⇄ UniResultType) only compile with forward declarations,
+  UniStructType ⇄ UniResultType) only compile with forward declarations,
   pointer payloads for named record/variant cases, and two-phase
   (early/late) includes. Copy the C binding's layout rather than inventing
   your own.

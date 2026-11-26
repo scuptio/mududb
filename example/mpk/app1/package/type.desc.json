@@ -3,8 +3,8 @@
     "Orders": [
       2,
       {
-        "record_name": "orders",
-        "record_fields": [
+        "struct_name": "orders",
+        "struct_fields": [
           {
             "field_name": "order_id",
             "field_type": [
