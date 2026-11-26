@@ -286,6 +286,7 @@ dependencies = [
  "mudu_sys",
  "mudu_type",
  "mudu_utils",
+ "rmp-serde",
  "serde",
  "serde_json",
  "test_utils",
@@ -1816,7 +1817,7 @@ dependencies = [
 [[package]]
 name = "rliburing"
 version = "0.1.0"
-source = "git+https://github.com/scuptio/rliburing.git?rev=680c3183838c05ade6475dd1ab3469a3747ae0f5#680c3183838c05ade6475dd1ab3469a3747ae0f5"
+source = "git+https://github.com/scuptio/rliburing.git?rev=d0d668701ae69128132b64ac5b5b9d4ad7584ed6#d0d668701ae69128132b64ac5b5b9d4ad7584ed6"
 dependencies = [
  "bindgen",
  "libc",
@@ -2003,10 +2004,13 @@ dependencies = [
  "mudu",
  "mudu_binding",
  "mudu_contract",
+ "mudu_raft",
  "mudu_sys",
  "mudu_type",
  "mudu_utils",
  "repl",
+ "rmp-serde",
+ "serde",
  "serde_json",
  "short-uuid",
  "sql",

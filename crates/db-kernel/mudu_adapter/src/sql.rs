@@ -66,9 +66,8 @@ pub fn datum_to_sqlite_value(datum: &dyn DatumDyn) -> RS<Value> {
 
 /// Builds a tuple field descriptor from a SQLite statement's columns.
 pub fn build_sqlite_desc(stmt: &rusqlite::Statement<'_>) -> TupleFieldDesc {
-    let columns = stmt.columns();
-    let fields = columns
-        .iter()
+    let fields = stmt
+        .columns()
         .enumerate()
         .map(|(idx, column)| {
             let name = column.name().to_string();

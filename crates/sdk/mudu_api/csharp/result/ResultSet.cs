@@ -23,13 +23,13 @@ public sealed class ResultSet
 
     /// <summary>
     /// Wraps the decoded `UniQueryResult`: column names from
-    /// `TupleDesc.RecordFields[].FieldName`, rows from `ResultSet.RowSet`.
+    /// `TupleDesc.StructFields[].FieldName`, rows from `ResultSet.RowSet`.
     /// </summary>
     public ResultSet(UniQueryResult result)
     {
         rows = result.ResultSet.RowSet;
         cursor = 0;
-        var fields = result.TupleDesc.RecordFields;
+        var fields = result.TupleDesc.StructFields;
         columns = new global::System.Collections.Generic.List<string>(fields.Count);
         foreach (var field in fields)
         {

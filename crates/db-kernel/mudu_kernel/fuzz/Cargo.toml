@@ -39,8 +39,8 @@ bench = false
 
 
 [[bin]]
-name = "_schema_table"
-path = "fuzz_targets/_schema_table.rs"
+name = "_schema_class"
+path = "fuzz_targets/_schema_class.rs"
 test = false
 doc = false
 bench = false

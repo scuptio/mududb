@@ -219,7 +219,7 @@ relation 系统调用中，`key` 是标识主键的 `(列序号, 列值)` 对列
 | `uni-data-value.wit` | `UniDataValue` / `UniDataValueField` |
 | `uni-scalar.wit` | `UniScalar` |
 | `uni-scalar-value.wit` | `UniScalarValue` |
-| `uni-record-type.wit` | `UniRecordType` / `UniRecordField` / `UniFieldAttr` |
+| `uni-struct-type.wit` | `UniStructType` / `UniStructField` / `UniFieldAttr` |
 | `uni-result-type.wit` | `UniResultType` |
 | `uni-result-set.wit` | `UniResultSet` |
 | `uni-tuple-row.wit` | `UniTupleRow` |
@@ -324,7 +324,7 @@ MessagePack 类型的 guest 语言之间保持可移植性。
 |------|------|------|
 | 0 | `Scalar` | `UniScalarValue` |
 | 1 | `Array` | `list<UniDataValue>` |
-| 2 | `Record` | `list<UniDataValueField>` |
+| 2 | `Struct` | `list<UniDataValueField>` |
 | 3 | `Binary` | `list<u8>`（MessagePack bin） |
 
 `UniDataValueField` 是 `record`，线形状为 `{1: field_name: string, 2: field_value: UniDataValue}`。
@@ -335,7 +335,7 @@ MessagePack 类型的 guest 语言之间保持可移植性。
 |------|------|------|
 | 0 | `Scalar` | `UniScalar` |
 | 1 | `Array` | `UniDataType` |
-| 2 | `Record` | `UniRecordType` |
+| 2 | `Struct` | `UniStructType` |
 | 3 | `Option` | `UniDataType` |
 | 4 | `Tuple` | `list<UniDataType>` |
 | 5 | `Result` | `UniResultType` |
@@ -373,14 +373,14 @@ MessagePack 类型的 guest 语言之间保持可移植性。
 - **`UniSqlParam`** — `{1: params: list<UniDataValue>}`。
 - **`UniTupleRow`** — `{1: fields: list<UniDataValue>}`。
 - **`UniFieldAttr`** — `{1: attr_name: string, 2: attr_value: string}`。
-- **`UniRecordField`** — `{1: field_name: string, 2: field_type: UniDataType, 3: field_attrs: list<UniFieldAttr>}`。
-- **`UniRecordType`** — `{1: record_name: string, 2: record_fields: list<UniRecordField>}`。
+- **`UniStructField`** — `{1: field_name: string, 2: field_type: UniDataType, 3: field_attrs: list<UniFieldAttr>}`。
+- **`UniStructType`** — `{1: struct_name: string, 2: struct_fields: list<UniStructField>}`。
 - **`UniResultType`** — `{1: ok: option<UniDataType>, 2: err: option<UniDataType>}`。
 - **`UniResultSet`** — `{1: eof: bool, 2: row_set: list<UniTupleRow>, 3: cursor: list<u8>}`。
 - **`UniError`** — `{1: err_code: u32, 2: err_msg: string, 3: err_src: string, 4: err_loc: string, 5: err_details: list<u8>}`。
 - **`UniQueryArgv`** — `{1: oid: UniOid, 2: query: UniSqlStmt, 3: param_list: UniSqlParam}`。
 - **`UniCommandArgv`** — `{1: oid: UniOid, 2: command: UniSqlStmt, 3: param_list: UniSqlParam}`。
-- **`UniQueryResult`** — `{1: tuple_desc: UniRecordType, 2: result_set: UniResultSet}`。
+- **`UniQueryResult`** — `{1: tuple_desc: UniStructType, 2: result_set: UniResultSet}`。
 - **`UniCommandResult`** — `{1: affected_rows: u64}`。
 - **`UniCommandReturn`** — variant：`ok(UniCommandResult)` 或 `err(UniError)`。
 - **`UniQueryReturn`** — variant：`ok(UniQueryResult)` 或 `err(UniError)`。

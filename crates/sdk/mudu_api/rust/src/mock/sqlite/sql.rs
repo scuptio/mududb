@@ -38,8 +38,7 @@ impl MockSqliteMuduSysCall {
         let column_count = statement.column_count();
         let column_names = statement
             .column_names()
-            .iter()
-            .map(|name| (*name).to_string())
+            .map(|name| name.to_string())
             .collect::<Vec<_>>();
         let params = Self::to_db_values(argv.param_list.params)?;
         let mut rows = statement
